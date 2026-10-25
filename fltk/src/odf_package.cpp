@@ -234,6 +234,23 @@ void OdfPackage::load(const QString& path)
         if (name.startsWith("META-INF/") && name.contains("signature", Qt::CaseInsensitive))
             read_only_ = true;
 }
+void OdfPackage::set_entry(const QString& name, const QByteArray& data, const QString& mediaType)
+{
+    const QString MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
+    auto manifest = read_document_xml(entries_.value("META-INF/manifest.xml"));
+    auto root = manifest.documentElement();
+    auto entry = QDomElement();
+    for (auto e : children(root, MANIFEST, "file-entry"))
+        if (e.attributeNS(MANIFEST, "full-path") == name) entry = e;
+    if (entry.isNull()) {
+        entry = manifest.createElementNS(MANIFEST, "manifest:file-entry");
+        root.appendChild(entry);
+    }
+    entry.setAttributeNS(MANIFEST, "manifest:full-path", name);
+    entry.setAttributeNS(MANIFEST, "manifest:media-type", mediaType);
+    entries_[name] = data;
+    entries_["META-INF/manifest.xml"] = manifest.toByteArray(-1);
+}
 void OdfPackage::save(const QString& path)
 {
     if (read_only_)

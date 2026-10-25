@@ -50,3 +50,35 @@ its MIME and cell XML, verifies source bytes and confirms that subsequent Save
 does not reopen the conversion chooser. Words/Sheets/Stage regression flows
 also pass. This does not establish full Excel compatibility or visual fidelity;
 see the XLSX limitations in README.md.
+
+## DOCX/PPTX import milestone (2026-10-25)
+
+The optimized Release build passes all three CTests. `fltk-office-import`
+checks DOCX Unicode, whitespace, content controls, inserted/deleted text and
+basic tables; PPTX slide ordering, slide/frame dimensions (including negative
+coordinates), embedded PNG media and editable text frames; both Strict and
+Transitional namespace dialects; and ODT/ODP save/reload. It checks rejected
+Office save destinations and unchanged source bytes, as well as entity XML,
+escaping archive members/relationships, invalid geometry, wrong content types,
+external main parts, signatures and macros. Failed imports retain the previous
+live presentation.
+
+`office_producer.py` independently generates DOCX with python-docx and PPTX
+with python-pptx, including Unicode text, table cells, PNG/JPEG media and a
+layout-inherited title placeholder. The C++ backend imports, edits and saves
+ODT/ODP copies and checks their content and media after reload. Source bytes
+remain unchanged. The producer libraries are test dependencies only.
+
+The private Xvfb/D-Bus keyboard smoke test passes DOCX and PPTX import, text
+editing, Ctrl+S conversion with the proposed ODT/ODP destination, source-byte
+protection and subsequent Save without a second chooser. XLSX and all existing
+Words/Sheets/Stage editing, menu, undo and presentation checks also pass.
+Evidence is in `/home/blux/de-xr/artifacts/calligra-office-import-20261025/ui/`.
+These checks do not establish Office layout fidelity; see the explicit import
+subsets and omissions in README.md.
+
+The DomeD association helper now maps ODT/DOCX to Words, ODS/XLSX to Sheets,
+and ODP/PPTX to Stage. Its merge was checked for idempotence, legacy preference
+cleanup and preservation of unrelated MIME preferences. The release staging
+helper validates the generated desktop entries, installed executable launch,
+library resolution and absence of QtGui/QtWidgets dependencies before sudo.

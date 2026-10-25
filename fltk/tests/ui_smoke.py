@@ -80,7 +80,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             wait(lambda:data()['cell']['value']=='50')
             key('s',('Control_L',))
             def chooser():
-                return next((w for w in xd.screen().root.query_tree().children if str(w.get_wm_name()or'').startswith('Save imported cell data')),None)
+                return next((w for w in xd.screen().root.query_tree().children if str(w.get_wm_name()or'').startswith('Save imported document')),None)
             dialog=wait(chooser)
             dialog.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync();time.sleep(.2)
             key('Return')
@@ -94,6 +94,27 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('s',('Control_L',));time.sleep(.2);assert not chooser()
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: XLSX import, edit, Ctrl+S conversion to ODS and unchanged source',flush=True)
+        subprocess.run([str(ROOT/'build-fltk/fltk/calligra-fltk-office-test'),'--fixtures',str(fixtures)],env=env,check=True)
+        for app,source_ext,dest_ext in [('words','docx','odt'),('stage','pptx','odp')]:
+            source=fixtures/f'import.{source_ext}';before=source.read_bytes()
+            converted=fixtures/f'import.{dest_ext}';report=art/f'{source_ext}.json'
+            report.unlink(missing_ok=True)
+            with (art/f'{source_ext}.log').open('w') as log:
+                process=subprocess.Popen([str(args.bin_dir.resolve()/f'calligra-{app}-fltk'),str(source),'--report',str(report)],env=env,stdout=log,stderr=log)
+                def data():return json.loads(report.read_text())
+                wait(lambda:report.exists());host=wait(lambda:window(app))
+                click(host,350,100 if app=='words' else 565);key('a',('Control_L',));text('Imported '+app)
+                wait(lambda:data()['text']=='Imported '+app)
+                key('s',('Control_L',));dialog=wait(chooser)
+                dialog.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync();time.sleep(.2);key('Return')
+                wait(lambda:converted.exists() and data()['file']==str(converted))
+                with zipfile.ZipFile(converted) as archive:
+                    assert archive.read('mimetype')==('application/vnd.oasis.opendocument.'+{'words':'text','stage':'presentation'}[app]).encode()
+                    assert ('Imported' in archive.read('content.xml').decode())
+                assert source.read_bytes()==before
+                key('s',('Control_L',));time.sleep(.2);assert not chooser()
+                key('q',('Control_L',));assert process.wait(timeout=10)==0
+                print('PASS:',source_ext.upper(),'import, editing, Ctrl+S conversion and unchanged source',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

@@ -24,6 +24,7 @@ public:
     explicit OdfPackage(Kind kind);
     void load(const QString& path);
     void save(const QString& path);
+    void set_entry(const QString& name, const QByteArray& data, const QString& mediaType);
     QDomElement body() const;
     QByteArray entry(const QString& name) const { return entries_.value(name); }
     Kind kind() const { return kind_; }

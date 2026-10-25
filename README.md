@@ -10,7 +10,9 @@ Sheets reuses the upstream calculation engine. Words currently edits ODT
 paragraph text; Stage currently edits/previews ODP text/image frames. The
 original Words pagination and complete Stage shape/animation models still need
 porting. Existing ODF package data is retained, but full layout fidelity and
-format interoperability are not yet established.
+format interoperability are not yet established. DOCX body text/tables, XLSX
+cell data and PPTX direct text/images can be imported and saved as ODT, ODS and
+ODP; Office export is unavailable. See the build guide for import limitations.
 
 - [Build, run and install](fltk/README.md)
 - [Current capabilities and remaining port work](fltk/PORT_STATUS.md)

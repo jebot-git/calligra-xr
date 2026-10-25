@@ -13,16 +13,17 @@ preview and text-frame editing, not the original full shape/animation editor.
 
 ## Applications
 
-- `calligra-words-fltk [document.odt]`: edit paragraph text, retain existing
+- `calligra-words-fltk [document.odt|document.docx]`: edit paragraph text, retain existing
   character-style spans and links while changing text, insert/remove paragraphs
-  in flat documents, undo/redo text edits, and save ODT.
+  in flat documents, undo/redo text edits, import DOCX text/tables, and save ODT.
 - `calligra-sheets-fltk [workbook.ods|workbook.xlsx]`: upstream Calligra formula engine and
   function modules, multiple worksheets, cell editing, dependency recalculation,
   cross-sheet references, undo/redo cell edits, rectangular TSV paste and ODS.
   XLSX cell data can be imported and saved as ODS; XLSX export is unavailable.
   Click the formula field or press F2 to edit the selected cell.
-- `calligra-stage-fltk [presentation.odp]`: select slides and text frames, edit
-  text with live preview, add/delete slides, save ODP, and present with F5.
+- `calligra-stage-fltk [presentation.odp|presentation.pptx]`: select slides and text frames, edit
+  text with live preview, import PPTX text/images, add/delete slides, save ODP,
+  and present with F5.
   Arrow/Page keys advance during presentation; Escape returns to editing.
   `--present` opens Stage directly in presentation mode.
 
@@ -38,6 +39,39 @@ spreadsheet rows/cells are split when an individual cell is edited. Signed
 files are read-only and encrypted files are rejected. Package import is bounded
 at 10,000 entries, 64 MiB per entry and 256 MiB in total; nonempty spreadsheets
 are limited to one million imported cells. No external images are fetched.
+
+## DOCX and PPTX import
+
+Words imports `.docx` body paragraphs, visible run/field-result text, Unicode,
+spaces, tabs, line breaks, content controls and basic table cells. Inserted
+revision text is included; deleted text and field instructions are omitted.
+Table structure is retained, but merged cells, widths and table formatting are
+not imported. Words' existing restrictions on structural edits in tables and
+mixed inline/paragraph breaks still apply. Paragraph/run formatting, list
+numbering, hyperlink targets, page layout, headers/footers, notes, drawings and
+embedded objects are omitted.
+
+Stage imports `.pptx` slides in presentation order, direct text boxes and
+embedded PNG/JPEG pictures, slide dimensions, and explicit frame positions and
+sizes. Placeholder geometry is read from the slide layout when available;
+otherwise the existing basic frame defaults are used. Themes, master content,
+full style/layout inheritance, text formatting, groups, rotations, image crops,
+tables, charts, media, notes, transitions and animations are omitted. Linked
+images are omitted; no external relationships are fetched.
+
+Both importers accept Transitional and Strict OOXML namespaces, use the existing
+headless QtCore/XML and libzip backend, and require no office converter or Qt
+frontend. This is **content import, not visual fidelity**. A conversion notice
+appears after opening an Office file. Ctrl+S proposes an `.odt` or `.odp` copy;
+after the first successful conversion, ordinary Save works normally. Words and
+Stage reject every save destination without the matching OpenDocument suffix,
+so imported Office files cannot be overwritten by an ODF save.
+
+Archive size and XML depth/entity checks apply. Imports are limited to 100,000
+text/object nodes, 32 Mi UTF-16 text units and 4,096 slides. Signed,
+macro-enabled, encrypted, malformed and escaping packages are rejected. Legacy
+binary DOC/PPT and macro-enabled DOCM/PPTM files remain unsupported. Retain the
+source Office files for content/features outside these import subsets.
 
 ## XLSX import
 
@@ -125,7 +159,7 @@ Installation uses `/opt/calligra-fltk`, `/usr/local/bin` wrappers and separate
 FLTK desktop entries. It does not alter MIME defaults or restart sessions.
 
 To select Words, Sheets and Stage as DomeD defaults for the supported ODT,
-ODS, ODP and import-only XLSX formats, run the separate association helper:
+ODS, ODP and import-only DOCX/XLSX/PPTX formats, run the separate association helper:
 
 ```sh
 python3 fltk/packaging/set-dome-defaults.py --dry-run
@@ -136,8 +170,8 @@ SUDO_ASKPASS=/usr/local/bin/dome-askpass sudo -A \
 
 It backs up and updates only Dome-specific preferences, removing legacy
 DOC/XLS/PPT associations from those files. The system MIME definitions and
-other desktops' preferences remain available. XLSX is assigned to Sheets for
-import. Binary XLS, DOCX and PPTX are not advertised or assigned.
+other desktops' preferences remain available. DOCX, XLSX and PPTX are assigned
+to Words, Sheets and Stage for import. Binary DOC/XLS/PPT and macro-enabled Office formats are not advertised or assigned.
 
 ## Verification
 
@@ -148,10 +182,12 @@ member preservation, signature protection and XML entity rejection.
 ```sh
 uv run --no-project --with python-xlib python fltk/tests/ui_smoke.py
 uv run --no-project --with openpyxl python fltk/tests/xlsx_producer.py
+uv run --no-project --with python-docx --with python-pptx python fltk/tests/office_producer.py
 ```
 
 This test uses private Xvfb and D-Bus, edits and saves all three applications,
-checks the universal menu, exercises spreadsheet undo/redo and Stage presentation
+checks import-to-ODF Save As and unchanged Office sources, checks the universal
+menu, exercises spreadsheet undo/redo and Stage presentation
 shortcuts, and inspects the resulting ODF packages independently. Xvfb rendering
 is software and is not evidence of GPU acceleration. Real Wayland captures on
 this workstation separately confirmed Intel Arc A770 rendering and menu

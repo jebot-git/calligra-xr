@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
+#include "ooxml_text_import.h"
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <algorithm>
 #include <stdexcept>
@@ -127,7 +129,7 @@ namespace {
     }
     double length(const QString& text, double fallback)
     {
-        static QRegularExpression re("^([0-9]+(?:\\.[0-9]+)?)(cm|mm|in|pt|px)$");
+        static QRegularExpression re("^(-?[0-9]+(?:\\.[0-9]+)?)(cm|mm|in|pt|px)$");
         auto m = re.match(text);
         if (!m.hasMatch())
             return fallback;
@@ -145,13 +147,29 @@ TextDocument::TextDocument()
     auto p = package_.xml.createElementNS(TEXT, "text:p");
     package_.body().appendChild(p);
 }
-void TextDocument::load(const QString& p) { package_.load(p); }
-void TextDocument::save(const QString& p) { package_.save(p); }
+void TextDocument::load(const QString& p)
+{
+    bool office = QFileInfo(p).suffix().compare("docx", Qt::CaseInsensitive) == 0;
+    OdfPackage candidate(Kind::Words);
+    if (office) candidate = import_docx(p);
+    else candidate.load(p);
+    package_ = std::move(candidate);
+    imported_office_ = office;
+}
+void TextDocument::save(const QString& p)
+{
+    if (QFileInfo(p).suffix().compare("odt", Qt::CaseInsensitive) != 0)
+        fail("Words saves only ODT; choose an .odt destination");
+    package_.save(p);
+    imported_office_ = false;
+}
 QString TextDocument::text() const { return joined(package_.body()); }
 void TextDocument::set_text(const QString& value)
 {
     if (read_only())
         fail("This document is read-only");
+    if (value == text())
+        return;
     bool flat = true;
     for (auto e : children(package_.body(), TEXT))
         if (e.localName() != "p" && e.localName() != "h" && e.localName() != "sequence-decls")
@@ -166,11 +184,22 @@ Presentation::Presentation() { add_slide("Title"); }
 int Presentation::count() const { return children(package_.body(), DRAW, "page").size(); }
 void Presentation::load(const QString& p)
 {
-    package_.load(p);
-    if (!count())
+    bool office = QFileInfo(p).suffix().compare("pptx", Qt::CaseInsensitive) == 0;
+    OdfPackage candidate(Kind::Stage);
+    if (office) candidate = import_pptx(p);
+    else candidate.load(p);
+    if (children(candidate.body(), DRAW, "page").isEmpty())
         fail("The presentation has no slides");
+    package_ = std::move(candidate);
+    imported_office_ = office;
 }
-void Presentation::save(const QString& p) { package_.save(p); }
+void Presentation::save(const QString& p)
+{
+    if (QFileInfo(p).suffix().compare("odp", Qt::CaseInsensitive) != 0)
+        fail("Stage saves only ODP; choose an .odp destination");
+    package_.save(p);
+    imported_office_ = false;
+}
 Slide Presentation::slide(int index) const
 {
     auto pages = children(package_.body(), DRAW, "page");
@@ -251,6 +280,8 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const QString& tex
     auto box = child(frame, DRAW, "text-box");
     if (box.isNull())
         fail("This frame is not an editable text box");
+    if (joined(box) == text)
+        return;
     set_paragraphs(box, text, true);
 }
 }

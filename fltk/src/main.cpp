@@ -708,21 +708,26 @@ public:
         else if (kind == Kind::Sheets && workbook->imported_xlsx())
             message("XLSX cell data imported; save as ODS. Formatting, charts and "
                     "layout are not imported.");
+        else if (kind == Kind::Words && words->imported_office())
+            message("DOCX text/tables imported; save as ODT. Formatting, images, lists and page layout omitted.");
+        else if (kind == Kind::Stage && stage->imported_office())
+            message("PPTX text/images imported; save as ODP. Themes, groups, charts, animations and formatting omitted.");
     }
     bool save(bool as = false)
     {
         commit_cell();
         commit_text();
         std::string target = file;
-        bool imported
-            = kind == Kind::Sheets && QFileInfo(qs(file.c_str())).suffix().compare("xlsx", Qt::CaseInsensitive) == 0;
+        bool imported = kind == Kind::Sheets
+            ? QFileInfo(qs(file.c_str())).suffix().compare("xlsx", Qt::CaseInsensitive) == 0
+            : kind == Kind::Words ? words->imported_office() : stage->imported_office();
         if (as || target.empty() || imported) {
             if (imported)
                 target = utf8(
-                    QFileInfo(qs(file.c_str())).path() + "/" + QFileInfo(qs(file.c_str())).completeBaseName() + ".ods");
+                    QFileInfo(qs(file.c_str())).path() + "/" + QFileInfo(qs(file.c_str())).completeBaseName() + "." + suffix(kind));
             auto filter = "*." + utf8(suffix(kind));
             const char* chosen = fl_file_chooser(
-                imported ? "Save imported cell data as ODS (formatting/charts omitted)" : "Save document",
+                imported ? "Save imported document as OpenDocument (conversion may omit features)" : "Save document",
                 filter.c_str(), target.c_str());
             if (!chosen)
                 return false;
@@ -761,7 +766,8 @@ public:
             } else if (c == Open) {
                 if (!discard())
                     return;
-                auto filter = kind == Kind::Sheets ? std::string("*.{ods,xlsx,ODS,XLSX}") : "*." + utf8(suffix(kind));
+                auto filter = kind == Kind::Sheets ? std::string("*.{ods,xlsx,ODS,XLSX}")
+                    : kind == Kind::Words ? std::string("*.{odt,docx,ODT,DOCX}") : std::string("*.{odp,pptx,ODP,PPTX}");
                 if (auto* name = fl_file_chooser("Open document", filter.c_str(), file.c_str()))
                     load(name);
             } else if (c == Save || c == SaveAs)
