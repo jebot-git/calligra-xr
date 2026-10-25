@@ -1,6 +1,7 @@
 
 
 set (calligrasheetsengine_LIB_SRCS
+    OdfFormula.cpp
     SheetsDebug.cpp
     CS_Time.cpp
     Format.cpp
@@ -63,6 +64,7 @@ install( FILES
     CellBaseStorage.h
     MapBase.h
     Number.h
+    OdfFormula.h
     PointStorage.h
     ProtectableObject.h
     RectStorage.h

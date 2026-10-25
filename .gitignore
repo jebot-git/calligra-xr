@@ -36,3 +36,7 @@ BROWSE
 
 plugins/textediting/autocorrection/libs/autotests/data/custom-fr-generated.xml
 plugins/textediting/autocorrection/libs/autotests/data/empty-generated.xml
+
+/build-fltk/
+
+__pycache__/
