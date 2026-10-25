@@ -1,3 +1,35 @@
+# Calligra XR — DomeD FLTK port
+
+A development fork of KDE Calligra for the [de-xr](https://github.com/topics/de-xr)
+workspace. The default build provides native FLTK applications for **Words,
+Sheets and Stage**, with DomeD universal menus, appearance and Wayland/OpenGL
+integration. The upstream Qt/KDE frontend is an explicit opt-in.
+
+**This is the first working port milestone, not a complete office replacement.**
+Sheets reuses the upstream calculation engine. Words currently edits ODT
+paragraph text; Stage currently edits/previews ODP text/image frames. The
+original Words pagination and complete Stage shape/animation models still need
+porting. Existing ODF package data is retained, but full layout fidelity and
+format interoperability are not yet established.
+
+- [Build, run and install](fltk/README.md)
+- [Current capabilities and remaining port work](fltk/PORT_STATUS.md)
+- [Validation and hardware evidence](fltk/VALIDATION.md)
+
+```sh
+./fltk/scripts/build.sh
+ctest --test-dir build-fltk --output-on-failure
+./build-fltk/fltk/calligra-words-fltk
+./build-fltk/fltk/calligra-sheets-fltk
+./build-fltk/fltk/calligra-stage-fltk
+```
+
+See the build guide for dependencies and the optional private Fedora development
+prefix. The corresponding source retains Calligra's original history and
+licenses. Upstream baseline: `edb7aee19cf4c38b55389149ea052982d7a6d41e`.
+
+---
+
 ## Calligra Suite
 
 Calligra Suite is a collection of office applications linked together by a

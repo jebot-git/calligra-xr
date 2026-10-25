@@ -40,6 +40,7 @@ def main():
             raise SystemExit('All three applications are required')
     if args.verify_only: print('Verified', len(manifest), 'staged artifacts'); return
     if os.geteuid() != 0: raise SystemExit('Use sudo -A only for this prepared installation')
+    os.umask(0o022)
     backup = Path('/var/backups/calligra-fltk') / datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     for item in manifest:
         target = Path('/') / item['path']
@@ -63,6 +64,13 @@ def main():
             if os.path.lexists(temporary): os.unlink(temporary)
     receipt = Path('/opt/calligra-fltk/install-manifest.json')
     shutil.copy2(stage / 'install-manifest.json', receipt); receipt.chmod(0o644); os.chown(receipt, 0, 0)
+    # A privileged install can inherit the caller's private umask. Repair only
+    # this application's runtime directories, including those from an earlier
+    # install, so ordinary users can traverse to the verified executables.
+    prefix = Path('/opt/calligra-fltk')
+    prefix.chmod(0o755)
+    for directory in prefix.rglob('*'):
+        if not directory.is_symlink() and directory.is_dir(): directory.chmod(0o755)
     if shutil.which('restorecon'):
         subprocess.run(['restorecon', '-R', '/opt/calligra-fltk', *['/usr/local/bin/calligra-' + a + '-fltk' for a in ('words','sheets','stage')]], check=True)
     subprocess.run(['update-desktop-database', '/usr/local/share/applications'], check=True)
