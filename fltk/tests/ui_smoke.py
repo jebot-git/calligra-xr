@@ -68,6 +68,32 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
     try:
         fixtures=base/'fixtures'
         subprocess.run([str(ROOT/'build-fltk/fltk/calligra-fltk-test'),'--fixtures',str(fixtures)],env=env,check=True,stdout=subprocess.DEVNULL)
+        xlsx=fixtures/'import.xlsx'
+        subprocess.run([str(ROOT/'build-fltk/fltk/calligra-fltk-xlsx-test'),'--fixture',str(xlsx)],env=env,check=True)
+        original=xlsx.read_bytes();converted=fixtures/'import.ods';report=art/'xlsx.json'
+        report.unlink(missing_ok=True)
+        with (art/'xlsx.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-sheets-fltk'),str(xlsx),'--report',str(report)],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists());host=wait(lambda:window('sheets'))
+            click(host,410,74);key('a',('Control_L',));text('20');key('Return');key('Right')
+            wait(lambda:data()['cell']['value']=='50')
+            key('s',('Control_L',))
+            def chooser():
+                return next((w for w in xd.screen().root.query_tree().children if str(w.get_wm_name()or'').startswith('Save imported cell data')),None)
+            dialog=wait(chooser)
+            dialog.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync();time.sleep(.2)
+            key('Return')
+            wait(lambda:converted.exists() and data()['file']==str(converted))
+            assert xlsx.read_bytes()==original
+            with zipfile.ZipFile(converted) as archive:
+                assert archive.read('mimetype')==b'application/vnd.oasis.opendocument.spreadsheet'
+                content=ET.fromstring(archive.read('content.xml'))
+                ns='{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+                assert any(e.get(ns+'value')=='20' for e in content.iter())
+            key('s',('Control_L',));time.sleep(.2);assert not chooser()
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: XLSX import, edit, Ctrl+S conversion to ODS and unchanged source',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

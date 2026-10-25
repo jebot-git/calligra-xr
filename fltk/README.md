@@ -16,9 +16,10 @@ preview and text-frame editing, not the original full shape/animation editor.
 - `calligra-words-fltk [document.odt]`: edit paragraph text, retain existing
   character-style spans and links while changing text, insert/remove paragraphs
   in flat documents, undo/redo text edits, and save ODT.
-- `calligra-sheets-fltk [workbook.ods]`: upstream Calligra formula engine and
+- `calligra-sheets-fltk [workbook.ods|workbook.xlsx]`: upstream Calligra formula engine and
   function modules, multiple worksheets, cell editing, dependency recalculation,
   cross-sheet references, undo/redo cell edits, rectangular TSV paste and ODS.
+  XLSX cell data can be imported and saved as ODS; XLSX export is unavailable.
   Click the formula field or press F2 to edit the selected cell.
 - `calligra-stage-fltk [presentation.odp]`: select slides and text frames, edit
   text with live preview, add/delete slides, save ODP, and present with F5.
@@ -37,6 +38,33 @@ spreadsheet rows/cells are split when an individual cell is edited. Signed
 files are read-only and encrypted files are rejected. Package import is bounded
 at 10,000 entries, 64 MiB per entry and 256 MiB in total; nonempty spreadsheets
 are limited to one million imported cells. No external images are fetched.
+
+## XLSX import
+
+Sheets imports standard `.xlsx` workbooks (Transitional and Strict namespaces)
+using the existing QtCore/XML and libzip backend, with Calligra's original
+Excel formula translator, reference adjustment and calculation engine. This
+adds no QtGui/QtWidgets frontend and requires no external office converter.
+
+Import includes multiple worksheets, sparse cells, shared/inline Unicode
+strings, Boolean/numeric values, common formulas and shared formula groups,
+workbook-global named ranges, and date/time values in the 1900/1904 systems.
+Formula support is limited to the existing calculation engine; newer Excel
+functions and external references are not guaranteed to calculate. No external
+relationships are fetched. Local named ranges and named expressions are omitted.
+
+This is **cell-data import**, not visual fidelity: formatting, merged layout,
+charts, drawings, pivots, filters and other workbook features are omitted.
+The status bar and initial save dialog identify the conversion. Signed,
+macro-enabled and encrypted files, array/data-table formulas and invalid input
+are rejected. The fictitious Excel date 1900-02-29 is rejected rather than
+silently shifted. XML entities and archive traversal are rejected; archive size,
+cell count and expanded text limits apply.
+
+Ctrl+S on an imported XLSX opens Save As with an `.ods` destination. The backend
+also rejects every save destination without an `.ods` extension. The source
+XLSX is never overwritten. After the first ODS save, ordinary Save works normally.
+Binary `.xls`, `.xlsb` and `.xlsm` remain unsupported.
 
 ## Reused Calligra code and build defaults
 
@@ -97,7 +125,7 @@ Installation uses `/opt/calligra-fltk`, `/usr/local/bin` wrappers and separate
 FLTK desktop entries. It does not alter MIME defaults or restart sessions.
 
 To select Words, Sheets and Stage as DomeD defaults for the supported ODT,
-ODS and ODP formats, run the separate association helper:
+ODS, ODP and import-only XLSX formats, run the separate association helper:
 
 ```sh
 python3 fltk/packaging/set-dome-defaults.py --dry-run
@@ -108,9 +136,8 @@ SUDO_ASKPASS=/usr/local/bin/dome-askpass sudo -A \
 
 It backs up and updates only Dome-specific preferences, removing legacy
 DOC/XLS/PPT associations from those files. The system MIME definitions and
-other desktops' preferences remain available. XLS and XLSX import are not
-ported, so neither format is assigned to Sheets or advertised by its desktop
-entry. The same restriction applies to DOCX and PPTX.
+other desktops' preferences remain available. XLSX is assigned to Sheets for
+import. Binary XLS, DOCX and PPTX are not advertised or assigned.
 
 ## Verification
 
@@ -120,6 +147,7 @@ member preservation, signature protection and XML entity rejection.
 
 ```sh
 uv run --no-project --with python-xlib python fltk/tests/ui_smoke.py
+uv run --no-project --with openpyxl python fltk/tests/xlsx_producer.py
 ```
 
 This test uses private Xvfb and D-Bus, edits and saves all three applications,

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "workbook.h"
+#include "xlsx_import.h"
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QFileInfo>
 #include <engine/CalculationSettings.h>
 #include <engine/CellBase.h>
 #include <engine/CellBaseStorage.h>
@@ -98,7 +100,7 @@ namespace {
                 parts << plain_text(p);
         return parts.join('\n');
     }
-}
+} // namespace
 Workbook::Workbook()
 {
     initialize();
@@ -165,7 +167,16 @@ void Workbook::set(int s, int c, int r, const QString& value)
 void Workbook::load(const QString& path)
 {
     OdfPackage candidate(Kind::Sheets);
-    candidate.load(path);
+    bool xlsx = QFileInfo(path).suffix().compare("xlsx", Qt::CaseInsensitive) == 0;
+    if (xlsx)
+        candidate = import_xlsx(path);
+    else
+        candidate.load(path);
+    load_package(candidate);
+    imported_xlsx_ = xlsx;
+}
+void Workbook::load_package(OdfPackage candidate)
+{
     auto tables = children(candidate.body(), TABLE, "table");
     if (tables.isEmpty())
         fail("The document has no worksheets");
@@ -250,6 +261,9 @@ void Workbook::load(const QString& path)
 }
 void Workbook::save(const QString& path)
 {
+    if (QFileInfo(path).suffix().compare("ods", Qt::CaseInsensitive) != 0)
+        fail("Sheets saves OpenDocument spreadsheets (.ods); choose an ODS "
+             "filename");
     if (read_only())
         fail("This workbook is read-only");
     auto values = changed_;
@@ -292,4 +306,4 @@ void Workbook::save(const QString& path)
     package_.save(path);
     changed_.clear();
 }
-}
+} // namespace DomeOffice

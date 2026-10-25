@@ -33,7 +33,7 @@ namespace {
         if (reader.hasError())
             fail("Malformed document XML: " + reader.errorString());
     }
-}
+} // namespace
 QString mime(Kind kind) { return "application/vnd.oasis.opendocument." + local(kind); }
 QString suffix(Kind kind) { return kind == Kind::Words ? "odt" : kind == Kind::Sheets ? "ods" : "odp"; }
 QDomElement child(const QDomElement& parent, const QString& ns, const QString& name)
@@ -119,7 +119,8 @@ OdfPackage::OdfPackage(Kind kind)
         + "\" xmlns:svg=\"" + SVG + "\" xmlns:xlink=\"" + XLINK
         + "\" "
           "xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\" "
-          "xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" office:version=\"1.3\">"
+          "xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" "
+          "office:version=\"1.3\">"
           "<office:automatic-styles/><office:body><office:"
         + local(kind) + "/></office:body></office:document-content>")
                                  .toUtf8();
@@ -130,35 +131,41 @@ OdfPackage::OdfPackage(Kind kind)
                   FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
     entries_["styles.xml"] = ("<?xml version=\"1.0\"?><office:document-styles xmlns:office=\"" + OFFICE
         + "\" xmlns:style=\"" + STYLE + "\" xmlns:fo=\"" + FO
-        + "\" office:version=\"1.3\"><office:styles/><office:automatic-styles><style:page-layout "
+        + "\" "
+          "office:version=\"1.3\"><office:styles/"
+          "><office:automatic-styles><style:page-layout "
           "style:name=\"pm1\"><style:page-layout-properties fo:page-width=\""
         + (kind == Kind::Stage ? QString("28cm") : QString("21cm")) + "\" fo:page-height=\""
         + (kind == Kind::Stage ? QString("15.75cm") : QString("29.7cm"))
-        + "\"/></style:page-layout></office:automatic-styles><office:master-styles><style:master-page "
-          "style:name=\"Default\" style:page-layout-name=\"pm1\"/></office:master-styles></office:document-styles>")
+        + "\"/></style:page-layout></"
+          "office:automatic-styles><office:master-styles><style:master-page "
+          "style:name=\"Default\" "
+          "style:page-layout-name=\"pm1\"/></office:master-styles></"
+          "office:document-styles>")
                                  .toUtf8();
 
-    entries_["META-INF/manifest.xml"]
-        = ("<?xml version=\"1.0\"?><manifest:manifest "
-           "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
-           "manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" manifest:media-type=\""
-            + mime(kind)
-            + "\"/><manifest:file-entry manifest:full-path=\"content.xml\" "
-              "manifest:media-type=\"text/xml\"/><manifest:file-entry manifest:full-path=\"styles.xml\" "
-              "manifest:media-type=\"text/xml\"/></manifest:manifest>")
-              .toUtf8();
+    entries_["META-INF/manifest.xml"] = ("<?xml version=\"1.0\"?><manifest:manifest "
+                                         "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
+                                         "manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" "
+                                         "manifest:media-type=\""
+        + mime(kind)
+        + "\"/><manifest:file-entry manifest:full-path=\"content.xml\" "
+          "manifest:media-type=\"text/xml\"/><manifest:file-entry "
+          "manifest:full-path=\"styles.xml\" "
+          "manifest:media-type=\"text/xml\"/></manifest:manifest>")
+                                            .toUtf8();
 }
 QDomElement OdfPackage::body() const
 {
     return child(child(xml.documentElement(), OFFICE, "body"), OFFICE, local(kind_));
 }
-void OdfPackage::load(const QString& path)
+QMap<QString, QByteArray> read_document_archive(const QString& path)
 {
     int error = 0;
     std::unique_ptr<zip_t, decltype(&zip_discard)> zip(
         zip_open(QFile::encodeName(path).constData(), ZIP_RDONLY, &error), zip_discard);
     if (!zip)
-        fail("Cannot open OpenDocument archive");
+        fail("Cannot open document archive");
     QMap<QString, QByteArray> contents;
     quint64 total = 0;
     auto count = zip_get_num_entries(zip.get(), 0);
@@ -194,6 +201,19 @@ void OdfPackage::load(const QString& path)
             fail("Corrupt document archive entry");
         contents[name] = data;
     }
+    return contents;
+}
+QDomDocument read_document_xml(const QByteArray& data)
+{
+    validate_xml(data);
+    QDomDocument result;
+    if (!result.setContent(data, QDomDocument::ParseOption::UseNamespaceProcessing))
+        fail("Malformed document XML");
+    return result;
+}
+void OdfPackage::load(const QString& path)
+{
+    auto contents = read_document_archive(path);
     if (contents.value("mimetype") != mime(kind_).toUtf8())
         fail("Open this file with the matching Words, Sheets or Stage application");
     const auto content = contents.value("content.xml");
@@ -217,7 +237,8 @@ void OdfPackage::load(const QString& path)
 void OdfPackage::save(const QString& path)
 {
     if (read_only_)
-        fail("Signed documents are read-only in this port; signatures must not be silently invalidated");
+        fail("Signed documents are read-only in this port; signatures must not be "
+             "silently invalidated");
     auto contents = entries_;
     contents["content.xml"] = xml.toByteArray(-1);
     QTemporaryFile temporary(QFileInfo(path).absolutePath() + "/.calligra-XXXXXX");
@@ -268,4 +289,4 @@ void OdfPackage::save(const QString& path)
     }
     entries_ = contents;
 }
-}
+} // namespace DomeOffice

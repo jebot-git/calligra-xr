@@ -36,11 +36,13 @@ def main():
         entry = stage / ('usr/local/share/applications/org.domed.Calligra.' + name + '.desktop')
         entry.parent.mkdir(parents=True, exist_ok=True)
         entry.write_text('[Desktop Entry]\nType=Application\nName=Calligra ' + name + ' (FLTK)\n'
-            'GenericName=' + generic + '\nComment=Native DomeD FLTK port — basic OpenDocument editing\n'
+            'GenericName=' + generic + '\nComment=Native DomeD FLTK port — basic OpenDocument editing'
+            + (' and XLSX cell-data import' if app == 'sheets' else '') + '\n'
             'Exec=/usr/local/bin/dome-link --app-id calligra-' + app + '-fltk -- /usr/local/bin/calligra-' + app + '-fltk %f\n'
             'TryExec=/usr/local/bin/calligra-' + app + '-fltk\n'
             'Icon=application-vnd.oasis.opendocument.' + mime + '\nTerminal=false\n'
-            'Categories=Office;' + category + ';\nMimeType=application/vnd.oasis.opendocument.' + mime + ';\n'
+            'Categories=Office;' + category + ';\nMimeType=application/vnd.oasis.opendocument.' + mime + ';'
+            + ('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;' if app == 'sheets' else '') + '\n'
             'StartupWMClass=calligra-' + app + '-fltk\n')
         subprocess.run(['desktop-file-validate', str(entry)], check=True)
         executable = stage / PREFIX / 'bin' / ('calligra-' + app + '-fltk')

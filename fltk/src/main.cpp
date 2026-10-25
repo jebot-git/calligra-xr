@@ -705,15 +705,25 @@ public:
         title();
         if (readonly())
             message("Read-only document");
+        else if (kind == Kind::Sheets && workbook->imported_xlsx())
+            message("XLSX cell data imported; save as ODS. Formatting, charts and "
+                    "layout are not imported.");
     }
     bool save(bool as = false)
     {
         commit_cell();
         commit_text();
         std::string target = file;
-        if (as || target.empty()) {
+        bool imported
+            = kind == Kind::Sheets && QFileInfo(qs(file.c_str())).suffix().compare("xlsx", Qt::CaseInsensitive) == 0;
+        if (as || target.empty() || imported) {
+            if (imported)
+                target = utf8(
+                    QFileInfo(qs(file.c_str())).path() + "/" + QFileInfo(qs(file.c_str())).completeBaseName() + ".ods");
             auto filter = "*." + utf8(suffix(kind));
-            const char* chosen = fl_file_chooser("Save document", filter.c_str(), target.c_str());
+            const char* chosen = fl_file_chooser(
+                imported ? "Save imported cell data as ODS (formatting/charts omitted)" : "Save document",
+                filter.c_str(), target.c_str());
             if (!chosen)
                 return false;
             target = chosen;
@@ -751,7 +761,7 @@ public:
             } else if (c == Open) {
                 if (!discard())
                     return;
-                auto filter = "*." + utf8(suffix(kind));
+                auto filter = kind == Kind::Sheets ? std::string("*.{ods,xlsx,ODS,XLSX}") : "*." + utf8(suffix(kind));
                 if (auto* name = fl_file_chooser("Open document", filter.c_str(), file.c_str()))
                     load(name);
             } else if (c == Save || c == SaveAs)
@@ -879,9 +889,10 @@ public:
                     canvas->box = -1;
                 }
             } else if (c == About)
-                fl_message(
-                    "Calligra %s for DomeD\nNative FLTK interface; OpenDocument files.\nThis port currently provides "
-                    "basic editing.\nSee the installed port-status documentation for remaining features.",
+                fl_message("Calligra %s for DomeD\nNative FLTK interface; OpenDocument "
+                           "files.\nThis port currently provides "
+                           "basic editing.\nSee the installed port-status "
+                           "documentation for remaining features.",
                     kind == Kind::Words        ? "Words"
                         : kind == Kind::Sheets ? "Sheets"
                                                : "Stage");
@@ -977,7 +988,7 @@ int Window::handle(int event)
     }
     return dx::GpuWindow::handle(event);
 }
-}
+} // namespace
 int runOffice(DomeOffice::Kind kind, int argc, char** argv)
 {
     try {
@@ -998,7 +1009,8 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
             else if (arg == "--report")
                 options.report = value();
             else if (arg == "--help") {
-                std::cout << "Calligra FLTK [FILE] [--report JSON] [--capture PPM] [--quit-after-ms N]\n";
+                std::cout << "Calligra FLTK [FILE] [--report JSON] [--capture PPM] "
+                             "[--quit-after-ms N]\n";
                 return 0;
             } else if (arg.starts_with("--"))
                 throw std::runtime_error("Unknown argument " + arg);

@@ -17,6 +17,8 @@ QDomElement child(const QDomElement&, const QString& ns, const QString& local);
 QList<QDomElement> children(const QDomElement&, const QString& ns, const QString& local = { });
 QString plain_text(const QDomElement&);
 void set_plain_text(QDomElement element, const QString& value);
+QMap<QString, QByteArray> read_document_archive(const QString& path);
+QDomDocument read_document_xml(const QByteArray& data);
 class OdfPackage {
 public:
     explicit OdfPackage(Kind kind);
@@ -33,4 +35,4 @@ private:
     QMap<QString, QByteArray> entries_;
     bool read_only_ = false;
 };
-}
+} // namespace DomeOffice

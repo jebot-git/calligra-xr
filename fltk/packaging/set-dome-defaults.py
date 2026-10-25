@@ -12,9 +12,10 @@ DEFAULTS = {
     'application/vnd.oasis.opendocument.text': 'org.domed.Calligra.Words.desktop',
     'application/vnd.oasis.opendocument.spreadsheet': 'org.domed.Calligra.Sheets.desktop',
     'application/vnd.oasis.opendocument.presentation': 'org.domed.Calligra.Stage.desktop',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'org.domed.Calligra.Sheets.desktop',
 }
-# Remove preferences, not shared-mime-info definitions. XLSX is deliberately
-# absent: the FLTK application cannot yet import it (or binary XLS).
+# Remove preferences, not shared-mime-info definitions. Binary XLS remains
+# unsupported; modern XLSX is import-only and saves to ODS.
 LEGACY = {
     'application/msword', 'application/x-msword', 'application/vnd.msword',
     'application/msword-template', 'application/vnd.ms-excel',

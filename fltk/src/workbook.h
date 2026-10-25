@@ -20,6 +20,7 @@ public:
     void add_sheet(const QString& name);
     int rows(int sheet) const;
     int columns(int sheet) const;
+    bool imported_xlsx() const { return imported_xlsx_; }
     bool read_only() const { return package_.read_only() || protected_; }
 
 private:
@@ -29,7 +30,9 @@ private:
     QMap<QString, QString> changed_;
     QSet<QString> formulas_;
     bool protected_ = false;
+    bool imported_xlsx_ = false;
+    void load_package(OdfPackage candidate);
     void initialize();
     void recalculate();
 };
-}
+} // namespace DomeOffice
