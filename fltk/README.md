@@ -96,6 +96,22 @@ SUDO_ASKPASS=/usr/local/bin/dome-askpass sudo -A -k \
 Installation uses `/opt/calligra-fltk`, `/usr/local/bin` wrappers and separate
 FLTK desktop entries. It does not alter MIME defaults or restart sessions.
 
+To select Words, Sheets and Stage as DomeD defaults for the supported ODT,
+ODS and ODP formats, run the separate association helper:
+
+```sh
+python3 fltk/packaging/set-dome-defaults.py --dry-run
+python3 fltk/packaging/set-dome-defaults.py
+SUDO_ASKPASS=/usr/local/bin/dome-askpass sudo -A \
+  python3 fltk/packaging/set-dome-defaults.py --system
+```
+
+It backs up and updates only Dome-specific preferences, removing legacy
+DOC/XLS/PPT associations from those files. The system MIME definitions and
+other desktops' preferences remain available. XLS and XLSX import are not
+ported, so neither format is assigned to Sheets or advertised by its desktop
+entry. The same restriction applies to DOCX and PPTX.
+
 ## Verification
 
 `ctest` covers real upstream formula evaluation and dependencies, Unicode,
