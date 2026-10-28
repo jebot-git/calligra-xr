@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus twelve native calculation/matrix/text/scene/history/handle regression suites. Actual
+assertions retained, plus thirteen native calculation/matrix/text/scene/history/handle/list regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -16,6 +16,25 @@ reads its saved OpenFormula and numeric cache. Unsupported functions
 remain an explicit limitation; tests do not establish the original complete
 formula catalogue. Additional installed/Wayland results are recorded in the
 local native-engine artifacts and installation receipt.
+
+The native list suite covers decimal/padded/alphabetic/Roman/script numbering,
+letter synchronization, nested/consecutive counters, continuation, start values,
+headers, item overrides, numbered paragraphs, scoped list/character styles,
+inherited frame styles, both spacing modes, RTL labels, separators/tabs,
+bullet metrics, label pagination, source offsets, XML-preserving edits and
+resource/invalid-input checks. Labels use separate native glyph display lists.
+An odfpy producer independently checks counters, Unicode labels, edit/save and
+retained archive entries/list structure. GUI tests check actual label pixels
+and edit/save in Words and Stage, with Stage native undo/redo.
+
+Six upstream LibreOffice list documents contribute nine generated labels,
+including padded decimal and custom-template cases. The broader source audit
+also records a malformed `office:texture-mode` body rejected by the loader and
+a field-numbering document with no list elements; these are not counted as list
+coverage. Image bullets, outline/field numbering and the other remaining list
+features are listed in PORT_STATUS.md. List semantics follow
+[ODF 1.4 Part 3](https://docs.oasis-open.org/office/OpenDocument/part3-schema/OpenDocument-v1.4-os-part3-schema.html)
+and the retained KoListLevelProperties/KoOdfNumberDefinition/KoTextLoader code.
 
 The native presentation-history suite checks cross-frame and cross-slide text,
 slide insertion/deletion, selection restoration, byte-exact styled XML undo,

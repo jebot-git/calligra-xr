@@ -107,6 +107,20 @@ private Fontconfig context; missing glyphs are reported in layout diagnostics.
 Stored font/style declarations remain unchanged. Colored font bitmaps currently
 contribute an alpha mask; they are not painted in their original colors.
 
+The shared native text engine now resolves textual list styles, nested and
+consecutive counters, restarts, explicit/implicit continuation, item overrides,
+headers, additional unnumbered paragraphs and legacy numbered paragraphs.
+Generated labels have separate styled/shaped display lists, so document text
+and editing offsets exclude numbering. Both ODF spacing modes, relative bullet
+sizes, RTL placement, label tabs, paragraph overrides and source-scoped styles
+are supported. Native formats include decimal/padded decimal, alphabetic,
+Roman and the legacy KoOdfNumberDefinition scripts; LibreOffice custom label
+templates are retained and evaluated. Image bullets, named ODF 1.4 number
+formats, extended locale/spell-out numbering and outline/field numbering still
+need work. Missing continuation targets are diagnosed and restarted. Full
+paragraph tab layout and structural list editing remain incomplete; existing
+list XML and styles are retained during supported text edits.
+
 Sheets currently uses the calculation layer's textual display, not the original
 style-aware formatter. Do not expect date/currency styles, images, merged
 cells or chart canvases to display like upstream. Fixed matrix results are
@@ -118,7 +132,8 @@ Stage resolves referenced ODP masters and page layouts rather than using the
 first stored layout. It renders solid basic vectors, transformed images and
 native text, with stable group/z ordering and inverse frame hit testing. Rich
 text retains paragraph/inline font and color styles with continuous clipped
-flow. Full list/table/column/vertical layout, auto-growth, fit-to-size and rich
+flow, including the shared textual list engine. Full table/column/vertical
+layout, remaining list features above, auto-growth, fit-to-size and rich
 editing controls remain incomplete. Gradient/bitmap/hatch fills, stroke dashes/caps/joins,
 custom preset lookup, stretch points, extrusion, text on
 paths, master placeholder fields and image crop remain incomplete. Explicit

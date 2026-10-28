@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_layout.h"
+#include "native_list_number.h"
 #include "native_text_shaper.h"
 #include <charconv>
 #include <cmath>
@@ -85,6 +86,89 @@ struct Reader {
   XmlElement styles_root;
   std::optional<TextParagraph> frame_base;
   Text frame_paragraph_style;
+  std::map<Text, XmlElement> list_styles, common_list_styles,
+      master_list_styles;
+  struct ListLevel {
+    XmlElement node;
+    Text format = "1", prefix, suffix = ".", bullet, character_style;
+    std::optional<Text> number_template;
+    enum Kind { Number, Bullet, Image } kind = Number;
+    int display = 1;
+    int64_t start = 1;
+    bool synchronized = false;
+    TextListLabel layout;
+    double margin = 0, relative_size = 1;
+  };
+  struct ListStyle {
+    Text name;
+    bool consecutive = false;
+    std::map<int, ListLevel> levels;
+    std::vector<Text> unsupported;
+  };
+  std::map<std::pair<bool, Text>, ListStyle> list_definitions;
+  struct Counter {
+    int64_t value = 0;
+    Text format = "1";
+    bool synchronized = false, active = false;
+  };
+  struct Domain {
+    int64_t serial = 0;
+    bool initialized = false;
+    bool counted = false;
+    std::vector<Counter> numbers;
+  };
+  struct ListState {
+    Text style;
+    int64_t last = -1, serial = 0;
+  };
+  std::map<Text, ListState> list_ids;
+  std::map<int, ListState> previous_lists;
+  std::map<Text, std::shared_ptr<Domain>> numbered_lists;
+  Text anonymous_numbered_style;
+  std::shared_ptr<Domain> anonymous_numbered;
+  size_t label_size = 0;
+  struct ListItem {
+    Text style;
+    int level = 1;
+    bool first = true, header = false;
+    std::vector<Counter> numbers;
+    std::shared_ptr<Domain> domain;
+  };
+  static int64_t integer(const XmlElement &e, const Text &ns, const Text &name,
+                         int64_t fallback, int64_t min, int64_t max) {
+    auto value =
+        e.attributeNS(ns, name, Text::number(fallback)).trimmed().toUtf8();
+    const char *first = value.data();
+    if (!value.empty() && value.front() == '+') {
+      ++first;
+      if (first == value.data() + value.size() || *first == '-' ||
+          *first == '+')
+        fail("Invalid list integer sign");
+    }
+    int64_t result;
+    auto parsed = std::from_chars(first, value.data() + value.size(), result);
+    if (parsed.ec != std::errc() || parsed.ptr != value.data() + value.size() ||
+        result < min || result > max)
+      fail("Invalid list counter or level");
+    return result;
+  }
+  static bool boolean(const XmlElement &e, const Text &ns, const Text &name,
+                      bool fallback = false) {
+    auto value = e.attributeNS(ns, name, fallback ? "true" : "false").trimmed();
+    if (value == "true" || value == "1")
+      return true;
+    if (value == "false" || value == "0")
+      return false;
+    fail("Invalid list boolean");
+  }
+  void reset_lists() {
+    list_ids.clear();
+    previous_lists.clear();
+    numbered_lists.clear();
+    anonymous_numbered.reset();
+    anonymous_numbered_style.clear();
+    label_size = 0;
+  }
 
   void scan(const XmlDocument &document, bool master = false) {
     if (master)
@@ -113,6 +197,9 @@ struct Reader {
           (automatic ? (master ? master_text_styles : text_styles)
                      : common_text_styles)[name] = e;
       }
+      for (auto e : children(group, TEXT, "list-style"))
+        (automatic ? (master ? master_list_styles : list_styles)
+                   : common_list_styles)[e.attributeNS(STYLE, "name")] = e;
     }
     for (auto e : document.elementsByTagNameNS(STYLE, "page-layout"))
       layouts[e.attributeNS(STYLE, "name")] = e;
@@ -237,10 +324,12 @@ struct Reader {
     }
   }
   template <class Apply>
-  std::vector<XmlElement> chain(bool text, const Text &name, Apply apply) {
+  std::vector<XmlElement> chain(bool text, const Text &name, Apply apply,
+                                std::optional<bool> source = {}) {
+    const bool from_styles = source.value_or(styles_source);
     const auto &styles =
-        text ? (styles_source ? master_text_styles : text_styles)
-             : (styles_source ? master_paragraph_styles : paragraph_styles);
+        text ? (from_styles ? master_text_styles : text_styles)
+             : (from_styles ? master_paragraph_styles : paragraph_styles);
     const auto &common = text ? common_text_styles : common_paragraph_styles;
     std::vector<XmlElement> stack;
     XmlElement current;
@@ -321,7 +410,433 @@ struct Reader {
       }
     }
   }
-  void blocks(const XmlElement &parent, int depth = 0) {
+  const ListStyle &list_definition(const Text &name) {
+    auto key = std::pair{styles_source, name};
+    if (auto it = list_definitions.find(key); it != list_definitions.end()) {
+      for (const auto &warning : it->second.unsupported)
+        note(flow.unsupported, warning);
+      return it->second;
+    }
+    ListStyle result;
+    result.name = name;
+    auto warning = [&](const Text &message) {
+      note(result.unsupported, message);
+      note(flow.unsupported, message);
+    };
+    XmlElement node;
+    const auto &automatic = styles_source ? master_list_styles : list_styles;
+    if (auto it = automatic.find(name); it != automatic.end())
+      node = it->second;
+    else if (auto it = common_list_styles.find(name);
+             it != common_list_styles.end())
+      node = it->second;
+    if (node.isNull()) {
+      if (!name.empty())
+        warning("Missing list style; native default used");
+      return list_definitions.emplace(key, std::move(result)).first->second;
+    }
+    result.consecutive = boolean(node, TEXT, "consecutive-numbering");
+    for (auto e : children(node, TEXT)) {
+      auto type = e.localName();
+      if (type != "list-level-style-number" &&
+          type != "list-level-style-bullet" && type != "list-level-style-image")
+        continue;
+      int level = integer(e, TEXT, "level", 1, 1, 64);
+      if (result.levels.contains(level))
+        fail("Duplicate list level");
+      ListLevel l;
+      l.node = e;
+      l.layout.min_width = 0;
+      l.suffix = e.attributeNS(STYLE, "num-suffix");
+      l.prefix = e.attributeNS(STYLE, "num-prefix");
+      l.format = e.attributeNS(STYLE, "num-format");
+      l.character_style = e.attributeNS(TEXT, "style-name");
+      l.start = integer(e, TEXT, "start-value", 1, 0, INT64_MAX - 1);
+      l.display = integer(e, TEXT, "display-levels", 1, 1, 64);
+      l.synchronized = boolean(e, STYLE, "num-letter-sync");
+      if (type == "list-level-style-bullet") {
+        l.kind = ListLevel::Bullet;
+        l.bullet = e.attributeNS(TEXT, "bullet-char");
+        if (l.bullet.size() > 64)
+          fail("List bullet exceeds label limit");
+        if (e.hasAttributeNS(TEXT, "bullet-relative-size"))
+          l.relative_size =
+              proportion(e.attributeNS(TEXT, "bullet-relative-size"), 1);
+        if (l.relative_size < 0 || l.relative_size > 100)
+          fail("Invalid relative bullet size");
+      } else if (type == "list-level-style-image")
+        l.kind = ListLevel::Image;
+      else if (!supported_list_number_format(l.format)) {
+        warning("Unsupported list number format; decimal used");
+        l.format = "1";
+      }
+      if (e.hasAttributeNS(STYLE, "num-list-format-name"))
+        warning("Named list number formats");
+      const Text LOEXT = "urn:org:documentfoundation:names:experimental:office:"
+                         "xmlns:loext:1.0";
+      if (e.hasAttributeNS(LOEXT, "num-list-format")) {
+        l.number_template = e.attributeNS(LOEXT, "num-list-format");
+        if (l.number_template->size() > 4096)
+          fail("List number template exceeds limit");
+      }
+      auto props = child(e, STYLE, "list-level-properties");
+      auto align = props.attributeNS(FO, "text-align", "start");
+      l.layout.alignment = align == "left"     ? TextListLabel::Left
+                           : align == "right"  ? TextListLabel::Right
+                           : align == "center" ? TextListLabel::Center
+                           : align == "end"    ? TextListLabel::End
+                                               : TextListLabel::Start;
+      if (align != "left" && align != "right" && align != "center" &&
+          align != "end" && align != "start")
+        fail("Invalid list label alignment");
+      auto mode = props.attributeNS(TEXT, "list-level-position-and-space-mode",
+                                    "label-width-and-position");
+      if (mode == "label-alignment") {
+        l.layout.alignment_mode = true;
+        auto a = child(props, STYLE, "list-level-label-alignment");
+        if (a.hasAttributeNS(FO, "margin-left"))
+          l.margin = length(a.attributeNS(FO, "margin-left"));
+        if (a.hasAttributeNS(FO, "text-indent"))
+          l.layout.indent = length(a.attributeNS(FO, "text-indent"));
+        auto follow = a.attributeNS(TEXT, "label-followed-by", "space");
+        if (follow == "space")
+          l.layout.follow = TextListLabel::Space;
+        else if (follow == "nothing")
+          l.layout.follow = TextListLabel::Nothing;
+        else if (follow == "listtab")
+          l.layout.follow = TextListLabel::Tab;
+        else
+          fail("Invalid list label separator");
+        if (a.hasAttributeNS(TEXT, "list-tab-stop-position"))
+          l.layout.tab_stop =
+              length(a.attributeNS(TEXT, "list-tab-stop-position"));
+      } else if (mode == "label-width-and-position") {
+        for (auto [attr, target] :
+             std::initializer_list<std::pair<const char *, double *>>{
+                 {"space-before", &l.layout.space_before},
+                 {"min-label-width", &l.layout.min_width},
+                 {"min-label-distance", &l.layout.min_distance}})
+          if (props.hasAttributeNS(TEXT, attr))
+            *target = length(props.attributeNS(TEXT, attr));
+        if (l.layout.min_width < 0 || l.layout.min_distance < 0)
+          fail("Negative list label width or gap");
+      } else
+        fail("Invalid list positioning mode");
+      result.levels[level] = std::move(l);
+    }
+    return list_definitions.emplace(key, std::move(result)).first->second;
+  }
+  ListLevel list_level(const Text &style, int level) {
+    const auto &definition = list_definition(style);
+    auto it = definition.levels.upper_bound(level);
+    ListLevel result;
+    if (it != definition.levels.begin()) {
+      --it;
+      result = it->second;
+      result.margin += 18 * (level - it->first);
+      result.layout.space_before += 18 * (level - it->first);
+    } else {
+      result.layout.space_before = 18 * (level - 1);
+      result.margin = 18 * level;
+    }
+    result.layout.style = style;
+    result.layout.level = level;
+    return result;
+  }
+  Text paragraph_list_style(const XmlElement &e) {
+    Text result = paragraph_default.attributeNS(STYLE, "list-style-name");
+    chain(false, frame_paragraph_style, [&](const XmlElement &s) {
+      if (s.hasAttributeNS(STYLE, "list-style-name"))
+        result = s.attributeNS(STYLE, "list-style-name");
+    });
+    chain(false, e.attributeNS(TEXT, "style-name"), [&](const XmlElement &s) {
+      if (s.hasAttributeNS(STYLE, "list-style-name"))
+        result = s.attributeNS(STYLE, "list-style-name");
+    });
+    return result;
+  }
+  Text default_list_style(const XmlElement &node, int depth = 0) {
+    if (depth > 256)
+      fail("Excessive list style lookup depth");
+    for (auto e : children(node, TEXT)) {
+      if (e.localName() == "p" || e.localName() == "h") {
+        auto style = paragraph_list_style(e);
+        if (!style.empty())
+          return style;
+      } else if (e.localName() != "list") {
+        auto style = default_list_style(e, depth + 1);
+        if (!style.empty())
+          return style;
+      }
+    }
+    return {};
+  }
+  void decorate_list(TextParagraph &p, ListItem &item,
+                     const std::vector<XmlElement> &styles) {
+    auto level = list_level(item.style, item.level);
+    auto label = level.layout;
+    label.visible = item.first && !item.header;
+    label.font = p.spans.empty() ? p.font : p.spans.front().font;
+    label.color = p.spans.empty() ? p.color : p.spans.front().color;
+    bool source = !level.node.isNull() && !styles_root.isNull() &&
+                  level.node.ownerDocument().documentElement() == styles_root;
+    chain(
+        true, level.character_style,
+        [&](const XmlElement &s) { character(label.font, label.color, s); },
+        source);
+    character(label.font, label.color, level.node);
+    if (level.kind == ListLevel::Bullet) {
+      if (level.relative_size == 0)
+        label.visible = false;
+      else
+        label.font.size *= level.relative_size;
+      label.text = level.bullet;
+    } else if (level.kind == ListLevel::Image)
+      note(flow.unsupported, "Image list labels");
+    else if (!level.format.empty()) {
+      TextList pieces;
+      size_t begin = item.numbers.size() > size_t(level.display)
+                         ? item.numbers.size() - level.display
+                         : 0;
+      for (size_t i = begin; i < item.numbers.size(); ++i) {
+        const auto &number = item.numbers[i];
+        if (number.active && !number.format.empty())
+          pieces << format_list_number(number.value, number.format,
+                                       number.synchronized);
+      }
+      label.text = level.prefix + pieces.join('.') + level.suffix;
+      if (level.number_template) {
+        label.text.clear();
+        const auto &pattern = *level.number_template;
+        for (size_t i = 0; i < pattern.size();) {
+          if (pattern[i] != '%') {
+            label.text += pattern[i++];
+            continue;
+          }
+          if (i + 1 < pattern.size() && pattern[i + 1] == '%') {
+            label.text += '%';
+            i += 2;
+            continue;
+          }
+          size_t next = i + 1;
+          int index = 0;
+          while (next < pattern.size() && pattern[next] >= '0' &&
+                 pattern[next] <= '9') {
+            index = index * 10 + int(pattern[next++] - '0');
+            if (index > 64)
+              fail("List template level exceeds limit");
+          }
+          if (index < 1 || next >= pattern.size() || pattern[next] != '%')
+            fail("Invalid list number template");
+          if (size_t(index) <= item.numbers.size()) {
+            const auto &n = item.numbers[index - 1];
+            if (n.active && !n.format.empty())
+              label.text +=
+                  format_list_number(n.value, n.format, n.synchronized);
+          }
+          i = next + 1;
+          if (label.text.size() > 4096)
+            fail("List label exceeds native text limit");
+        }
+      }
+    }
+    if (label.text.size() > 4096)
+      fail("List label exceeds native text limit");
+    if (label.visible)
+      label_size += label.text.size();
+    if (label_size > 4000000)
+      fail("List labels exceed native document limit");
+    bool left_set = false, indent_set = false;
+    for (auto s : styles) {
+      auto props = child(s, STYLE, "paragraph-properties");
+      left_set = left_set || props.hasAttributeNS(FO, "margin-left") ||
+                 props.hasAttributeNS(FO, "margin");
+      indent_set = indent_set || props.hasAttributeNS(FO, "text-indent");
+      if (props.hasAttributeNS(STYLE, "tab-stop-distance"))
+        label.default_tab =
+            length(props.attributeNS(STYLE, "tab-stop-distance"));
+      if (props.hasAttributeNS(TEXT, "relative-tab-stop-position"))
+        label.relative_tabs =
+            boolean(props, TEXT, "relative-tab-stop-position", true);
+      auto tabs = child(props, STYLE, "tab-stops");
+      if (!tabs.isNull()) {
+        label.paragraph_tabs.clear();
+        for (auto tab : children(tabs, STYLE, "tab-stop"))
+          label.paragraph_tabs.push_back(
+              length(tab.attributeNS(STYLE, "position")));
+      }
+    }
+    std::sort(label.paragraph_tabs.begin(), label.paragraph_tabs.end());
+    if (label.paragraph_tabs.size() > 4096 || label.default_tab <= 0)
+      fail("Invalid list label tab stops");
+    if (label.alignment_mode) {
+      if (!left_set)
+        p.left = level.margin;
+      if (indent_set)
+        label.indent = p.indent;
+    }
+    if (!label.visible)
+      label.text.clear();
+    p.indent = label.alignment_mode ? 0 : p.indent;
+    p.list = std::move(label);
+    item.first = false;
+  }
+  void paragraph(const XmlElement &e, ListItem *item) {
+    if (flow.paragraphs.size() >= 100000)
+      fail("Too many text paragraphs");
+    TextParagraph p;
+    p.color = TextColor{};
+    character(p.font, p.color, text_default);
+    std::vector<XmlElement> applied;
+    auto apply = [&](const XmlElement &s) {
+      properties(p, s);
+      applied.push_back(s);
+    };
+    apply(paragraph_default);
+    if (frame_base) {
+      p.font = frame_base->font;
+      p.color = frame_base->color;
+    }
+    auto explicit_styles = chain(false, e.attributeNS(TEXT, "style-name"),
+                                 [](const XmlElement &) {});
+    auto frame_styles =
+        chain(false, frame_paragraph_style, [](const XmlElement &) {});
+    if (frame_styles.empty() ||
+        std::find(explicit_styles.begin(), explicit_styles.end(),
+                  frame_styles.front()) == explicit_styles.end())
+      for (auto it = frame_styles.rbegin(); it != frame_styles.rend(); ++it)
+        apply(*it);
+    for (auto it = explicit_styles.rbegin(); it != explicit_styles.rend(); ++it)
+      apply(*it);
+    inlines(p, e, p.font, p.color);
+    if (item)
+      decorate_list(p, *item, applied);
+    flow.paragraphs.push_back(std::move(p));
+  }
+  void list(const XmlElement &node, int depth, ListItem *parent,
+            bool numbered = false) {
+    if (depth > 256)
+      fail("Excessive list depth");
+    int level = numbered ? integer(node, TEXT, "level", 1, 1, 64)
+                         : (parent ? parent->level + 1 : 1);
+    if (level > 64)
+      fail("Too many list levels");
+    auto style = node.attributeNS(TEXT, "style-name");
+    if (style.empty() && parent)
+      style = parent->style;
+    if (style.empty())
+      style = default_list_style(node);
+    auto initial = list_level(style, level);
+    auto domain = parent ? parent->domain : std::make_shared<Domain>();
+    int64_t current = initial.start - 1;
+    bool continued = false;
+    Text id = node.attributeNS("http://www.w3.org/XML/1998/namespace", "id");
+    if (!id.empty() && list_ids.contains(id))
+      fail("Duplicate list identifier");
+    if (numbered) {
+      auto key = node.attributeNS(TEXT, "list-id");
+      if (!key.empty()) {
+        auto &stored = numbered_lists[key];
+        if (!stored)
+          stored = std::make_shared<Domain>();
+        domain = stored;
+      } else {
+        if (!anonymous_numbered || anonymous_numbered_style != style)
+          anonymous_numbered = std::make_shared<Domain>();
+        anonymous_numbered_style = style;
+        domain = anonymous_numbered;
+      }
+      if (domain->numbers.size() >= size_t(level) &&
+          domain->numbers[level - 1].active) {
+        current = domain->numbers[level - 1].value;
+        continued = true;
+      }
+    } else {
+      auto reference = node.attributeNS(TEXT, "continue-list");
+      const ListState *previous = nullptr;
+      if (node.hasAttributeNS(TEXT, "continue-list")) {
+        if (auto it = list_ids.find(reference); it != list_ids.end())
+          previous = &it->second;
+        else
+          note(flow.unsupported,
+               "Unresolved list continuation; numbering restarted");
+      } else if (boolean(node, TEXT, "continue-numbering")) {
+        if (auto it = previous_lists.find(level);
+            it != previous_lists.end() && it->second.style == style)
+          previous = &it->second;
+      }
+      if (previous) {
+        current = previous->last;
+        continued = true;
+        if (!parent)
+          domain->serial = previous->serial, domain->initialized = true;
+      }
+    }
+    if (!domain->initialized) {
+      domain->serial = current;
+      domain->initialized = true;
+    }
+    auto state = [&] { return ListState{style, current, domain->serial}; };
+    if (!id.empty())
+      list_ids[id] = state();
+    auto process = [&](const XmlElement &item_node, bool header) {
+      auto item_style = item_node.attributeNS(TEXT, "style-override", style);
+      auto definition = list_level(item_style, level);
+      if (!header) {
+        if (!continued) {
+          current = definition.start - 1;
+          if (!domain->counted)
+            domain->serial = current;
+        }
+        if (current == INT64_MAX || domain->serial == INT64_MAX)
+          fail("List counter overflow");
+        ++current;
+        ++domain->serial;
+        domain->counted = true;
+        if (list_definition(item_style).consecutive)
+          current = domain->serial;
+        auto start_node = numbered ? node : item_node;
+        if (start_node.hasAttributeNS(TEXT, "start-value"))
+          current = domain->serial =
+              integer(start_node, TEXT, "start-value", 1, 0, INT64_MAX - 1);
+        continued = true;
+      }
+      ListItem item;
+      item.style = item_style;
+      item.level = level;
+      item.header = header;
+      item.domain = domain;
+      item.numbers = numbered
+                         ? domain->numbers
+                         : (parent ? parent->numbers : std::vector<Counter>{});
+      item.numbers.resize(level);
+      item.numbers[level - 1] = {
+          current,
+          definition.kind == ListLevel::Number ? definition.format : Text(),
+          definition.synchronized, !header};
+      if (numbered)
+        domain->numbers = item.numbers;
+      if (!id.empty())
+        list_ids[id] = state();
+      blocks(item_node, depth + 1, &item);
+      if (item.first)
+        note(flow.unsupported, "List item without an editable paragraph");
+    };
+    if (numbered)
+      process(node, false);
+    else
+      for (auto item : children(node, TEXT)) {
+        if (item.localName() == "list-item")
+          process(item, false);
+        else if (item.localName() == "list-header")
+          process(item, true);
+      }
+    if (!id.empty())
+      list_ids[id] = state();
+    previous_lists[level] = state();
+  }
+  void blocks(const XmlElement &parent, int depth = 0,
+              ListItem *item = nullptr) {
     if (depth > 256)
       fail("Excessive text flow depth");
     for (auto node = parent.firstChild(); !node.isNull();
@@ -331,40 +846,27 @@ struct Reader {
       auto e = node.toElement();
       if (e.namespaceURI() == TEXT &&
           (e.localName() == "p" || e.localName() == "h")) {
-        if (flow.paragraphs.size() >= 100'000)
-          fail("Too many text paragraphs");
-        TextParagraph p;
-        p.color = TextColor{}; // Document text defaults to black on paper.
-        character(p.font, p.color, text_default);
-        properties(p, paragraph_default);
-        if (frame_base) {
-          p.font = frame_base->font;
-          p.color = frame_base->color;
-        }
-        auto explicit_styles = chain(false, e.attributeNS(TEXT, "style-name"),
-                                     [](const XmlElement &) {});
-        auto frame_styles =
-            chain(false, frame_paragraph_style, [](const XmlElement &) {});
-        // An explicit paragraph may already inherit the frame's text style.
-        // Apply that chain once, so relative sizes do not compound twice.
-        if (frame_styles.empty() ||
-            std::find(explicit_styles.begin(), explicit_styles.end(),
-                      frame_styles.front()) == explicit_styles.end())
-          for (auto it = frame_styles.rbegin(); it != frame_styles.rend(); ++it)
-            properties(p, *it);
-        for (auto it = explicit_styles.rbegin(); it != explicit_styles.rend();
-             ++it)
-          properties(p, *it);
-        inlines(p, e, p.font, p.color);
-        flow.paragraphs.push_back(std::move(p));
-      } else if (e.namespaceURI() == TEXT && e.localName() == "sequence-decls")
+        paragraph(e, item);
+      } else if (e.namespaceURI() == TEXT &&
+                 (e.localName() == "list" ||
+                  e.localName() == "numbered-paragraph"))
+        list(e, depth + 1, item, e.localName() == "numbered-paragraph");
+      else if (e.namespaceURI() == TEXT && (e.localName() == "sequence-decls" ||
+                                            e.localName() == "number" ||
+                                            e.localName() == "soft-page-break"))
         continue;
-      else if((e.namespaceURI()==DRAW&&(e.localName()=="enhanced-geometry"||e.localName()=="glue-point"))||
-              (e.namespaceURI()==SVG&&(e.localName()=="title"||e.localName()=="desc"))||
-              (e.namespaceURI()==OFFICE&&e.localName()=="event-listeners"))continue;
+      else if ((e.namespaceURI() == DRAW &&
+                (e.localName() == "enhanced-geometry" ||
+                 e.localName() == "glue-point")) ||
+               (e.namespaceURI() == SVG &&
+                (e.localName() == "title" || e.localName() == "desc")) ||
+               (e.namespaceURI() == OFFICE &&
+                e.localName() == "event-listeners"))
+        continue;
       else {
-        note(flow.unsupported, "Tables, lists, sections and floating frames");
-        blocks(e, depth + 1);
+        note(flow.unsupported, "Tables, sections and floating frames");
+        bool reset = e.namespaceURI() == TABLE || e.namespaceURI() == DRAW;
+        blocks(e, depth + 1, reset ? nullptr : item);
       }
     }
   }
@@ -532,9 +1034,85 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
                               const std::vector<Cluster> &clusters,
                               const TextPageStyle &page, size_t start,
                               const MeasureText &measure,
-                              const ShapingParagraph *shaping = nullptr) {
+                              const ShapingParagraph *shaping = nullptr,
+                              NativeTextShaper *shaper = nullptr) {
+  const bool rtl =
+      shaping ? shaping->whole().rtl : p.direction == TextParagraph::RTL;
+  double body_start = p.left, first_start = p.left + p.indent, label_start = 0;
+  TextMetrics label_metrics;
+  std::shared_ptr<ShapedText> label_shape;
+  if (p.list) {
+    const auto &label = *p.list;
+    if (label.visible && !label.text.empty()) {
+      if (shaper) {
+        TextParagraph marker;
+        marker.text = label.text;
+        marker.font = label.font;
+        marker.color = label.color;
+        marker.direction = rtl ? TextParagraph::RTL : TextParagraph::LTR;
+        label_shape = shaper->prepare(marker).line(0, marker.text.size());
+        label_metrics = label_shape->metrics;
+      } else
+        label_metrics = measure(label.text, label.font);
+      check_metrics(label_metrics);
+    }
+    auto alignment = label.alignment;
+    if (alignment == TextListLabel::Left)
+      alignment = rtl ? TextListLabel::End : TextListLabel::Start;
+    if (alignment == TextListLabel::Right)
+      alignment = rtl ? TextListLabel::Start : TextListLabel::End;
+    if (label.alignment_mode) {
+      label_start = body_start + label.indent;
+      if (alignment == TextListLabel::End)
+        label_start -= label_metrics.width;
+      else if (alignment == TextListLabel::Center)
+        label_start -= label_metrics.width / 2;
+      first_start = body_start;
+      if (label.visible && !label.text.empty()) {
+        first_start = label_start + label_metrics.width;
+        if (label.follow == TextListLabel::Space) {
+          auto space = measure(" ", label.font);
+          check_metrics(space);
+          first_start += space.width;
+        } else if (label.follow == TextListLabel::Tab) {
+          double next = std::numeric_limits<double>::infinity();
+          auto tab = [&](double value) {
+            if (value > first_start + 1e-7)
+              next = std::min(next, value);
+          };
+          tab(label.tab_stop.value_or(body_start));
+          for (double value : label.paragraph_tabs)
+            tab(value + (label.relative_tabs ? body_start : 0));
+          double origin = label.relative_tabs ? body_start : 0;
+          if (!std::isfinite(next))
+            tab(origin +
+                (std::floor((first_start - origin) / label.default_tab) + 1) *
+                    label.default_tab);
+          first_start = next;
+        }
+      }
+    } else {
+      double box_start = body_start + label.space_before;
+      body_start = box_start + label.min_width;
+      double offset =
+          alignment == TextListLabel::End
+              ? std::max(0., label.min_width - label_metrics.width)
+          : alignment == TextListLabel::Center
+              ? std::max(0., (label.min_width - label_metrics.width) / 2)
+              : 0;
+      label_start = box_start + offset;
+      if (body_start - label_start - label_metrics.width < label.min_distance)
+        label_start = std::max(box_start, body_start - label_metrics.width -
+                                              label.min_distance);
+      first_start = body_start;
+      if (label.visible && !label.text.empty())
+        first_start =
+            std::max(body_start + p.indent,
+                     label_start + label_metrics.width + label.min_distance);
+    }
+  }
   const double available =
-      page.width - page.left - page.right - p.left - p.right;
+      page.width - page.left - page.right - body_start - p.right;
   if (!std::isfinite(available) || available < 1)
     fail("Paragraph margins leave no text area");
   std::vector<WrappedLine> lines;
@@ -546,7 +1124,7 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
   do {
     size_t begin = i, end = i, allowed = i;
     double width = 0, max_ascent = 0, max_descent = 0;
-    double indent = (i == 0 ? p.indent : 0);
+    double indent = (i == 0 ? first_start - body_start : 0);
     double limit = available - indent;
     if (limit < 1)
       fail("Paragraph indent leaves no text area");
@@ -603,7 +1181,6 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
     line.begin =
         begin < clusters.size() ? clusters[begin].begin : p.text.size();
     line.end = end ? clusters[end - 1].end : line.begin;
-    line.x = page.left + p.left + indent;
     width = 0;
     for (size_t at = begin; at < end; ++at) {
       const auto &c = clusters[at];
@@ -637,6 +1214,20 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       max_descent = shape->metrics.descent;
       width = shape->metrics.width;
     }
+    if (begin == 0 && start == 0 && lines.empty() && p.list &&
+        p.list->visible && !p.list->text.empty()) {
+      const auto &marker = *p.list;
+      line.label = TextLine::Label{marker.text,
+                                   marker.font,
+                                   marker.color,
+                                   rtl ? page.width - page.right - label_start -
+                                             label_metrics.width
+                                       : page.left + label_start,
+                                   label_metrics.width,
+                                   label_shape};
+      max_ascent = std::max(max_ascent, label_metrics.ascent);
+      max_descent = std::max(max_descent, label_metrics.descent);
+    }
     double natural = max_ascent + max_descent;
     line.height = p.line_height > 0 ? p.line_height : natural * p.line_factor;
     if (!std::isfinite(line.height) || line.height <= 0)
@@ -653,8 +1244,7 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       visible -= c.metrics.width;
     }
     line.width = std::max(0., visible);
-    bool rtl = shape ? shape->rtl : p.direction == TextParagraph::RTL;
-    line.x = page.left + p.left + (rtl ? 0 : indent);
+    line.x = page.left + (rtl ? p.right : body_start) + (rtl ? 0 : indent);
     if (shape && rtl)
       for (auto &glyph : shape->glyphs)
         glyph.x -= width - line.width;
@@ -750,6 +1340,7 @@ TextFlow OdfTextReader::frame(const XmlElement &container,
   auto &reader = impl_->reader;
   reader.flow = {};
   reader.text_size = 0;
+  reader.reset_lists();
   reader.styles_source = styles_source;
   reader.frame_base = base;
   reader.frame_paragraph_style = paragraph_style;
@@ -796,6 +1387,25 @@ static void check_paragraph(const TextParagraph &p) {
   };
   if (!font_valid(p.font) || !color_valid(p.color))
     fail("Invalid paragraph text style");
+  if (p.list) {
+    const auto &label = *p.list;
+    if (!font_valid(label.font) || !color_valid(label.color) ||
+        label.text.size() > 4096 || label.level < 1 || label.level > 64)
+      fail("Invalid list label style");
+    for (double value : {label.space_before, label.min_width,
+                         label.min_distance, label.indent, label.default_tab})
+      if (!std::isfinite(value) || std::abs(value) > 100000)
+        fail("Invalid list label geometry");
+    if (label.min_width < 0 || label.min_distance < 0 ||
+        label.default_tab <= 0 || label.paragraph_tabs.size() > 4096)
+      fail("Invalid list label spacing");
+    if (label.tab_stop &&
+        (!std::isfinite(*label.tab_stop) || std::abs(*label.tab_stop) > 100000))
+      fail("Invalid list label tab");
+    for (double tab : label.paragraph_tabs)
+      if (!std::isfinite(tab) || std::abs(tab) > 100000)
+        fail("Invalid paragraph tab");
+  }
   size_t end = 0;
   for (const auto &span : p.spans) {
     if (span.begin != end || span.end <= span.begin ||
@@ -822,7 +1432,8 @@ static TextBoxLayout text_box_impl(const TextFlow &flow, double width,
   size_t total = 0;
   for (size_t i = 0; i < flow.paragraphs.size(); ++i) {
     const auto &p = flow.paragraphs[i];
-    total += p.text.size();
+    total +=
+        p.text.size() + (p.list && p.list->visible ? p.list->text.size() : 0);
     if (total > 4000000 || p.text.size() > 1000000 ||
         flow.paragraphs.size() > 100000)
       fail("Text frame exceeds native layout limits");
@@ -834,10 +1445,13 @@ static TextBoxLayout text_box_impl(const TextFlow &flow, double width,
       note(result.unsupported, "Missing font glyphs");
     auto clusters =
         breaks.clusters(p, measure, prepared ? &prepared->whole() : nullptr);
-    auto lines = wrap(p, clusters, frame, 0, measure, prepared.get());
+    auto lines = wrap(p, clusters, frame, 0, measure, prepared.get(), shaper);
     y += std::max(previous_after, std::max(0., p.before));
     for (auto &wrapped : lines) {
       auto line = std::move(wrapped.line);
+      if (line.label && line.label->shaped &&
+          line.label->shaped->missing_glyphs)
+        note(result.unsupported, "Missing font glyphs");
       line.paragraph = i;
       line.y = y;
       line.baseline += y;
@@ -881,7 +1495,8 @@ static TextPagination paginate_impl(const TextFlow &flow,
   std::vector<std::shared_ptr<ShapingParagraph>> shaping;
   size_t total = 0;
   for (const auto &p : flow.paragraphs) {
-    total += p.text.size();
+    total +=
+        p.text.size() + (p.list && p.list->visible ? p.list->text.size() : 0);
     if (total > 4'000'000 || p.text.size() > 1'000'000 ||
         flow.paragraphs.size() > 100'000)
       fail("Document exceeds native layout limits");
@@ -941,7 +1556,7 @@ static TextPagination paginate_impl(const TextFlow &flow,
       auto geometry = std::make_tuple(page.width, page.left, page.right);
       if (wrapped.empty() || geometry != wrap_geometry) {
         wrapped = wrap(p, clusters[paragraph], page, start, measure,
-                       shaping[paragraph].get());
+                       shaping[paragraph].get(), shaper);
         wrap_geometry = geometry;
         line_offset = 0;
         heights = {0};
@@ -967,7 +1582,7 @@ static TextPagination paginate_impl(const TextFlow &flow,
           group_height += std::max(std::max(0., flow.paragraphs[next].after),
                                    std::max(0., following.before));
           auto next_lines = wrap(following, clusters[next + 1], page, 0,
-                                 measure, shaping[next + 1].get());
+                                 measure, shaping[next + 1].get(), shaper);
           for (const auto &line : next_lines)
             group_height += line.line.height;
           ++next;
@@ -1012,6 +1627,9 @@ static TextPagination paginate_impl(const TextFlow &flow,
       y += gap;
       for (size_t at = 0; at < fit; ++at) {
         auto line = std::move(lines[at].line);
+        if (line.label && line.label->shaped &&
+            line.label->shaped->missing_glyphs)
+          note(result.unsupported, "Missing font glyphs");
         line.paragraph = paragraph;
         line.y = y;
         line.baseline += y;

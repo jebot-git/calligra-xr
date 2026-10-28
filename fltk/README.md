@@ -54,6 +54,9 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   has undo/redo, and saves ODT. Pages switches to the native page-flow view;
   Edit returns to text editing, and double-clicking a rendered line opens its
   paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.
+  Native textual lists support nested numbering/bullets, continuation, restarts,
+  headers, label styling and both ODF spacing modes. Generated labels stay out
+  of the editable source text. The same engine renders lists in Stage frames.
 - Sheets loads ODS and imports XLSX cell data, shared/inline Unicode strings,
   numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell

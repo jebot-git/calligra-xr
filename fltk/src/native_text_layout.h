@@ -24,6 +24,20 @@ struct TextSpan {
   TextFont font;
   std::optional<TextColor> color;
 };
+struct TextListLabel {
+  Text text, style;
+  int level = 1;
+  TextFont font;
+  std::optional<TextColor> color;
+  enum Alignment { Left, Right, Center, Start, End } alignment = Start;
+  enum Follow { Tab, Space, Nothing } follow = Tab;
+  bool alignment_mode = false, visible = true;
+  double space_before = 0, min_width = 18, min_distance = 0, indent = 0;
+  std::optional<double> tab_stop;
+  std::vector<double> paragraph_tabs;
+  double default_tab = 72 * 1.25 / 2.54;
+  bool relative_tabs = true;
+};
 struct TextParagraph {
   Text text, master;
   TextFont font;
@@ -36,13 +50,14 @@ struct TextParagraph {
   bool break_before = false, break_after = false;
   bool keep_together = false, keep_next = false;
   int orphans = 2, widows = 2;
+  std::optional<TextListLabel> list;
 };
 struct TextPageStyle {
   Text name, next;
   double width = 595.275590551, height = 841.88976378;
   double left = 56.692913386, right = 56.692913386;
   double top = 56.692913386, bottom = 56.692913386;
-  TextColor background{255,255,255};
+  TextColor background{255, 255, 255};
 };
 struct TextFlow {
   std::vector<TextParagraph> paragraphs;
@@ -66,6 +81,14 @@ struct TextLine {
   std::vector<TextFragment>
       fragments; // Logical source runs; shaped has visual glyph positions.
   std::shared_ptr<const struct ShapedText> shaped;
+  struct Label {
+    Text text;
+    TextFont font;
+    std::optional<TextColor> color;
+    double x = 0, width = 0; // Page/frame coordinates, independent of body x.
+    std::shared_ptr<const struct ShapedText> shaped;
+  };
+  std::optional<Label> label;
 };
 struct TextPage {
   TextPageStyle style;

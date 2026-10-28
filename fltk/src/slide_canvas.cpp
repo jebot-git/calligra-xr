@@ -252,6 +252,11 @@ struct SlideCanvas::Impl {
           if (line.shaped) {
             text_stats.glyphs += line.shaped->glyphs.size();
             text_stats.missing_glyphs += line.shaped->missing_glyphs;
+            if(line.label&&line.label->shaped) {
+              ++text_stats.labels;
+              text_stats.glyphs+=line.label->shaped->glyphs.size();
+              text_stats.missing_glyphs+=line.label->shaped->missing_glyphs;
+            }
           }
         double extra =
             std::max(0., p.text_area.height - shape.paint.padding_top -
@@ -263,6 +268,7 @@ struct SlideCanvas::Impl {
                                                                     : 0);
         for (auto &line : p.text.lines) {
           line.x += p.text_area.x + shape.paint.padding_left;
+          if(line.label)line.label->x+=p.text_area.x+shape.paint.padding_left;
           line.y += y;
           line.baseline += y;
         }
@@ -453,6 +459,10 @@ struct SlideCanvas::Impl {
             baseline.e = line.x;
             baseline.f = line.baseline;
             glyphs.draw(*line.shaped, transform * baseline, {r, g, b}, *window);
+            if(line.label&&line.label->shaped) {
+              baseline.e=line.label->x;
+              glyphs.draw(*line.label->shaped,transform*baseline,{r,g,b},*window);
+            }
           }
         glPopAttrib();
       }

@@ -943,20 +943,31 @@ public:
             data["text"] = buffer_text();
         if (kind == Kind::Words) {
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
-            for (const auto& page : text_pages->pagination.pages)
+            Json labels=Json::array();size_t page_index=0;
+            for (const auto& page : text_pages->pagination.pages) {
                 for (const auto& line : page.lines)
                     if (line.shaped) {
                         ++shaped_lines;
                         glyphs += line.shaped->glyphs.size();
                         missing += line.shaped->missing_glyphs;
+                        if(line.label&&line.label->shaped) {
+                            glyphs+=line.label->shaped->glyphs.size();
+                            missing+=line.label->shaped->missing_glyphs;
+                            labels.push_back({{"text",utf8(line.label->text)},{"page",page_index},{"paragraph",line.paragraph},
+                                {"x",line.label->x},{"baseline",line.baseline},{"width",line.label->width},{"size",line.label->font.size},
+                                {"page_width",page.style.width},{"page_height",page.style.height}});
+                        }
                     }
+                ++page_index;
+            }
             data["page_layout"]
                 = { { "visible", page_view }, { "pages", text_pages->pagination.pages.size() },
                       { "page", text_pages->current_page() + 1 },
                       { "render_error", text_pages->render_error() },
                       { "rasterizations", text_pages->rasterizations() },
                       { "shaped_lines", shaped_lines }, { "glyphs", glyphs },
-                      { "missing_glyphs", missing } };
+                      { "missing_glyphs", missing }, { "list_labels",labels },
+                      { "viewport",{text_pages->x(),text_pages->y(),text_pages->w(),text_pages->h()} } };
         }
         if (kind == Kind::Stage) {
             const auto& model = stage->scene(slide);
@@ -989,6 +1000,7 @@ public:
                 { "geometry_points", canvas->geometry_points() },
                 { "render_error", canvas->render_error() }, { "unsupported", unsupported },
                 { "shaped_lines", text.lines }, { "glyphs", text.glyphs },
+                { "list_labels",text.labels },
                 { "missing_glyphs", text.missing_glyphs }, { "overflow_frames", text.overflow_frames },
                 { "viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()} } };
         }

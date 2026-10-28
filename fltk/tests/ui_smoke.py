@@ -414,6 +414,49 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             assert not data()['scene']['render_error'] and invalid_handles.read_bytes()==original_invalid
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: invalid live handle geometry rolls back the whole drag and keeps the source unchanged',flush=True)
+        list_words=fixtures/'lists.odt';list_stage=fixtures/'lists.odp'
+        subprocess.run([str(args.test_bin_dir/'calligra-native-list-test'),'--fixture',str(list_words),str(list_stage)],env=env,check=True)
+        for app,doc in [('words',list_words),('stage',list_stage)]:
+            report=art/f'lists-{app}.json';report.unlink(missing_ok=True);capture=art/f'lists-{app}.ppm'
+            with zipfile.ZipFile(doc) as z:before_list=z.read('content.xml');before_styles=z.read('styles.xml');before_payload=z.read('extra/retained.bin')
+            with (art/f'lists-{app}.log').open('w') as log:
+                command=[str(args.bin_dir.resolve()/f'calligra-{app}-fltk'),str(doc),'--report',str(report),'--capture',str(capture)]
+                if app=='words':command.append('--page-layout')
+                process=subprocess.Popen(command,env=env,stdout=log,stderr=log)
+                def data():return json.loads(report.read_text())
+                wait(lambda:report.exists() and capture.exists());host=wait(lambda:window(app))
+                from PIL import Image
+                picture=Image.open(capture).convert('RGB')
+                def red(pixel):r,g,b=pixel;return r>130 and r>g+50 and g<120 and b<160
+                if app=='words':
+                    layout=data()['page_layout'];labels=layout['list_labels']
+                    assert len(labels)==15 and layout['pages']>=2 and not layout['missing_glyphs'] and not layout['render_error']
+                    x,y,w,h=layout['viewport'];zoom=max(.05,min(1.5,(w-48)/max(l['page_width'] for l in labels)));checked=0
+                    for label in labels:
+                        if label['page']!=0 or label['text'] not in ('•','(1)','(7)'):continue
+                        left=x+(w-label['page_width']*zoom)/2;top=y+12
+                        bounds=(max(0,int(left+label['x']*zoom)-2),max(0,int(top+(label['baseline']-1.4*label['size'])*zoom)),min(picture.width,int(left+(label['x']+label['width'])*zoom)+3),min(picture.height,int(top+(label['baseline']+.4*label['size'])*zoom)+2))
+                        count=sum(red(pixel) for pixel in picture.crop(bounds).get_flattened_data());assert count>4,(label,count,bounds);checked+=1
+                    assert checked>=2
+                    click(host,610,25);wait(lambda:not data()['page_layout']['visible']);click(host,350,100)
+                else:
+                    scene=data()['scene'];assert scene['list_labels']==6 and not scene['missing_glyphs'] and not scene['render_error'] and not scene['overflow_frames']
+                    x,y,w,h=scene['viewport'];assert sum(red(pixel) for pixel in picture.crop((x,y,x+w,y+h)).get_flattened_data())>30
+                    click(host,350,565)
+                key('Home',('Control_L',));text('Edited ');wait(lambda:data()['text'].startswith('Edited '))
+                key('s',('Control_L',));wait(lambda:not data()['modified'])
+                if app=='words':
+                    click(host,610,25);wait(lambda:data()['page_layout']['visible'] and len(data()['page_layout']['list_labels'])==15)
+                else:
+                    key('z',('Control_L',));wait(lambda:not data()['text'].startswith('Edited ') and data()['scene']['list_labels']==6)
+                    key('y',('Control_L',));wait(lambda:data()['text'].startswith('Edited ') and not data()['modified'])
+                whitespace={'{urn:oasis:names:tc:opendocument:xmlns:text:1.0}'+name for name in ('s','tab','line-break')}
+                def structure(e):return e.tag,tuple(sorted(e.attrib.items())),tuple(structure(c) for c in e if c.tag not in whitespace)
+                with zipfile.ZipFile(doc) as z:
+                    assert structure(ET.fromstring(z.read('content.xml')))==structure(ET.fromstring(before_list))
+                    assert b'Edited' in z.read('content.xml') and z.read('styles.xml')==before_styles and z.read('extra/retained.bin')==before_payload
+                key('q',('Control_L',));assert process.wait(timeout=10)==0
+                print('PASS:',app,'native list glyphs, numbering/reflow, source offsets and XML-preserving edit/save',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

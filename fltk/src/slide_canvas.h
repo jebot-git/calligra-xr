@@ -4,7 +4,7 @@
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 struct SceneTextStats {
-  size_t lines = 0, glyphs = 0, missing_glyphs = 0, overflow_frames = 0;
+  size_t lines = 0, glyphs = 0, missing_glyphs = 0, overflow_frames = 0, labels = 0;
   std::vector<Text> unsupported;
 };
 class SlideCanvas : public Fl_Widget {
