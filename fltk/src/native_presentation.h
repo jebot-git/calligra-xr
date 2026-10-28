@@ -34,8 +34,9 @@ struct SceneContour {
   std::vector<ScenePoint> points;
   bool closed = false;
 };
+struct ScenePath;
 struct SceneShape {
-  enum Kind { Frame, Rectangle, Ellipse, Polygon, Polyline, Line } kind = Frame;
+  enum Kind { Frame, Rectangle, Ellipse, Polygon, Polyline, Line, Path } kind = Frame;
   Text name, text, image;
   SceneTransform transform;
   ScenePaint paint;
@@ -43,6 +44,8 @@ struct SceneShape {
   Text paragraph_style;
   double width = 0, height = 0;
   std::vector<SceneContour> contours;
+  std::shared_ptr<const ScenePath> path;
+  SceneTransform path_map;
   int editor_index = -1;
   bool master = false;
   SceneRect bounds() const;

@@ -19,6 +19,7 @@ public:
   void reset();
   const std::string &render_error() const;
   size_t rendered_shapes() const;
+  size_t geometry_points() const;
   const SceneTextStats &text_stats() const;
   int handle(int) override;
 

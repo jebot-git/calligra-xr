@@ -264,6 +264,24 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                         assert any(e.attrib.get('{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name')=='Red' for e in xml.iter())
                 key('q',('Control_L',));assert process.wait(timeout=10)==0
                 print('PASS:',app,'native rich-text colors, paper/frame layout and retained styles',flush=True)
+        paths=fixtures/'paths.odp';report=art/'paths.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-path-test'),'--fixture',str(paths)],env=env,check=True)
+        original=paths.read_bytes()
+        with (art/'paths.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-stage-fltk'),str(paths),'--report',str(report),'--capture',str(art/'paths.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists() and (art/'paths.ppm').exists())
+            scene=data()['scene'];assert scene['rendered_shapes']==9 and not scene['render_error'] and not scene['unsupported']
+            subprocess.run([sys.executable,str(ROOT/'fltk/tests/path_pixels.py'),str(art/'paths.ppm'),str(report)],check=True)
+            host=wait(lambda:window('stage'));host.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync()
+            initial_points=scene['geometry_points'];initial_view=scene['viewport']
+            key('F5');wait(lambda:data()['scene']['geometry_points']>initial_points)
+            fullscreen_points=data()['scene']['geometry_points']
+            assert not data()['scene']['render_error']
+            key('Escape');wait(lambda:data()['scene']['viewport']==initial_view)
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            assert paths.read_bytes()==original
+            print('PASS: Stage curve fills/holes, rounded and partial ellipses, adaptive fullscreen geometry',initial_points,'to',fullscreen_points,'points, and unchanged source',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

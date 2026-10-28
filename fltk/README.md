@@ -75,7 +75,16 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   layout uses native shaping, bidi, wrapping, margins, spacing and line heights,
   independent side padding and top/middle/bottom alignment. Overflow remains a
   continuous flow clipped by the frame rather than a paginated first-page preview.
-  Lists/tables, text auto-growth/fit, vertical writing, custom/path shapes, rounded corners, advanced strokes/fills,
+  SVG path data in ODP retains move/line, cubic/quadratic Bézier, shorthand and
+  elliptical arc commands, compound subpaths and closure. Exact curve bounds,
+  viewBox mapping, nonzero/even-odd fills and inverse hit tests use the native
+  geometry model. GPU contours refine to a quarter device pixel as the viewport
+  or pixel density changes. Rounded rectangles and full/arc/chord/pie ellipses
+  use the same curve model. Open subpaths close for fills while remaining open
+  for strokes. Input paths are bounded to 16,384 segments/subpaths, one MiB of
+  data and 16,384 flattened points per path; a slide has a million-point display
+  budget. GLU fill output remains bounded to 300,000 triangle vertices per shape.
+  Lists/tables, text auto-growth/fit, vertical writing, custom shapes, advanced strokes/fills,
   master placeholder fields and animation/timing still require a full port.
 
 Office imports support Transitional and Strict namespaces and are content/data

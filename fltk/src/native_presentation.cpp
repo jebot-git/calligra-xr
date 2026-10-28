@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_presentation.h"
+#include "native_path.h"
 #include <charconv>
 #include <cmath>
 #include <numbers>
@@ -508,14 +509,28 @@ struct Catalog {
               editor_ids.at(path + "/" + std::to_string(item.order));
       } else if (name == "rect") {
         shape.kind = SceneShape::Rectangle;
-        if (node.hasAttributeNS(DRAW, "corner-radius"))
-          note(slide.unsupported, "Rounded rectangles");
+        double rx = length(node.attributeNS(DRAW, "corner-radius"));
+        double ry = rx;
+        if (node.hasAttributeNS(SVG, "rx"))
+          rx = length(node.attributeNS(SVG, "rx"));
+        if (node.hasAttributeNS(SVG, "ry"))
+          ry = length(node.attributeNS(SVG, "ry"));
+        else if (node.hasAttributeNS(SVG, "rx"))
+          ry = rx;
+        if (node.hasAttributeNS(SVG, "ry") && !node.hasAttributeNS(SVG, "rx") &&
+            !node.hasAttributeNS(DRAW, "corner-radius"))
+          rx = ry;
+        if (rx < 0 || ry < 0)
+          fail("Negative rectangle corner radius");
+        if (rx > 0 && ry > 0)
+          shape.path = std::make_shared<ScenePath>(
+              rounded_rectangle_path(shape.width, shape.height, rx, ry));
       } else if (name == "ellipse" || name == "circle") {
         shape.kind = SceneShape::Ellipse;
-        if (node.attributeNS(DRAW, "kind", "full") != "full") {
-          note(slide.unsupported, "Partial ellipses and pie shapes");
-          continue;
-        }
+        auto kind = node.attributeNS(DRAW, "kind", "full");
+        if (kind != "full" && kind != "arc" && kind != "cut" &&
+            kind != "section")
+          fail("Invalid ellipse kind");
         if (node.hasAttributeNS(SVG, "r"))
           shape.width = shape.height = 2 * length(node.attributeNS(SVG, "r"));
         else if (node.hasAttributeNS(SVG, "rx") &&
@@ -534,6 +549,46 @@ struct Catalog {
               parse_scene_transform(node.attributeNS(DRAW, "transform")) *
               offset;
         }
+        double start = 0, sweep = 360;
+        if (kind != "full") {
+          auto degrees = [&](const Text &value) {
+            Scanner input(value);
+            double n = input.number();
+            if (!input.done())
+              fail("Invalid ellipse angle");
+            return n;
+          };
+          start = degrees(node.attributeNS(DRAW, "start-angle", "0"));
+          double end = degrees(node.attributeNS(DRAW, "end-angle", "360"));
+          sweep = std::fmod(end - start, 360);
+          if (sweep <= 0)
+            sweep += 360;
+        }
+        auto closure = kind == "arc"       ? EllipseClosure::Open
+                       : kind == "section" ? EllipseClosure::Pie
+                                           : EllipseClosure::Chord;
+        shape.path = std::make_shared<ScenePath>(
+            ellipse_path(shape.width, shape.height, start, sweep, closure));
+      } else if (name == "path") {
+        shape.kind = SceneShape::Path;
+        if (!node.hasAttributeNS(SVG, "d"))
+          fail("Path data is missing");
+        shape.path = std::make_shared<ScenePath>(
+            parse_svg_path(node.attributeNS(SVG, "d")));
+        auto view = node.attributeNS(SVG, "viewBox");
+        if (!view.empty()) {
+          Scanner values(view);
+          auto x = values.number(), y = values.number(), w = values.number(),
+               h = values.number();
+          if (!values.done() || w <= 0 || h <= 0)
+            fail("Invalid path viewBox");
+          shape.path_map = {shape.width / w,
+                            0,
+                            0,
+                            shape.height / h,
+                            -x * shape.width / w,
+                            -y * shape.height / h};
+        }
       } else if (name == "polygon" || name == "polyline") {
         shape.kind =
             name == "polygon" ? SceneShape::Polygon : SceneShape::Polyline;
@@ -551,11 +606,15 @@ struct Catalog {
                                     length(node.attributeNS(SVG, "y2"))}},
                                   false});
       } else {
-        note(slide.unsupported,
-             "Custom shapes, paths, connectors and 3D objects");
+        note(slide.unsupported, "Custom shapes, connectors and 3D objects");
         continue;
       }
-      if (shape.contours.empty()) {
+      if (shape.path) {
+        path_bounds(*shape.path, shape.transform * shape.path_map);
+        shape.contours =
+            flatten_path(*shape.path, shape.path_map, shape.transform, .1);
+      }
+      if (shape.contours.empty() && !shape.path) {
         std::vector<ScenePoint> points;
         if (shape.kind == SceneShape::Ellipse) {
           for (int i = 0; i < 96; ++i) {
@@ -741,6 +800,8 @@ SceneTransform parse_scene_transform(const Text &value) {
   return result;
 }
 SceneRect SceneShape::bounds() const {
+  if (path)
+    return path_bounds(*path, transform * path_map);
   double left = INFINITY, top = INFINITY, right = -INFINITY, bottom = -INFINITY;
   for (const auto &c : contours)
     for (auto p : c.points) {
@@ -764,7 +825,7 @@ bool SceneShape::hit(ScenePoint point) const {
   int winding = 0;
   for (const auto &contour : contours) {
     auto n = contour.points.size();
-    if (contour.closed && paint.fill)
+    if (n >= 3 && paint.fill)
       for (size_t i = 0, j = n - 1; i < n; j = i++) {
         auto a = contour.points[i], b = contour.points[j];
         if ((a.y > p.y) != (b.y > p.y) &&

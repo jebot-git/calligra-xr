@@ -917,6 +917,7 @@ public:
                 { "height", model.height }, { "shapes", model.shapes.size() },
                 { "master_shapes", masters }, { "editable_frames", model.editable_sources.size() },
                 { "selected_frame", box }, { "rendered_shapes", canvas->rendered_shapes() },
+                { "geometry_points", canvas->geometry_points() },
                 { "render_error", canvas->render_error() }, { "unsupported", unsupported },
                 { "shaped_lines", text.lines }, { "glyphs", text.glyphs },
                 { "missing_glyphs", text.missing_glyphs }, { "overflow_frames", text.overflow_frames },

@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus eight native calculation/matrix/text/scene regression suites. Actual
+assertions retained, plus nine native calculation/matrix/text/scene regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -93,6 +93,22 @@ verify text-frame overflow clipping and bottom alignment. Keyboard tests edit
 the rich Stage frame and inspect retained style names and original styles.xml.
 Eleven Release and ASan/UBSan document suites pass; these checks do not establish
 full typography, structured text editing or full office-suite parity.
+
+The native path suite covers all SVG path commands, relative/repeated numbers,
+reflected controls, compact arc flags, radius correction/degeneracies, analytic
+Bézier/arc bounds, adaptive refinement, nonzero/even-odd compound hit testing,
+implicit fill closure, rounded rectangles and partial ellipses. It checks ODP
+geometry/text edits and source-style preservation, malformed paths/viewBoxes
+and failed-load rollback. `path_reference.py` compares 44 fixed/seeded curves
+against independent svgpathtools samples under affine transformation, checking
+bounds and a .02-unit approximation tolerance. `path_producer.py` independently
+creates ODP path data with an offset, nonuniform viewBox and a rounded rectangle.
+Framebuffer samples check curved fills/exteriors, holes, rounded corners and
+pie/chord geometry on X11 and native Wayland. The keyboard test enters/exits
+fullscreen, verifies increased curve refinement and checks unchanged source
+bytes. Twelve Release and ASan/UBSan document suites pass. These are geometry
+subset checks; custom/enhanced shapes, advanced stroke/paint and shape editing
+remain incomplete.
 
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or

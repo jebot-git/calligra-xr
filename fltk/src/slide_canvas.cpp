@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "slide_canvas.h"
+#include "native_path.h"
 #include "suite/fltk_appearance.h"
 #include <FL/Fl_JPEG_Image.H>
 #include <FL/Fl_PNG_Image.H>
@@ -89,7 +90,8 @@ struct Tess {
   static void failed(GLenum code, void *data) {
     static_cast<Tess *>(data)->error = code;
   }
-  static std::vector<ScenePoint> make(const SceneShape &shape) {
+  static std::vector<ScenePoint> make(const std::vector<SceneContour> &contours,
+                                      bool even_odd) {
     Tess data;
     std::unique_ptr<GLUtesselator, decltype(&gluDeleteTess)> tess(
         gluNewTess(), gluDeleteTess);
@@ -104,12 +106,11 @@ struct Tess {
     gluTessCallback(tess.get(), GLU_TESS_ERROR_DATA,
                     reinterpret_cast<_GLUfuncptr>(failed));
     gluTessProperty(tess.get(), GLU_TESS_WINDING_RULE,
-                    shape.paint.even_odd ? GLU_TESS_WINDING_ODD
-                                         : GLU_TESS_WINDING_NONZERO);
+                    even_odd ? GLU_TESS_WINDING_ODD : GLU_TESS_WINDING_NONZERO);
     gluTessNormal(tess.get(), 0, 0, 1);
     gluTessBeginPolygon(tess.get(), &data);
-    for (const auto &contour : shape.contours)
-      if (contour.closed) {
+    for (const auto &contour : contours)
+      if (contour.points.size() >= 3) {
         gluTessBeginContour(tess.get());
         for (auto p : contour.points) {
           data.vertices.push_back({p.x, p.y, 0});
@@ -148,6 +149,7 @@ struct SlideCanvas::Impl {
   const SlideScene *current = nullptr;
   uint64_t revision = UINT64_MAX, font_revision = UINT64_MAX;
   struct Prepared {
+    std::vector<SceneContour> contours;
     std::vector<ScenePoint> triangles;
     TextBoxLayout text;
   };
@@ -164,6 +166,8 @@ struct SlideCanvas::Impl {
   Fl_Gl_Window *window = nullptr;
   std::string error;
   size_t rendered = 0;
+  size_t geometry_points = 0;
+  double geometry_x = NAN, geometry_y = NAN;
   SceneTextStats text_stats;
   void clear_images() {
     if (window && context && window->context() == context) {
@@ -176,9 +180,11 @@ struct SlideCanvas::Impl {
     picture_bytes = 0;
   }
   ~Impl() { clear_images(); }
-  void prepare(const SlideScene &model, uint64_t version) {
+  void prepare(const SlideScene &model, uint64_t version, double scale_x,
+               double scale_y) {
     if (current == &model && revision == version &&
-        font_revision == dx::font_revision)
+        font_revision == dx::font_revision && geometry_x == scale_x &&
+        geometry_y == scale_y)
       return;
     if (font_revision != dx::font_revision)
       shaper = NativeTextShaper(
@@ -186,11 +192,22 @@ struct SlideCanvas::Impl {
     current = nullptr;
     prepared.clear();
     text_stats = {};
+    geometry_points = 0;
     error.clear();
     for (const auto &shape : model.shapes) {
       Prepared p;
+      p.contours = shape.path
+                       ? flatten_path(*shape.path, shape.path_map,
+                                      SceneTransform{scale_x, 0, 0, scale_y} *
+                                          shape.transform)
+                       : shape.contours;
+      for (const auto &contour : p.contours)
+        geometry_points += contour.points.size();
+      if (geometry_points > 1000000)
+        throw std::runtime_error(
+            "Slide geometry exceeds the display point limit");
       if (shape.paint.fill)
-        p.triangles = Tess::make(shape);
+        p.triangles = Tess::make(p.contours, shape.paint.even_odd);
       if (!shape.text.empty() &&
           shape.width > shape.paint.padding_left + shape.paint.padding_right &&
           shape.height > shape.paint.padding_top + shape.paint.padding_bottom) {
@@ -231,6 +248,8 @@ struct SlideCanvas::Impl {
     current = &model;
     revision = version;
     font_revision = dx::font_revision;
+    geometry_x = scale_x;
+    geometry_y = scale_y;
   }
   GLuint picture(const Text &name, const Bytes &bytes) {
     if (auto found = pictures.find(name); found != pictures.end())
@@ -356,7 +375,7 @@ struct SlideCanvas::Impl {
         scene_color(shape.paint.stroke_color);
         double r = shape.paint.stroke_width / 2;
         glBegin(GL_QUADS);
-        for (const auto &c : shape.contours)
+        for (const auto &c : cached.contours)
           for (size_t j = 1; j < c.points.size() + (c.closed ? 1 : 0); ++j) {
             auto a = c.points[j - 1], b = c.points[j % c.points.size()];
             double dx = b.x - a.x, dy = b.y - a.y, n = std::hypot(dx, dy);
@@ -431,6 +450,7 @@ void SlideCanvas::reset() {
 }
 const std::string &SlideCanvas::render_error() const { return impl_->error; }
 size_t SlideCanvas::rendered_shapes() const { return impl_->rendered; }
+size_t SlideCanvas::geometry_points() const { return impl_->geometry_points; }
 const SceneTextStats &SlideCanvas::text_stats() const {
   return impl_->text_stats;
 }
@@ -450,8 +470,13 @@ void SlideCanvas::draw() {
   fl_rectf(x(), y(), w(), h());
   try {
     const auto &model = scene();
-    impl_->prepare(model, revision());
-    impl_->draw(model, screen_transform(model), *this);
+    auto transform = screen_transform(model);
+    auto host = dynamic_cast<Fl_Gl_Window *>(window());
+    if (!host)
+      throw std::runtime_error("Slide rendering requires an OpenGL window");
+    impl_->prepare(model, revision(), transform.a * host->pixel_w() / host->w(),
+                   transform.d * host->pixel_h() / host->h());
+    impl_->draw(model, transform, *this);
   } catch (const std::exception &e) {
     impl_->error = e.what();
     fl_font(dx::font, dx::size);
