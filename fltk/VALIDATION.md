@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus four native calculation/matrix regression suites. Actual
+assertions retained, plus five native calculation/matrix/text-layout regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -28,6 +28,19 @@ edits and round-trips them. The keyboard flow imports an XLSX matrix workbook,
 edits an input, checks dependent recalculation, saves ODS and independently
 inspects the declared matrix spans and each expected result cache. This does
 not establish dynamic-array, data-table or complete XLSX support.
+
+The native text-layout suite checks physical page dimensions/margins, common
+and automatic style inheritance, percentage font sizes, styled inline runs,
+master continuation, explicit page breaks, keep-together/keep-with-next,
+widows/orphans, alignment, blank/hard-broken lines, Unicode combining/emoji
+boundaries, invalid geometry/metrics/styles and bounded resources. A 20,000-line
+paragraph produces 5,000 pages without wrapping the remaining text again on
+each page. An independent odfpy producer checks import/edit/save of a styled
+two-page document. The keyboard test switches between Pages/Edit, navigates
+pages, edits and reflows paragraphs, then independently reads saved ODT text
+and verifies the original styles.xml bytes. Rendered captures are reviewed in
+addition to checking page counts; green model tests alone do not prove display
+fidelity. Complex script, full font/shape/table layout and printing remain gaps.
 
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or

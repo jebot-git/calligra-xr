@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "native_limits.h"
 #include "suite/desktop-menu.h"
 #include "suite/gpu-window.h"
 #include "text_documents.h"
+#include "text_page_canvas.h"
 #include "workbook.h"
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Choice.H>
@@ -15,7 +17,6 @@
 #include <FL/Fl_Table.H>
 #include <FL/Fl_Text_Editor.H>
 #include <FL/platform.H>
-#include "native_limits.h"
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -38,7 +39,7 @@ std::string column_name(int column)
 struct Options {
     std::string file, report, capture;
     int duration = 0;
-    bool present = false;
+    bool present = false, pages = false;
 };
 class Office;
 class Window : public dx::GpuWindow {
@@ -66,7 +67,8 @@ enum Command {
     Present,
     Next,
     Previous,
-    About
+    About,
+    PageLayout
 };
 class Grid : public Fl_Table {
 public:
@@ -264,6 +266,10 @@ public:
     std::unique_ptr<Presentation> stage;
     Fl_Text_Buffer buffer;
     Fl_Text_Editor* editor = nullptr;
+    TextPageCanvas* text_pages = nullptr;
+    Fl_Button* page_button = nullptr;
+    bool page_view = false;
+    uint64_t text_font_revision = 0;
     Grid* grid = nullptr;
     Fl_Input* formula = nullptr;
     Fl_Choice* sheets = nullptr;
@@ -316,6 +322,8 @@ public:
         add("&Edit/&Copy", FL_CTRL + 'c', Copy);
         add("&Edit/&Paste", FL_CTRL + 'v', Paste);
         add("&Edit/Select &all", FL_CTRL + 'a', SelectAll);
+        if (kind == Kind::Words)
+            add("&View/&Page layout", 0, PageLayout);
         if (kind == Kind::Sheets)
             add("&Sheet/&Add worksheet…", 0, AddSheet);
         if (kind == Kind::Stage) {
@@ -384,6 +392,20 @@ public:
             editor = new Fl_Text_Editor(28, 66, 1044, 668);
             editor->buffer(&buffer);
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
+            text_pages = new TextPageCanvas(28, 66, 1044, 668);
+            text_pages->hide();
+            text_pages->edit_paragraph = [this](size_t paragraph) {
+                guard([&] {
+                    auto flow = words->flow();
+                    size_t offset = 0;
+                    for (size_t i = 0; i < paragraph; ++i)
+                        offset += flow.paragraphs.at(i).text.toUtf8().size() + 1;
+                    command(PageLayout);
+                    editor->insert_position(int(offset));
+                    editor->show_insert_position();
+                    editor->take_focus();
+                });
+            };
             content->resizable(editor);
         } else {
             slides = new Fl_Hold_Browser(12, 62, 170, 674);
@@ -431,6 +453,10 @@ public:
             present->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(Present); }, this);
         }
         content->end();
+        if (kind == Kind::Words) {
+            page_button = new Fl_Button(560, 10, 100, 32, "Pages");
+            page_button->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(PageLayout); }, this);
+        }
         status = new Fl_Box(12, 750, 1076, 24);
         status->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
         window.end();
@@ -550,6 +576,8 @@ public:
         } else if (kind == Kind::Words) {
             words = std::make_unique<TextDocument>();
             fill_buffer(words->text());
+            if (page_view)
+                refresh_pages();
         } else {
             stage = std::make_unique<Presentation>();
             refresh_stage();
@@ -646,6 +674,12 @@ public:
             && stage->slide(slide).boxes[box].image.isEmpty())
             stage->set_box_text(slide, box, text);
     }
+    void refresh_pages()
+    {
+        commit_text();
+        text_pages->set_pagination(words->paginate(TextPageCanvas::measure));
+        text_font_revision = dx::font_revision;
+    }
     void refresh_stage()
     {
         auto current = stage->slide(slide);
@@ -686,6 +720,8 @@ public:
             fresh->load(qs(path.c_str()));
             words = std::move(fresh);
             fill_buffer(words->text());
+            if (page_view)
+                refresh_pages();
         } else {
             auto fresh = std::make_unique<Presentation>();
             fresh->load(qs(path.c_str()));
@@ -766,6 +802,23 @@ public:
                     : kind == Kind::Words ? std::string("*.{odt,docx,ODT,DOCX}") : std::string("*.{odp,pptx,ODP,PPTX}");
                 if (auto* name = fl_file_chooser("Open document", filter.c_str(), file.c_str()))
                     load(name);
+            } else if (c == PageLayout && kind == Kind::Words) {
+                if (!page_view)
+                    refresh_pages();
+                page_view = !page_view;
+                if (page_view) {
+                    editor->hide();
+                    text_pages->show();
+                    text_pages->take_focus();
+                    content->resizable(text_pages);
+                } else {
+                    text_pages->hide();
+                    editor->show();
+                    editor->take_focus();
+                    content->resizable(editor);
+                }
+                page_button->label(page_view ? "Edit" : "Pages");
+                window.redraw();
             } else if (c == Save || c == SaveAs)
                 save(c == SaveAs);
             else if (c == Quit) {
@@ -791,6 +844,8 @@ public:
                     updating = true;
                     buffer.text(history[history_index].c_str());
                     updating = false;
+                    if (page_view)
+                        refresh_pages();
                 }
                 modified = true;
                 title();
@@ -918,6 +973,10 @@ public:
                 { "value", utf8(workbook->display(sheet, grid->selected_col + 1, grid->selected_row + 1)) } };
         else
             data["text"] = buffer_text();
+        if (kind == Kind::Words)
+            data["page_layout"] = { { "visible", page_view }, { "pages", text_pages->pagination.pages.size() },
+                { "page", text_pages->current_page() + 1 }, { "render_error", text_pages->render_error() },
+                { "rasterizations", text_pages->rasterizations() } };
         std::ofstream(options.report) << data.dump(2) << '\n';
     }
     void capture()
@@ -946,7 +1005,10 @@ public:
     static void tick(void* data)
     {
         auto* self = static_cast<Office*>(data);
-
+        if (self->page_view && self->text_font_revision != dx::font_revision) {
+            self->text_font_revision = dx::font_revision;
+            self->guard([&] { self->refresh_pages(); });
+        }
         self->report();
         if (self->window.shown())
             Fl::repeat_timeout(.1, tick, data);
@@ -1004,6 +1066,8 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
             };
             if (arg == "--present" && kind == Kind::Stage)
                 options.present = true;
+            else if (arg == "--page-layout" && kind == Kind::Words)
+                options.pages = true;
             else if (arg == "--quit-after-ms")
                 options.duration = std::stoi(value());
             else if (arg == "--capture")
@@ -1012,7 +1076,7 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
                 options.report = value();
             else if (arg == "--help") {
                 std::cout << "Calligra FLTK [FILE] [--report JSON] [--capture PPM] "
-                             "[--quit-after-ms N]\n";
+                             "[--quit-after-ms N] [--page-layout (Words)]\n";
                 return 0;
             } else if (arg.starts_with("--"))
                 throw std::runtime_error("Unknown argument " + arg);
@@ -1028,6 +1092,8 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
         Office office(kind, options);
         if (options.present)
             office.command(Present);
+        if (options.pages)
+            office.command(PageLayout);
         if (!options.capture.empty())
             Fl::add_timeout(1.5, [](void* p) { static_cast<Office*>(p)->capture(); }, &office);
         if (options.duration)

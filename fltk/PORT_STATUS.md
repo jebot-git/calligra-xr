@@ -5,17 +5,19 @@ paths now use native C++20, libxml2, libzip and the installed system FLTK. They
 require no Qt or KDE headers/libraries. The upstream Qt/KDE build remains an
 explicit opt-in. No fake Qt shared library or static Qt copy is used.
 
-The original Words paginated layout and Stage shape/animation stacks remain
-unported; the native paragraph/slide engines retain the existing basic editing
-scope. Sheets now uses a native parser/evaluator rather than the full upstream
+Words now has a native ODF style/page-flow model and an FLTK GPU page view,
+with Unicode wrapping, master continuation, keep rules and widow/orphan control.
+Its full original frame/text-layout behavior and Stage's shape/animation stacks
+remain unported; editing retains the existing basic paragraph/slide scope.
+Sheets now uses a native parser/evaluator rather than the full upstream
 engine. It now has typed arrays, 19 additional reference/lookup/matrix functions,
 fixed ODF/XLSX matrix-block recalculation and cached-result saving. Calculation status
 separates unsupported operations from ordinary errors, including through error
 handlers and dependencies. The smaller catalogue is listed in README.md. Unknown
 functions return errors and their existing package caches remain intact.
 Passing the retained document and GUI tests does not establish full function
-or office-suite parity. This limitation supersedes the previous engine-reuse
-claims below; the following assessment is historical context.
+or office-suite parity. The assessment below distinguishes implemented native
+behavior from the remaining full port.
 
 ---
 
@@ -28,11 +30,11 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts | Full IME/preedit validation, accessibility, session recovery, printing/export UI, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, Unicode, whitespace, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Port KWDocument, KoText/textlayout and frame layout; pages, rich formatting controls, tables, lists, headers/footers, footnotes, images/anchors, styles, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, Unicode line/grapheme wrapping, native pagination and GPU page view, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; complete font/shaping/bidirectional fidelity, rich formatting controls, table/list/section layout, columns, headers/footers, notes, images/anchors, full styles, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, ODP slides, text frames, PNG/JPEG/SVG preview, frame text edits, slide insert/delete, presentation navigation, package preservation | Port KPrDocument, KoPADocument and Flake; theme/master-page resolution, shape tools, arbitrary groups/transforms, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
-| Rendering | Main windows and content widgets use FLTK's GL driver; native Wayland GPU tests passed | Proper Words pagination display lists, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
+| Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
 ## Architecture findings
 
@@ -45,9 +47,11 @@ separate, unfinished requirements.
 
 Words' KWDocument uses KoDocument, KoShapeBasedDocumentBase, frame management,
 QTextDocument-based text layout and the Flake shape system. Its existing widget
-interfaces cannot simply be linked into an FLTK window. The current paragraph
-adapter preserves ODF structures while providing editable text; it does not run
-Words' original layout engine and must not be presented as layout parity.
+interfaces cannot simply be linked into an FLTK window. The native paragraph/
+style model and page-flow engine now implement basic text pagination without
+those classes. Original KoParagraphStyle and KoTextLayoutArea behaviors guide
+keep/break/widow/orphan handling, but advanced frame/shape/text behavior remains
+unported. The current engine must not be presented as full layout parity.
 
 Stage's KPrDocument derives from KoPADocument, with KoPAPage/Flake shape objects,
 master pages and animation plugins. The current FLTK canvas reads frame geometry
@@ -72,11 +76,14 @@ not imply correct display or editing support.
 
 ## Current editing limits
 
-Words displays paragraphs rather than paginated layout. It preserves span/link
+Words provides text editing and a separate native paginated view. It preserves span/link
 attributes during text edits, but structural edits in nested tables/lists and
 paragraphs containing embedded objects are intentionally restricted. Mixed
 inline line breaks and paragraph breaks need a richer editing model. Undo
-history is bounded to 100 text states and a 32 MiB history budget.
+history is bounded to 100 text states and a 32 MiB history budget. The page view
+does not implement direct rich editing, complete script/font fidelity or the
+advanced structural layout listed above. Missing document fonts fall back to
+the session font; stored font/style declarations remain unchanged.
 
 Sheets currently uses the calculation layer's textual display, not the original
 style-aware formatter. Do not expect date/currency styles, images, merged

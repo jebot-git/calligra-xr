@@ -152,6 +152,46 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 key('s',('Control_L',));time.sleep(.2);assert not chooser()
                 key('q',('Control_L',));assert process.wait(timeout=10)==0
                 print('PASS:',source_ext.upper(),'import, editing, Ctrl+S conversion and unchanged source',flush=True)
+        flow=fixtures/'flow.odt';report=art/'text-layout.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-text-layout-test'),'--fixture',str(flow)],env=env,check=True,stdout=subprocess.DEVNULL)
+        with zipfile.ZipFile(flow) as archive:original_styles=archive.read('styles.xml')
+        with (art/'text-layout.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-words-fltk'),str(flow),'--page-layout','--report',str(report),'--capture',str(art/'text-layout.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists() and data()['page_layout']['visible'] and data()['page_layout']['pages']==2)
+            host=wait(lambda:window('words'));host.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync()
+            wait(lambda:(art/'text-layout.ppm').exists())
+            assert not data()['page_layout']['render_error']
+            host.configure(width=900,height=700);xd.sync();time.sleep(.2)
+            key('End');wait(lambda:data()['page_layout']['page']==2)
+            key('Home');wait(lambda:data()['page_layout']['page']==1)
+            time.sleep(.2);cached=data()['page_layout']['rasterizations'];assert cached>0
+            key('Home');time.sleep(.2);assert data()['page_layout']['rasterizations']==cached
+            host.configure(width=1100,height=780);xd.sync();time.sleep(.2)
+            click(host,610,26);wait(lambda:not data()['page_layout']['visible'])
+            click(host,350,100);key('a',('Control_L',));text('Changed title');key('Return');text('Body text');key('Return');text('Next page')
+            wait(lambda:data()['text']=='Changed title\nBody text\nNext page')
+            click(host,610,26);wait(lambda:data()['page_layout']['visible'] and data()['page_layout']['pages']==2)
+            assert not data()['page_layout']['render_error']
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            with zipfile.ZipFile(flow) as archive:
+                assert archive.read('styles.xml')==original_styles
+                content=ET.fromstring(archive.read('content.xml'))
+                text_ns='{urn:oasis:names:tc:opendocument:xmlns:text:1.0}'
+                paragraphs=[e for e in content.iter() if e.tag in (text_ns+'p',text_ns+'h')]
+                def odf_text(e):
+                    result=e.text or ''
+                    for item in e:
+                        if item.tag==text_ns+'s':result+=' '*int(item.get(text_ns+'c','1'))
+                        elif item.tag==text_ns+'tab':result+='\t'
+                        elif item.tag==text_ns+'line-break':result+='\n'
+                        else:result+=odf_text(item)
+                        result+=item.tail or ''
+                    return result
+                assert [odf_text(e) for e in paragraphs]==['Changed title','Body text','Next page']
+                assert paragraphs[2].get(text_ns+'style-name')=='NewPage'
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: Words native page layout, page navigation, text editing, reflow and style-preserving ODT save',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:
@@ -159,6 +199,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 def data():return json.loads(report.read_text())
                 wait(lambda:report.exists());host=wait(lambda:window(app));assert not data()['qt_widgets']
                 address=data()['desktop_menu'];layout=subprocess.check_output(['gdbus','call','--session','--dest',address['service'],'--object-path',address['path'],'--method','com.canonical.dbusmenu.GetLayout','0','2','[]'],text=True);assert 'Save' in layout and 'Undo' in layout
+                if app=='words':assert 'Page layout' in layout
                 if app=='sheets':
                     click(host,410,74);key('a',('Control_L',));text('40');key('Return');key('Right')
                     wait(lambda:data()['cell']['value']=='70');key('z',('Control_L',));wait(lambda:data()['cell']['value']=='52');key('z',('Control_L','Shift_L'));wait(lambda:data()['cell']['value']=='70')

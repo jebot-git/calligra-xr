@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "native_text_layout.h"
 #include "odf_package.h"
 namespace DomeOffice {
 class TextDocument {
@@ -9,6 +10,8 @@ public:
     void save(const Text&);
     Text text() const;
     void set_text(const Text&);
+    TextFlow flow() const { return read_text_flow(package_); }
+    TextPagination paginate(const MeasureText& measure) const { return paginate_text(flow(), measure); }
     bool imported_office() const { return imported_office_; }
     bool read_only() const { return package_.read_only(); }
 

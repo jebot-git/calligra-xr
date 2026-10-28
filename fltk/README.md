@@ -6,9 +6,9 @@ It uses the installed system FLTK shared libraries; an alternative FLTK is an
 explicit build option. Wayland remains the default, with X11 as an opt-in.
 
 This remains a basic editing port, not the complete upstream office suite.
-Words edits paragraph text and existing inline-style runs; Stage edits slide
+Words edits paragraph text and existing inline-style runs and has a native page-flow view; Stage edits slide
 text and previews text/images; Sheets edits multiple worksheets and calculates
-formulas. The original paginated Words layout, Stage shape/animation model,
+formulas. The complete original Words frame/text-layout behavior, Stage shape/animation model,
 and full upstream spreadsheet function catalogue are not reimplemented here.
 The original Qt/KDE source remains available only through the opt-in frontend
 build. See [PORT_STATUS.md](PORT_STATUS.md).
@@ -16,7 +16,7 @@ build. See [PORT_STATUS.md](PORT_STATUS.md).
 ## Build and install
 
 Dependencies: CMake 3.29+, Ninja, a C++20 compiler, system FLTK 1.4 development
-files, OpenGL, libxml2, libzip, zlib, Fontconfig, GLib/GIO, Wayland and X11
+files, OpenGL, libxml2, libzip, zlib, Fontconfig, GLib/GIO, ICU, Wayland and X11
 headers, and nlohmann-json. No Qt, ECM, KDE, Eigen or Ixion is used by the native
 build. The system FLTK shared-library finder handles distributions whose CMake
 config exports static archives absent from their shared-devel package.
@@ -50,7 +50,9 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 
 - Words loads ODT and imports DOCX body text, paragraphs and basic tables. It
   preserves existing ODT character-style spans and links while editing runs,
-  has undo/redo, and saves ODT. It is not a paginated word processor.
+  has undo/redo, and saves ODT. Pages switches to the native page-flow view;
+  Edit returns to text editing, and double-clicking a rendered line opens its
+  paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.
 - Sheets loads ODS and imports XLSX cell data, shared/inline Unicode strings,
   numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell
@@ -75,6 +77,35 @@ Office packages and encrypted documents are rejected. XML entities/DTDs,
 excessive depth, escaping paths and external media fetches are rejected.
 Limits remain 10,000 entries, 64 MiB per entry, 256 MiB total, one million
 imported spreadsheet value cells, 100,000 imported text/shape nodes and 4,096 slides.
+
+## Native Words page flow
+
+The native C++ model reads ODF common/automatic paragraph and character styles,
+parent/default inheritance, font-size percentages, inline runs, page dimensions
+and margins, master-page continuation and explicit page breaks. Its pagination
+supports paragraph margins/indentation, line spacing, alignment/justification,
+keep-together, keep-with-next and widow/orphan thresholds. Unicode line-break
+and grapheme boundaries use [ICU](https://unicode-org.github.io/icu/userguide/boundaryanalysis/);
+forced wrapping does not split combining sequences or emoji ZWJ clusters.
+The layout retains paragraph/source offsets independently of the UTF-8 editor
+and screen zoom. Unchanged page widths reuse wrapped lines across page breaks.
+
+The FLTK page view uses a bounded GPU glyph cache. Rasterization/upload occurs
+on a cache miss, with actual bitmap ink metrics normalized to document units;
+scrolling and zoom reuse glyph textures. Unavailable document fonts fall back
+to the session's Unicode font. Session appearance changes refresh the layout.
+Font substitution and the existing bitmap adapters do not establish exact font,
+bold/italic or print fidelity. Complete complex-script shaping/bidirectional
+layout, automatic hyphenation, rich formatting controls, table/list/section
+layout, columns, notes, headers/footers, anchored shapes and page-style details
+remain to be ported. Nested structural content is currently flattened for this
+view and its unsupported categories are reported by the layout model. DOCX
+import still omits styles/page geometry. No PDF/printing parity is claimed.
+
+Layout limits are one million Unicode scalars per paragraph, four million per
+document, 100,000 paragraphs and 10,000 pages. The glyph cache holds at most 512
+fragments and rejects oversized raster masks. Layout and page viewing preserve
+the package's existing styles; editing/saving uses the existing ODT model.
 
 ## Native spreadsheet calculation
 
