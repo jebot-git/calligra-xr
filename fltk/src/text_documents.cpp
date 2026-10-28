@@ -104,6 +104,10 @@ namespace {
         TextList parts = text.split('\n');
         if (existing.size() != parts.size() && !allowStructural)
             fail("Adding or removing paragraphs in this structure is not supported yet");
+        if (existing.size() != parts.size())
+            for (auto p : existing)
+                if (p.parentNode() != parent)
+                    fail("Adding or removing paragraphs in this structure is not supported yet");
         // Validate before changing any node.
         for (int i = 0; i < existing.size(); ++i)
             if (i < parts.size() && plain_text(existing[i]) != parts[i] && !inline_supported(existing[i]))
@@ -164,7 +168,78 @@ void TextDocument::set_text(const Text& value)
             flat = false;
     set_paragraphs(package_.body(), value, flat);
 }
-Presentation::Presentation() { add_slide("Title"); }
+Presentation::Presentation() { add_slide("Title"); clear_history(); }
+void Presentation::clear_history()
+{
+    history_.clear();
+    history_index_ = history_bytes_ = 0;
+    state_ = saved_state_ = 0;
+    next_state_ = 1;
+    merge_text_ = false;
+}
+void Presentation::remember(Bytes before, PresentationPosition previous, PresentationPosition next, bool merge)
+{
+    const auto after = package_.xml.toByteArray();
+    if (before == after) return;
+    if (merge && merge_text_ && history_index_ && history_index_ == history_.size()
+        && history_.back().previous == previous && history_.back().next == next) {
+        const auto& last = history_.back();
+        before.std::string::replace(last.offset, last.after.size(), last.before);
+        state_ = last.before_state;
+        history_bytes_ -= last.before.size() + last.after.size();
+        history_.pop_back();
+        --history_index_;
+    }
+    merge_text_ = merge;
+    if (before == after) { merge_text_ = false; return; }
+    size_t prefix = 0, suffix = 0;
+    while (prefix < before.size() && prefix < after.size() && before[prefix] == after[prefix]) ++prefix;
+    while (suffix < before.size() - prefix && suffix < after.size() - prefix
+        && before[before.size() - 1 - suffix] == after[after.size() - 1 - suffix]) ++suffix;
+    Edit edit { prefix, before.substr(prefix, before.size() - prefix - suffix),
+        after.substr(prefix, after.size() - prefix - suffix), previous, next, state_, next_state_++ };
+    for (size_t i = history_index_; i < history_.size(); ++i)
+        history_bytes_ -= history_[i].before.size() + history_[i].after.size();
+    history_.resize(history_index_);
+    state_ = edit.after_state;
+    history_bytes_ += edit.before.size() + edit.after.size();
+    history_.push_back(std::move(edit));
+    constexpr size_t budget = 32 * 1024 * 1024;
+    while (!history_.empty() && (history_.size() > 100 || history_bytes_ > budget)) {
+        history_bytes_ -= history_.front().before.size() + history_.front().after.size();
+        history_.erase(history_.begin());
+    }
+    history_index_ = history_.size();
+}
+std::optional<PresentationPosition> Presentation::travel(bool redo)
+{
+    end_text_edit();
+    if (read_only()) fail("This presentation is read-only");
+    if (redo ? !can_redo() : !can_undo()) return {};
+    const auto& edit = history_[redo ? history_index_ : history_index_ - 1];
+    const auto& from = redo ? edit.before : edit.after;
+    const auto& to = redo ? edit.after : edit.before;
+    auto bytes = package_.xml.toByteArray();
+    if (edit.offset > bytes.size() || from.size() > bytes.size() - edit.offset
+        || bytes.compare(edit.offset, from.size(), from) != 0)
+        fail("Presentation undo history does not match the document");
+    bytes.std::string::replace(edit.offset, from.size(), to);
+    // Validate the restored document and its scenes before changing live state.
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(bytes);
+    if (children(candidate.body(), DRAW, "page").isEmpty()) fail("Undo would remove every slide");
+    auto reader = std::make_shared<OdfTextReader>(candidate);
+    auto scenes = read_presentation_scenes(candidate, reader);
+    package_ = std::move(candidate);
+    scenes_ = std::move(scenes);
+    text_reader_ = std::move(reader);
+    history_index_ = redo ? history_index_ + 1 : history_index_ - 1;
+    state_ = redo ? edit.after_state : edit.before_state;
+    ++revision_;
+    return redo ? edit.next : edit.previous;
+}
+std::optional<PresentationPosition> Presentation::undo() { return travel(false); }
+std::optional<PresentationPosition> Presentation::redo() { return travel(true); }
 int Presentation::count() const { return children(package_.body(), DRAW, "page").size(); }
 void Presentation::load(const Text& p)
 {
@@ -181,6 +256,7 @@ void Presentation::load(const Text& p)
     text_reader_ = std::move(reader);
     ++revision_;
     imported_office_ = office;
+    clear_history();
 }
 void Presentation::save(const Text& p)
 {
@@ -188,6 +264,8 @@ void Presentation::save(const Text& p)
         fail("Stage saves only ODP; choose an .odp destination");
     package_.save(p);
     imported_office_ = false;
+    saved_state_ = state_;
+    end_text_edit();
 }
 const SlideScene& Presentation::scene(int index) const
 {
@@ -218,10 +296,11 @@ Slide Presentation::slide(int index) const
     }
     return result;
 }
-void Presentation::add_slide(const Text& title)
+void Presentation::add_slide(const Text& title, PresentationPosition previous)
 {
     if (read_only())
         fail("This presentation is read-only");
+    const auto before = package_.xml.toByteArray();
     auto doc = package_.xml;
     auto page = doc.createElementNS(DRAW, "draw:page");
     page.setAttributeNS(DRAW, "draw:name", Text("Slide %1").arg(count() + 1));
@@ -241,18 +320,22 @@ void Presentation::add_slide(const Text& title)
     }
     package_.body().appendChild(page);
     scenes_.clear(); ++revision_;
+    remember(before, previous, { count() - 1, 0 });
 }
-void Presentation::remove_slide(int index)
+void Presentation::remove_slide(int index, int selectedBox)
 {
     if (read_only())
         fail("This presentation is read-only");
     auto pages = children(package_.body(), DRAW, "page");
     if (pages.size() < 2)
         fail("Keep at least one slide");
+    if (index < 0 || index >= pages.size()) fail("Invalid slide");
+    const auto before = package_.xml.toByteArray();
     package_.body().removeChild(pages.at(index));
     scenes_.clear(); ++revision_;
+    remember(before, { index, selectedBox }, { std::min(index, count() - 1), 0 });
 }
-void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
+void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text, bool merge)
 {
     if (read_only())
         fail("This presentation is read-only");
@@ -270,6 +353,7 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
         fail("This frame is not an editable text box");
     if (joined(box) == text)
         return;
+    const auto before = package_.xml.toByteArray();
     set_paragraphs(box, text, true);
     auto& shape = scenes_.at(slideIndex).shapes.at(current.editor_shapes.at(boxIndex));
     shape.text = joined(frame);
@@ -277,5 +361,6 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
     if (!shape.paint.use_window_text_color) base.color = shape.paint.text_color;
     shape.text_flow = text_reader_->frame(box,base,shape.paragraph_style);
     ++revision_;
+    remember(before, { slideIndex, boxIndex }, { slideIndex, boxIndex }, merge);
 }
 }

@@ -27,4 +27,5 @@ with tempfile.TemporaryDirectory() as directory:
     shape.addElement(geometry);page.addElement(shape);document.presentation.addElement(page)
     path=Path(directory)/'independent-enhanced.odp';document.save(str(path));original=path.read_bytes()
     subprocess.run([str(a.test_bin_dir/'calligra-native-enhanced-test'),'--external',str(path)],check=True)
+    subprocess.run([str(a.test_bin_dir/'calligra-native-presentation-history-test'),'--external',str(path)],check=True)
     assert path.read_bytes()==original

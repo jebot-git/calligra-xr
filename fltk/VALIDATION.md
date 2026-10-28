@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus ten native calculation/matrix/text/scene regression suites. Actual
+assertions retained, plus eleven native calculation/matrix/text/scene/history regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -16,6 +16,16 @@ reads its saved OpenFormula and numeric cache. Unsupported functions
 remain an explicit limitation; tests do not establish the original complete
 formula catalogue. Additional installed/Wayland results are recorded in the
 local native-engine artifacts and installation receipt.
+
+The native presentation-history suite checks cross-frame and cross-slide text,
+slide insertion/deletion, selection restoration, byte-exact styled XML undo,
+unknown content and binary archive entries, save checkpoints, branching,
+typing groups, canceled/no-op edits, both history bounds, failed-operation
+rollback, successful-load reset and signed-document protection. Nested
+paragraph-count edits are rejected before any affected paragraph is changed.
+The keyboard flow exercises the editor bindings, canvas-focus shortcuts,
+universal-menu slide deletion, cross-frame undo, Ctrl+Y redo and saved-state
+restoration, then independently checks the saved ODP text and geometry.
 
 The XLSX array-import regression now covers numeric/Boolean/Unicode/error
 results, single-cell array evaluation, dependencies, missing and stale result

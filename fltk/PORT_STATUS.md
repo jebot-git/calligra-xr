@@ -130,8 +130,15 @@ contours. Compound fills support both winding rules; open stroke contours stay
 open even when their fill closes implicitly. Native editing covers text on
 supported shapes; geometry editing tools are not yet
 ported. Unrecognized shapes and animations are
-preserved in packages, not rendered. Text undo history is local to the
-currently edited frame. X11/Xvfb fullscreen transitions can emit GLX diagnostics;
+preserved in packages, not rendered. Native undo/redo spans text edits and slide
+insertion/deletion, restores the affected selection and exact styled XML, and
+tracks the saved state across branches. The journal retains up to 100 commands
+and 32 MiB of changed XML bytes; an edit exceeding that budget clears history.
+Each edit currently serializes content.xml to derive its delta, and undo/redo
+validates the restored document and rebuilds its scenes. Large presentations
+still need operation-specific deltas and incremental scene updates. Nested
+list/table paragraph-count changes are rejected before mutation.
+X11/Xvfb fullscreen transitions can emit GLX diagnostics;
 native Wayland is the default and the target for presentation work.
 
 Keep complex originals until the full-model integrations and interoperability

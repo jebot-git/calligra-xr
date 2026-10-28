@@ -5,6 +5,7 @@ Run with uv run --no-project --with python-xlib python fltk/tests/ui_smoke.py.
 import argparse
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -305,8 +306,45 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('z',('Control_L',));wait(lambda:data()['text']=='Editable arrow');key('z',('Control_L','Shift_L'));wait(lambda:data()['text']=='Arrow edited')
             key('s',('Control_L',));wait(lambda:not data()['modified'])
             with zipfile.ZipFile(enhanced) as z:assert geometries(z.read('content.xml'))==original_geometry and z.read('styles.xml')==original_styles
+            # A different frame must share the document journal and saved point.
+            select(335,97);wait(lambda:data()['scene']['selected_frame']==2)
+            click(host,350,565);key('a',('Control_L',));text('Mirror changed')
+            wait(lambda:data()['text']=='Mirror changed' and data()['modified'])
+            select(60,97);wait(lambda:data()['scene']['selected_frame']==1)
+            key('z',('Control_L',));wait(lambda:data()['scene']['selected_frame']==2 and data()['text']=='Mirrored text' and not data()['modified'])
+            key('z',('Control_L',));wait(lambda:data()['scene']['selected_frame']==1 and data()['text']=='Editable arrow' and data()['modified'])
+            key('z',('Control_L','Shift_L'));wait(lambda:data()['text']=='Arrow edited' and not data()['modified'])
+            key('y',('Control_L',));wait(lambda:data()['scene']['selected_frame']==2 and data()['text']=='Mirror changed')
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            key('m',('Control_L',));wait(lambda:data()['scene']['slides']==2 and data()['scene']['page']==2)
+            # Focus the text editor to exercise its explicit native undo binding.
+            click(host,350,565);key('z',('Control_L',));wait(lambda:data()['scene']['slides']==1 and data()['scene']['selected_frame']==2 and not data()['modified'])
+            key('y',('Control_L',));wait(lambda:data()['scene']['slides']==2 and data()['scene']['page']==2)
+            address=data()['desktop_menu']
+            menu_call=['gdbus','call','--session','--dest',address['service'],'--object-path',address['path']]
+            layout=subprocess.check_output([*menu_call,'--method','com.canonical.dbusmenu.GetLayout','0','2','[]'],text=True)
+            delete=re.search(r"\((\d+), \{[^{}]*'label': <'_?Delete slide'>",layout)
+            assert delete,layout
+            subprocess.run([*menu_call,'--method','com.canonical.dbusmenu.Event',delete[1],'clicked','<0>','0'],check=True,stdout=subprocess.DEVNULL)
+            wait(lambda:data()['scene']['slides']==1)
+            key('z',('Control_L',));wait(lambda:data()['scene']['slides']==2 and data()['scene']['page']==2)
+            key('y',('Control_L',));wait(lambda:data()['scene']['slides']==1)
+            # Undo deletion and insertion, then verify saved text and clean state.
+            key('z',('Control_L',));wait(lambda:data()['scene']['slides']==2)
+            key('z',('Control_L',));wait(lambda:data()['scene']['slides']==1 and not data()['modified'])
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            with zipfile.ZipFile(enhanced) as z:
+                xml=ET.fromstring(z.read('content.xml'))
+                assert geometries(z.read('content.xml'))==original_geometry and z.read('styles.xml')==original_styles
+                text_ns='{urn:oasis:names:tc:opendocument:xmlns:text:1.0}'
+                def saved_text(e):
+                    if e.tag==text_ns+'s':return ' '*int(e.get(text_ns+'c','1'))
+                    if e.tag==text_ns+'tab':return '\t'
+                    if e.tag==text_ns+'line-break':return '\n'
+                    return (e.text or '')+''.join(saved_text(c)+(c.tail or '') for c in e)
+                assert 'Mirror changed' in saved_text(xml) and 'Arrow edited' in saved_text(xml)
             assert not data()['scene']['render_error'];key('q',('Control_L',));assert process.wait(timeout=10)==0
-            print('PASS: enhanced custom shapes, formula text areas, mirrored selection, direct text undo/save and retained geometry/equations',flush=True)
+            print('PASS: enhanced shapes, cross-frame/slide native undo, editor/menu bindings, save checkpoints and retained geometry/equations',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

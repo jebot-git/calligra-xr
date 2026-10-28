@@ -359,6 +359,15 @@ public:
                 this);
             editor = new Fl_Text_Editor(194, 530, 894, 206);
             editor->buffer(&buffer);
+            editor->user_data(this);
+            auto undo_key = [](int key, Fl_Text_Editor* widget) -> int {
+                auto* office = static_cast<Office*>(widget->user_data());
+                office->command(key == 'y' || (Fl::event_state() & FL_SHIFT) ? Redo : Undo);
+                return 1;
+            };
+            editor->add_key_binding('z', FL_CTRL, undo_key);
+            editor->add_key_binding('z', FL_CTRL | FL_SHIFT, undo_key);
+            editor->add_key_binding('y', FL_CTRL, undo_key);
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
             content->resizable(canvas);
             auto* present = new Fl_Button(568, 10, 130, 32, "Present");
@@ -382,13 +391,18 @@ public:
                 auto* a = static_cast<Office*>(p);
                 if (!a->updating && (inserted || deleted)) {
                     a->modified = true;
-                    a->remember_text();
+                    if (a->kind != Kind::Stage) a->remember_text();
                     a->title();
                     if (a->kind == Kind::Stage) {
                         try {
-                            a->commit_text();
+                            a->commit_text(true);
+                            a->modified = a->stage->modified();
+                            a->title();
                             a->canvas->redraw();
                         } catch (const std::exception& e) {
+                            a->fill_buffer(a->stage->slide(a->slide).boxes.at(a->box).text);
+                            a->modified = a->stage->modified();
+                            a->title();
                             a->message(e.what());
                         }
                     }
@@ -446,7 +460,8 @@ public:
         updating = true;
         buffer.text(utf8(text).c_str());
         updating = false;
-        history = { buffer_text() };
+        history.clear();
+        if (kind != Kind::Stage) history.push_back(buffer_text());
         history_index = 0;
         if (editor) {
             if (readonly())
@@ -575,16 +590,19 @@ public:
         select_cell(grid->selected_row, grid->selected_col);
         grid->redraw();
     }
-    void commit_text()
+    void commit_text(bool merge = false)
     {
         if (!editor)
             return;
         auto text = qs(buffer_text().c_str());
         if (kind == Kind::Words)
             words->set_text(text);
-        else if (!stage->slide(slide).boxes.isEmpty() && box < stage->slide(slide).boxes.size()
-            && stage->slide(slide).boxes[box].image.isEmpty())
-            stage->set_box_text(slide, box, text);
+        else {
+            const auto current = stage->slide(slide);
+            if (box >= 0 && box < int(current.boxes.size()) && current.boxes[box].image.isEmpty())
+                stage->set_box_text(slide, box, text, merge);
+        }
+        if (kind == Kind::Stage && !merge) stage->end_text_edit();
     }
     void refresh_pages()
     {
@@ -602,7 +620,7 @@ public:
         }
         slides->value(slide + 1);
         boxes->clear();
-        for (int i = 0; i < current.boxes.size(); ++i) {
+        for (int i = 0; i < int(current.boxes.size()); ++i) {
             boxes->add(" ");
             boxes->replace(i,
                 ((current.boxes[i].image.isEmpty() ? std::string("Text frame ") : std::string("Image frame "))
@@ -746,6 +764,15 @@ public:
                         workbook->set(change.sheet, change.col, change.row, redo ? change.new_value : change.old_value);
                     select_cell(grid->selected_row, grid->selected_col);
                     grid->redraw();
+                } else if (kind == Kind::Stage) {
+                    commit_text();
+                    auto position = c == Undo ? stage->undo() : stage->redo();
+                    if (!position) return;
+                    slide = position->slide;
+                    box = position->box;
+                    refresh_stage();
+                    editor->insert_position(buffer.length());
+                    editor->show_insert_position();
                 } else {
                     if (c == Undo && history_index)
                         --history_index;
@@ -759,7 +786,7 @@ public:
                     if (page_view)
                         refresh_pages();
                 }
-                modified = true;
+                modified = kind == Kind::Stage ? stage->modified() : true;
                 title();
             } else if (c == Copy) {
                 if (editor)
@@ -796,7 +823,7 @@ public:
                 }
             } else if (c == AddSlide) {
                 commit_text();
-                stage->add_slide();
+                stage->add_slide("New slide", { slide, box });
                 slide = stage->count() - 1;
                 box = 0;
                 refresh_stage();
@@ -804,7 +831,7 @@ public:
                 title();
             } else if (c == DeleteSlide) {
                 commit_text();
-                stage->remove_slide(slide);
+                stage->remove_slide(slide, box);
                 slide = std::min(slide, stage->count() - 1);
                 box = 0;
                 refresh_stage();
@@ -916,7 +943,9 @@ public:
             data["scene"] = { { "page", slide + 1 }, { "width", model.width },
                 { "height", model.height }, { "shapes", model.shapes.size() },
                 { "master_shapes", masters }, { "editable_frames", model.editable_sources.size() },
-                { "selected_frame", box }, { "rendered_shapes", canvas->rendered_shapes() },
+                { "selected_frame", box }, { "can_undo", stage->can_undo() }, { "can_redo", stage->can_redo() },
+                { "revision", stage->revision() }, { "slides", stage->count() },
+                { "rendered_shapes", canvas->rendered_shapes() },
                 { "geometry_points", canvas->geometry_points() },
                 { "render_error", canvas->render_error() }, { "unsupported", unsupported },
                 { "shaped_lines", text.lines }, { "glyphs", text.glyphs },

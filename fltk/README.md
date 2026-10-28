@@ -60,7 +60,10 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   editing, undo/redo, TSV paste and ODS saves. It does not export XLSX.
 - Stage loads ODP and imports PPTX text boxes and embedded PNG/JPEG images,
   dimensions, order and frame positions. It supports text editing, slide
-  insertion/deletion, ODP saves and a basic F5 presentation view. Placeholder
+  insertion/deletion, document-wide native undo/redo, ODP saves and a basic F5
+  presentation view. Undo restores the edited slide/frame and its styled XML;
+  typing is grouped until a frame/slide selection, save, undo/redo or slide
+  operation ends the group. Saved-state tracking works in both history directions. Placeholder
   positions can come from a PPTX layout; full PPTX master/theme inheritance is absent.
   Native ODP scenes resolve each slide's referenced master and page layout,
   master backgrounds/objects, scoped automatic styles and basic inherited paint.
