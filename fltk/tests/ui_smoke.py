@@ -162,6 +162,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             host=wait(lambda:window('words'));host.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync()
             wait(lambda:(art/'text-layout.ppm').exists())
             assert not data()['page_layout']['render_error']
+            assert data()['page_layout']['shaped_lines']>0 and not data()['page_layout']['missing_glyphs']
             host.configure(width=900,height=700);xd.sync();time.sleep(.2)
             key('End');wait(lambda:data()['page_layout']['page']==2)
             key('Home');wait(lambda:data()['page_layout']['page']==1)
@@ -192,6 +193,20 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 assert paragraphs[2].get(text_ns+'style-name')=='NewPage'
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: Words native page layout, page navigation, text editing, reflow and style-preserving ODT save',flush=True)
+        shaping=fixtures/'shaping.odt';report=art/'shaping.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-text-shaper-test'),'--fixture',str(shaping)],env=env,check=True)
+        original=shaping.read_bytes()
+        with (art/'shaping.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-words-fltk'),str(shaping),'--page-layout','--report',str(report),'--capture',str(art/'shaping.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists() and data()['page_layout']['shaped_lines']==7)
+            host=wait(lambda:window('words'));host.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync()
+            wait(lambda:(art/'shaping.ppm').exists())
+            layout=data()['page_layout']
+            assert layout['pages']==1 and layout['glyphs']>100 and not layout['missing_glyphs'] and not layout['render_error']
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            assert shaping.read_bytes()==original
+            print('PASS: Words styled multilingual glyph rendering, joined scripts, bidi metadata and unchanged source',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

@@ -7,8 +7,9 @@ namespace DomeOffice {
 // All geometry is in typographic points. Text offsets count Unicode scalars,
 // independent of the frontend's UTF-8 buffer representation.
 struct TextFont {
-  Text family;
+  Text family, language;
   double size = 12;
+  int weight = 400;
   bool bold = false, italic = false;
   bool operator==(const TextFont &) const = default;
 };
@@ -22,7 +23,8 @@ struct TextParagraph {
   std::vector<TextSpan> spans;
   double left = 0, right = 0, indent = 0, before = 0, after = 0;
   double line_factor = 1.2, line_height = 0;
-  enum Alignment { Left, Center, Right, Justify } alignment = Left;
+  enum Alignment { Left, Center, Right, Justify, Start, End } alignment = Start;
+  enum Direction { Auto, LTR, RTL } direction = Auto;
   bool break_before = false, break_after = false;
   bool keep_together = false, keep_next = false;
   int orphans = 2, widows = 2;
@@ -51,7 +53,8 @@ struct TextFragment {
 struct TextLine {
   size_t paragraph = 0, begin = 0, end = 0;
   double x = 0, y = 0, baseline = 0, height = 0, width = 0;
-  std::vector<TextFragment> fragments;
+  std::vector<TextFragment> fragments; // Logical source runs; shaped has visual glyph positions.
+  std::shared_ptr<const struct ShapedText> shaped;
 };
 struct TextPage {
   TextPageStyle style;
@@ -63,4 +66,5 @@ struct TextPagination {
 };
 TextFlow read_text_flow(const OdfPackage &);
 TextPagination paginate_text(const TextFlow &, const MeasureText &);
+TextPagination paginate_text(const TextFlow &, class NativeTextShaper &);
 } // namespace DomeOffice

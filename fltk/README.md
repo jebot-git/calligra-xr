@@ -16,7 +16,8 @@ build. See [PORT_STATUS.md](PORT_STATUS.md).
 ## Build and install
 
 Dependencies: CMake 3.29+, Ninja, a C++20 compiler, system FLTK 1.4 development
-files, OpenGL, libxml2, libzip, zlib, Fontconfig, GLib/GIO, ICU, Wayland and X11
+files, OpenGL, libxml2, libzip, zlib, Fontconfig 2.17+, FreeType, HarfBuzz,
+GLib/GIO, ICU, Wayland and X11
 headers, and nlohmann-json. No Qt, ECM, KDE, Eigen or Ixion is used by the native
 build. The system FLTK shared-library finder handles distributions whose CMake
 config exports static archives absent from their shared-devel package.
@@ -90,22 +91,46 @@ forced wrapping does not split combining sequences or emoji ZWJ clusters.
 The layout retains paragraph/source offsets independently of the UTF-8 editor
 and screen zoom. Unchanged page widths reuse wrapped lines across page breaks.
 
-The FLTK page view uses a bounded GPU glyph cache. Rasterization/upload occurs
-on a cache miss, with actual bitmap ink metrics normalized to document units;
-scrolling and zoom reuse glyph textures. Unavailable document fonts fall back
-to the session's Unicode font. Session appearance changes refresh the layout.
-Font substitution and the existing bitmap adapters do not establish exact font,
-bold/italic or print fidelity. Complete complex-script shaping/bidirectional
-layout, automatic hyphenation, rich formatting controls, table/list/section
+The page engine shapes through HarfBuzz and renders FreeType glyphs directly.
+Measurements, ligature/combining source clusters, kerning, joining forms and
+glyph positions share this path; FLTK/Pango metrics no longer shape document
+text. ICU resolves paragraph direction and visual runs for each wrapped line,
+including mixed RTL/LTR text and numbers. Soft line breaks retain paragraph
+direction. Start/end alignment and indentation follow that direction. Existing
+space justification expands the positioned glyph advances.
+
+Declared family lists, numeric weights, bold/italic faces, language and the
+weight/italic/slant axes of variable faces are supported. A private system
+Fontconfig configuration selects document fonts and script fallback without
+changing the FLTK session configuration. Unstyled content prefers the session
+font, with a system monospace fallback. Both FreeType bitmap strikes and outline
+faces work. Font handles retain their own library and shaping face; raster size
+changes cannot change the calculation metrics. The implementation follows
+[HarfBuzz cluster semantics](https://harfbuzz.github.io/working-with-harfbuzz-clusters.html)
+and [ICU line bidi runs](https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/ubidi_8h.html).
+
+The FLTK page view uploads glyph masks only on cache misses, then draws their
+positioned textures on the GPU. Scrolling reuses textures; a new raster scale
+can populate additional entries. Session appearance changes refresh the layout.
+This establishes a native shaping/rendering path, not full typography or print
+parity. Embedded document fonts, complete complex-script style properties,
+font synthesis, arbitrary variable axes, color glyph painting, advanced
+justification/hyphenation and vertical text remain incomplete. Rich formatting controls, table/list/section
 layout, columns, notes, headers/footers, anchored shapes and page-style details
 remain to be ported. Nested structural content is currently flattened for this
 view and its unsupported categories are reported by the layout model. DOCX
 import still omits styles/page geometry. No PDF/printing parity is claimed.
 
 Layout limits are one million Unicode scalars per paragraph, four million per
-document, 100,000 paragraphs and 10,000 pages. The glyph cache holds at most 512
-fragments and rejects oversized raster masks. Layout and page viewing preserve
+document, 100,000 paragraphs and 10,000 pages. The glyph cache holds at most 4,096
+glyph/size entries and 64 MiB of alpha textures and rejects oversized raster
+masks. Typeface and fallback caches are bounded. Layout and page viewing preserve
 the package's existing styles; editing/saving uses the existing ODT model.
+
+The shaping reference tests require `hb-shape` and the Noto Sans/Serif,
+Arabic/Hebrew/Devanagari, Liberation Mono and Unifont reference families. Run
+`python3 fltk/tests/shaping_reference.py` after the build to compare glyph IDs,
+source clusters and all advances/offsets with the independently invoked CLI.
 
 ## Native spreadsheet calculation
 

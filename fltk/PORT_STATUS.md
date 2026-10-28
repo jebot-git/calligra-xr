@@ -7,6 +7,9 @@ explicit opt-in. No fake Qt shared library or static Qt copy is used.
 
 Words now has a native ODF style/page-flow model and an FLTK GPU page view,
 with Unicode wrapping, master continuation, keep rules and widow/orphan control.
+Its new native HarfBuzz/FreeType path provides ligatures, kerning, joining and
+mark placement, document-font/style selection, script fallback and ICU bidi
+visual runs. The page display uses those glyph positions and a GPU glyph cache.
 Its full original frame/text-layout behavior and Stage's shape/animation stacks
 remain unported; editing retains the existing basic paragraph/slide scope.
 Sheets now uses a native parser/evaluator rather than the full upstream
@@ -30,7 +33,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts | Full IME/preedit validation, accessibility, session recovery, printing/export UI, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, Unicode line/grapheme wrapping, native pagination and GPU page view, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; complete font/shaping/bidirectional fidelity, rich formatting controls, table/list/section layout, columns, headers/footers, notes, images/anchors, full styles, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color/synthetic/vertical text, rich formatting controls, table/list/section layout, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, ODP slides, text frames, PNG/JPEG/SVG preview, frame text edits, slide insert/delete, presentation navigation, package preservation | Port KPrDocument, KoPADocument and Flake; theme/master-page resolution, shape tools, arbitrary groups/transforms, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -81,9 +84,11 @@ attributes during text edits, but structural edits in nested tables/lists and
 paragraphs containing embedded objects are intentionally restricted. Mixed
 inline line breaks and paragraph breaks need a richer editing model. Undo
 history is bounded to 100 text states and a 32 MiB history budget. The page view
-does not implement direct rich editing, complete script/font fidelity or the
-advanced structural layout listed above. Missing document fonts fall back to
-the session font; stored font/style declarations remain unchanged.
+does not implement direct rich editing, complete typography or the advanced
+structural layout listed above. Document-font fallback is selected through a
+private Fontconfig context; missing glyphs are reported in layout diagnostics.
+Stored font/style declarations remain unchanged. Colored font bitmaps currently
+contribute an alpha mask; they are not painted in their original colors.
 
 Sheets currently uses the calculation layer's textual display, not the original
 style-aware formatter. Do not expect date/currency styles, images, merged

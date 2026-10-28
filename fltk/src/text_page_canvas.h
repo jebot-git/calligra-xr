@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
-#include "native_text_layout.h"
+#include "native_text_shaper.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 class TextPageCanvas : public Fl_Widget {
@@ -9,7 +9,7 @@ public:
   std::function<void(size_t)> edit_paragraph;
   TextPageCanvas(int x, int y, int w, int h);
   ~TextPageCanvas() override;
-  static TextMetrics measure(const Text &, const TextFont &);
+  void set_flow(const TextFlow &);
   void set_pagination(TextPagination);
   size_t current_page() const;
   uint64_t rasterizations() const;
@@ -19,6 +19,8 @@ public:
 private:
   struct GlyphCache;
   std::unique_ptr<GlyphCache> glyphs_;
+  std::unique_ptr<NativeTextShaper> shaper_;
+  uint64_t shaping_revision_ = 0;
   double scroll_ = 0;
   std::string render_error_;
   double scale() const;

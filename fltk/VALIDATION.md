@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus five native calculation/matrix/text-layout regression suites. Actual
+assertions retained, plus six native calculation/matrix/text regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -40,7 +40,29 @@ two-page document. The keyboard test switches between Pages/Edit, navigates
 pages, edits and reflows paragraphs, then independently reads saved ODT text
 and verifies the original styles.xml bytes. Rendered captures are reviewed in
 addition to checking page counts; green model tests alone do not prove display
-fidelity. Complex script, full font/shape/table layout and printing remain gaps.
+fidelity. Full typography, shape/table layout and printing remain gaps.
+
+The native shaping suite checks ligatures, kerning, combining clusters, Arabic
+joining, Devanagari shaping, mixed Hebrew/Latin/numeric visual order, CJK font
+fallback, declared bold/italic faces, numeric weights, quoted family lists,
+RTL indentation/alignment, space justification and soft-line paragraph
+direction. It checks bitmap/outline rasterization, font/library lifetime,
+independent shaping and raster sizes, missing glyphs and invalid inputs. The
+multilingual ODT fixture round-trips text and unchanged style bytes. Nine
+Release and ASan/UBSan CTests pass, including leak detection in the core suites.
+Fontconfig substitution uses an explicit private context rather than its
+global-default API; no leak suppression is used by those core tests.
+
+`shaping_reference.py` independently invokes `hb-shape` on six Latin, Arabic,
+Devanagari, Hebrew and combining-text samples. Glyph IDs, source clusters,
+advances and both offsets match. The test uses system reference fonts and
+records their actual paths through the native dump. The keyboard test opens
+and captures the seven-line multilingual document, reports zero missing glyphs,
+then closes it with unchanged source bytes. Native Wayland captures show the
+joined scripts and distinct styled faces; actual pixel review supplements
+metadata assertions. GUI sanitizer runs exclude third-party toolkit leak
+reporting while retaining address/undefined checks. These tests do not establish
+all-script, all-font, full rich editing or full office-suite parity.
 
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or

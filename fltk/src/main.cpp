@@ -677,7 +677,7 @@ public:
     void refresh_pages()
     {
         commit_text();
-        text_pages->set_pagination(words->paginate(TextPageCanvas::measure));
+        text_pages->set_flow(words->flow());
         text_font_revision = dx::font_revision;
     }
     void refresh_stage()
@@ -973,10 +973,23 @@ public:
                 { "value", utf8(workbook->display(sheet, grid->selected_col + 1, grid->selected_row + 1)) } };
         else
             data["text"] = buffer_text();
-        if (kind == Kind::Words)
-            data["page_layout"] = { { "visible", page_view }, { "pages", text_pages->pagination.pages.size() },
-                { "page", text_pages->current_page() + 1 }, { "render_error", text_pages->render_error() },
-                { "rasterizations", text_pages->rasterizations() } };
+        if (kind == Kind::Words) {
+            size_t shaped_lines = 0, glyphs = 0, missing = 0;
+            for (const auto& page : text_pages->pagination.pages)
+                for (const auto& line : page.lines)
+                    if (line.shaped) {
+                        ++shaped_lines;
+                        glyphs += line.shaped->glyphs.size();
+                        missing += line.shaped->missing_glyphs;
+                    }
+            data["page_layout"]
+                = { { "visible", page_view }, { "pages", text_pages->pagination.pages.size() },
+                      { "page", text_pages->current_page() + 1 },
+                      { "render_error", text_pages->render_error() },
+                      { "rasterizations", text_pages->rasterizations() },
+                      { "shaped_lines", shaped_lines }, { "glyphs", glyphs },
+                      { "missing_glyphs", missing } };
+        }
         std::ofstream(options.report) << data.dump(2) << '\n';
     }
     void capture()
