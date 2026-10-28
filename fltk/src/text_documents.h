@@ -2,6 +2,7 @@
 #pragma once
 #include "native_text_layout.h"
 #include "odf_package.h"
+#include "native_presentation.h"
 namespace DomeOffice {
 class TextDocument {
 public:
@@ -36,6 +37,8 @@ public:
     void save(const Text&);
     int count() const;
     Slide slide(int index) const;
+    const SlideScene& scene(int index) const;
+    uint64_t revision() const { return revision_; }
     void add_slide(const Text& title = "New slide");
     void remove_slide(int index);
     void set_box_text(int slide, int box, const Text& text);
@@ -46,5 +49,7 @@ public:
 private:
     OdfPackage package_ { Kind::Stage };
     bool imported_office_ = false;
+    mutable std::vector<SlideScene> scenes_;
+    uint64_t revision_ = 0;
 };
 }

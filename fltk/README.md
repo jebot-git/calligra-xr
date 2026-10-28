@@ -7,7 +7,7 @@ explicit build option. Wayland remains the default, with X11 as an opt-in.
 
 This remains a basic editing port, not the complete upstream office suite.
 Words edits paragraph text and existing inline-style runs and has a native page-flow view; Stage edits slide
-text and previews text/images; Sheets edits multiple worksheets and calculates
+text and previews masters, basic vector shapes and text/images; Sheets edits multiple worksheets and calculates
 formulas. The complete original Words frame/text-layout behavior, Stage shape/animation model,
 and full upstream spreadsheet function catalogue are not reimplemented here.
 The original Qt/KDE source remains available only through the opt-in frontend
@@ -16,7 +16,7 @@ build. See [PORT_STATUS.md](PORT_STATUS.md).
 ## Build and install
 
 Dependencies: CMake 3.29+, Ninja, a C++20 compiler, system FLTK 1.4 development
-files, OpenGL, libxml2, libzip, zlib, Fontconfig 2.17+, FreeType, HarfBuzz,
+files, OpenGL/GLU, libxml2, libzip, zlib, Fontconfig 2.17+, FreeType, HarfBuzz,
 GLib/GIO, ICU, Wayland and X11
 headers, and nlohmann-json. No Qt, ECM, KDE, Eigen or Ixion is used by the native
 build. The system FLTK shared-library finder handles distributions whose CMake
@@ -61,7 +61,16 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 - Stage loads ODP and imports PPTX text boxes and embedded PNG/JPEG images,
   dimensions, order and frame positions. It supports text editing, slide
   insertion/deletion, ODP saves and a basic F5 presentation view. Placeholder
-  positions can come from a PPTX layout; full master/theme inheritance is absent.
+  positions can come from a PPTX layout; full PPTX master/theme inheritance is absent.
+  Native ODP scenes resolve each slide's referenced master and page layout,
+  master backgrounds/objects, scoped automatic styles and basic inherited paint.
+  Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
+  ordered groups, affine transforms and inverse hit testing retain editable
+  nested text-frame identity. Images and native shaped text use those transforms.
+  The shared glyph cache is bounded to 64 MiB/4,096 entries; slide images to
+  128 MiB/4,096 entries. Polygon tessellation uses GLU with at most 1,024 input points.
+  Rich slide text, custom/path shapes, rounded corners, advanced strokes/fills,
+  master placeholder fields and animation/timing still require a full port.
 
 Office imports support Transitional and Strict namespaces and are content/data
 conversions, not full visual fidelity. DOCX formatting, headers/footers,

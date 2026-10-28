@@ -207,6 +207,37 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             assert shaping.read_bytes()==original
             print('PASS: Words styled multilingual glyph rendering, joined scripts, bidi metadata and unchanged source',flush=True)
+        scene=fixtures/'scene.odp';report=art/'scene.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-scene-test'),'--fixture',str(scene)],env=env,check=True)
+        with zipfile.ZipFile(scene) as z:scene_styles=z.read('styles.xml')
+        with (art/'scene.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-stage-fltk'),str(scene),'--report',str(report),'--capture',str(art/'scene.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists() and data()['scene']['rendered_shapes']==9)
+            assert not data()['scene']['render_error'] and data()['scene']['master_shapes']==2
+            wait(lambda:(art/'scene.ppm').exists())
+            subprocess.run([sys.executable,str(ROOT/'fltk/tests/scene_pixels.py'),str(art/'scene.ppm'),str(report)],check=True)
+            host=wait(lambda:window('stage'))
+            # Default canvas fits 400x240 points inside (194,62,894,418).
+            click(host,432,429);wait(lambda:data()['scene']['selected_frame']==2)
+            assert data()['text']=='Plain editor'
+            click(host,770,241);wait(lambda:data()['scene']['selected_frame']==0)
+            assert data()['text']=='Grouped editable'
+            click(host,350,565);key('a',('Control_L',));text('Nested frame edit')
+            wait(lambda:data()['text']=='Nested frame edit');key('s',('Control_L',));wait(lambda:not data()['modified'])
+            with zipfile.ZipFile(scene) as z:
+                assert z.read('styles.xml')==scene_styles
+                ns='{urn:oasis:names:tc:opendocument:xmlns:text:1.0}'
+                def read_text(e):
+                    if e.tag==ns+'s':return ' '*int(e.get(ns+'c','1'))
+                    if e.tag==ns+'tab':return '\t'
+                    if e.tag==ns+'line-break':return '\n'
+                    return (e.text or '')+''.join(read_text(c)+(c.tail or '') for c in e)
+                paragraphs=[read_text(e) for e in ET.fromstring(z.read('content.xml')).iter(ns+'p')]
+                assert 'Nested frame edit' in paragraphs and 'Plain editor' in paragraphs,paragraphs
+            assert not data()['scene']['render_error']
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: Stage master/vector rendering, transformed frame selection, grouped edit and style-preserving save',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

@@ -125,20 +125,6 @@ namespace {
             parts << plain_text(p);
         return parts.join('\n');
     }
-    double length(const Text& text, double fallback)
-    {
-        static Regex re("^(-?[0-9]+(?:\\.[0-9]+)?)(cm|mm|in|pt|px)$");
-        auto m = re.match(text);
-        if (!m.hasMatch())
-            return fallback;
-        double scale = m.captured(2) == "cm" ? 1
-            : m.captured(2) == "mm"          ? .1
-            : m.captured(2) == "in"          ? 2.54
-            : m.captured(2) == "pt"          ? 2.54 / 72
-                                             : 2.54 / 96;
-        return m.captured(1).toDouble() * scale;
-    }
-    List<XmlElement> frames(const XmlElement& page) { return children(page, DRAW, "frame"); }
 }
 TextDocument::TextDocument()
 {
@@ -188,7 +174,10 @@ void Presentation::load(const Text& p)
     else candidate.load(p);
     if (children(candidate.body(), DRAW, "page").isEmpty())
         fail("The presentation has no slides");
+    auto scenes = read_presentation_scenes(candidate);
     package_ = std::move(candidate);
+    scenes_ = std::move(scenes);
+    ++revision_;
     imported_office_ = office;
 }
 void Presentation::save(const Text& p)
@@ -198,42 +187,29 @@ void Presentation::save(const Text& p)
     package_.save(p);
     imported_office_ = false;
 }
+const SlideScene& Presentation::scene(int index) const
+{
+    if (index < 0 || index >= count()) fail("Invalid slide");
+    if (scenes_.empty()) scenes_ = read_presentation_scenes(package_);
+    return scenes_.at(index);
+}
 Slide Presentation::slide(int index) const
 {
-    auto pages = children(package_.body(), DRAW, "page");
-    if (index < 0 || index >= pages.size())
-        fail("Invalid slide");
-    auto page = pages[index];
+    const auto& native = scene(index);
     Slide result;
-    result.name = page.attributeNS(DRAW, "name", Text("Slide %1").arg(index + 1));
-    for (auto node = page.firstChild(); !node.isNull(); node = node.nextSibling())
-        if (node.isElement() && node.toElement().namespaceURI() == DRAW && node.toElement().localName() != "frame")
-            ++result.unsupported;
-    auto styles = package_.entry("styles.xml");
-    if (!styles.isEmpty() && !styles.toUpper().contains("<!DOCTYPE")) {
-        XmlDocument doc;
-        if (doc.setContent(styles, XmlDocument::ParseOption::UseNamespaceProcessing)) {
-            const Text STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
-                          FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
-            auto properties = doc.elementsByTagNameNS(STYLE, "page-layout-properties");
-            if (!properties.isEmpty()) {
-                auto e = properties.at(0).toElement();
-                result.width = length(e.attributeNS(FO, "page-width"), 28);
-                result.height = length(e.attributeNS(FO, "page-height"), 15.75);
-            }
-        }
-    }
-
-    for (auto frame : frames(page)) {
+    result.name = native.name;
+    constexpr double points_per_cm = 72/2.54;
+    result.width = native.width/points_per_cm;
+    result.height = native.height/points_per_cm;
+    result.unsupported = native.unsupported.size();
+    for (size_t i = 0; i < native.editable_sources.size(); ++i) {
+        const auto& shape = native.shapes.at(native.editor_shapes[i]);
+        auto bounds = shape.bounds();
         SlideBox box;
-        box.x = length(frame.attributeNS(SVG, "x"), 1);
-        box.y = length(frame.attributeNS(SVG, "y"), 1);
-        box.width = length(frame.attributeNS(SVG, "width"), 24);
-        box.height = length(frame.attributeNS(SVG, "height"), 3);
-        box.text = joined(frame);
-        auto image = child(frame, DRAW, "image");
-        box.image = image.attributeNS(XLINK, "href");
-        result.boxes << box;
+        box.x = bounds.x/points_per_cm; box.y = bounds.y/points_per_cm;
+        box.width = bounds.width/points_per_cm; box.height = bounds.height/points_per_cm;
+        box.text = shape.text; box.image = shape.image;
+        result.boxes.push_back(std::move(box));
     }
     return result;
 }
@@ -259,6 +235,7 @@ void Presentation::add_slide(const Text& title)
         page.appendChild(frame);
     }
     package_.body().appendChild(page);
+    scenes_.clear(); ++revision_;
 }
 void Presentation::remove_slide(int index)
 {
@@ -268,18 +245,21 @@ void Presentation::remove_slide(int index)
     if (pages.size() < 2)
         fail("Keep at least one slide");
     package_.body().removeChild(pages.at(index));
+    scenes_.clear(); ++revision_;
 }
 void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
 {
     if (read_only())
         fail("This presentation is read-only");
-    auto page = children(package_.body(), DRAW, "page").at(slideIndex);
-    auto frame = frames(page).at(boxIndex);
+    const auto& current = scene(slideIndex);
+    auto frame = current.editable_sources.at(boxIndex);
     auto box = child(frame, DRAW, "text-box");
     if (box.isNull())
         fail("This frame is not an editable text box");
     if (joined(box) == text)
         return;
     set_paragraphs(box, text, true);
+    scenes_.at(slideIndex).shapes.at(current.editor_shapes.at(boxIndex)).text = joined(frame);
+    ++revision_;
 }
 }

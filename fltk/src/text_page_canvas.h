@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_text_shaper.h"
+#include "gpu_text.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 class TextPageCanvas : public Fl_Widget {
@@ -17,8 +18,7 @@ public:
   int handle(int) override;
 
 private:
-  struct GlyphCache;
-  std::unique_ptr<GlyphCache> glyphs_;
+  std::unique_ptr<GpuTextCache> glyphs_;
   std::unique_ptr<NativeTextShaper> shaper_;
   uint64_t shaping_revision_ = 0;
   double scroll_ = 0;

@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus six native calculation/matrix/text regression suites. Actual
+assertions retained, plus seven native calculation/matrix/text/scene regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -63,6 +63,21 @@ joined scripts and distinct styled faces; actual pixel review supplements
 metadata assertions. GUI sanitizer runs exclude third-party toolkit leak
 reporting while retaining address/undefined checks. These tests do not establish
 all-script, all-font, full rich editing or full office-suite parity.
+
+The native scene suite checks referenced landscape/portrait layouts, master
+backgrounds and visibility, automatic-style scoping, inherited opacity,
+concave polygons, ellipse geometry, stable paint order, transform-list order,
+inverse hit tests and edits to nested frames whose source order differs from
+paint order. It checks malformed transforms, cyclic styles, failed-load
+rollback and unchanged saved styles. `scene_producer.py` independently creates
+an ODP using odfpy and checks its master, grouped frame geometry, selection,
+editing and round trip. The keyboard test selects both plain and transformed
+nested frames, edits/saves the nested frame and independently inspects the
+saved XML and original style bytes. Rendered captures supplement model checks.
+`scene_pixels.py` independently samples the framebuffer for master paint and
+background, solid fill, alpha compositing/stacking, a concave polygon/notch and
+a transformed image. The ten Release and ASan/UBSan document suites pass.
+These checks cover the documented basic scene subset, not full Stage fidelity.
 
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or

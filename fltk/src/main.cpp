@@ -4,6 +4,7 @@
 #include "suite/gpu-window.h"
 #include "text_documents.h"
 #include "text_page_canvas.h"
+#include "slide_canvas.h"
 #include "workbook.h"
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Choice.H>
@@ -163,96 +164,6 @@ public:
             }
         }
         return Fl_Table::handle(e);
-    }
-};
-class SlideCanvas : public Fl_Widget {
-    std::map<std::string, std::unique_ptr<Fl_Image>> images_;
-
-public:
-    std::function<Slide()> slide;
-    std::function<Bytes(const Text&)> image;
-    std::function<void(int)> selected;
-    int box = -1;
-    SlideCanvas(int x, int y, int w, int h)
-        : Fl_Widget(x, y, w, h)
-    {
-    }
-    void reset()
-    {
-        images_.clear();
-        redraw();
-    }
-    void draw() override
-    {
-        fl_push_clip(x(), y(), w(), h());
-        fl_color(FL_BACKGROUND_COLOR);
-        fl_rectf(x(), y(), w(), h());
-        auto dimensions = slide();
-        double scale = std::min((w() - 32) / dimensions.width, (h() - 32) / dimensions.height);
-        int left = x() + (w() - int(dimensions.width * scale)) / 2,
-            top = y() + (h() - int(dimensions.height * scale)) / 2;
-        fl_color(FL_WHITE);
-        fl_rectf(left, top, int(dimensions.width * scale), int(dimensions.height * scale));
-        auto s = slide();
-        for (int i = 0; i < s.boxes.size(); ++i) {
-            const auto& b = s.boxes[i];
-            int bx = left + int(b.x * scale), by = top + int(b.y * scale), bw = std::max(1, int(b.width * scale)),
-                bh = std::max(1, int(b.height * scale));
-            fl_push_clip(bx, by, bw, bh);
-            if (!b.image.isEmpty()) {
-                auto name = utf8(b.image);
-                if (!images_.contains(name)) {
-                    auto bytes = image(Url::fromPercentEncoding(b.image.toUtf8()));
-                    std::unique_ptr<Fl_Image> decoded;
-                    if (bytes.startsWith("\x89PNG"))
-                        decoded = std::make_unique<Fl_PNG_Image>(
-                            name.c_str(), reinterpret_cast<const unsigned char*>(bytes.constData()), bytes.size());
-                    else if (bytes.startsWith("\xff\xd8"))
-                        decoded = std::make_unique<Fl_JPEG_Image>(
-                            name.c_str(), reinterpret_cast<const unsigned char*>(bytes.constData()), bytes.size());
-                    else if (bytes.contains("<svg"))
-                        decoded = std::make_unique<Fl_SVG_Image>(name.c_str(), bytes.constData());
-                    if (decoded && !decoded->fail())
-                        images_[name] = std::move(decoded);
-                    else
-                        images_[name] = nullptr;
-                }
-                if (images_[name]) {
-                    images_[name]->scale(bw, bh, 0, 1);
-                    images_[name]->draw(bx, by, bw, bh);
-                }
-            }
-            fl_color(FL_BLACK);
-            fl_font(dx::font, std::clamp(int((i == 0 ? 1. : .65) * scale), 10, 60));
-            auto text = utf8(b.text);
-            fl_draw(text.c_str(), bx + 4, by + 4, bw - 8, bh - 8,
-                FL_ALIGN_LEFT | FL_ALIGN_TOP | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
-            fl_pop_clip();
-            if (box == i) {
-                fl_color(FL_SELECTION_COLOR);
-                fl_rect(bx, by, bw, bh);
-            }
-        }
-        fl_pop_clip();
-    }
-    int handle(int e) override
-    {
-        if (e == FL_PUSH) {
-            auto dimensions = slide();
-            double scale = std::min((w() - 32) / dimensions.width, (h() - 32) / dimensions.height);
-            int left = x() + (w() - int(dimensions.width * scale)) / 2,
-                top = y() + (h() - int(dimensions.height * scale)) / 2;
-            auto s = slide();
-            for (int i = 0; i < s.boxes.size(); ++i) {
-                const auto& b = s.boxes[i];
-                if (Fl::event_x() >= left + b.x * scale && Fl::event_x() <= left + (b.x + b.width) * scale
-                    && Fl::event_y() >= top + b.y * scale && Fl::event_y() <= top + (b.y + b.height) * scale) {
-                    selected(i);
-                    return 1;
-                }
-            }
-        }
-        return Fl_Widget::handle(e);
     }
 };
 class Office {
@@ -421,7 +332,8 @@ public:
                 },
                 this);
             canvas = new SlideCanvas(194, 62, 894, 418);
-            canvas->slide = [this] { return stage->slide(slide); };
+            canvas->scene = [this]() -> const SlideScene& { return stage->scene(slide); };
+            canvas->revision = [this] { return stage->revision(); };
             canvas->image = [this](const Text& path) { return stage->image(path); };
             canvas->selected = [this](int n) {
                 if (presenting) {
@@ -989,6 +901,21 @@ public:
                       { "rasterizations", text_pages->rasterizations() },
                       { "shaped_lines", shaped_lines }, { "glyphs", glyphs },
                       { "missing_glyphs", missing } };
+        }
+        if (kind == Kind::Stage) {
+            const auto& model = stage->scene(slide);
+            size_t masters = 0;
+            for (const auto& shape : model.shapes)
+                masters += shape.master;
+            std::vector<std::string> unsupported;
+            for (const auto& feature : model.unsupported)
+                unsupported.push_back(utf8(feature));
+            data["scene"] = { { "page", slide + 1 }, { "width", model.width },
+                { "height", model.height }, { "shapes", model.shapes.size() },
+                { "master_shapes", masters }, { "editable_frames", model.editable_sources.size() },
+                { "selected_frame", box }, { "rendered_shapes", canvas->rendered_shapes() },
+                { "render_error", canvas->render_error() }, { "unsupported", unsupported },
+                { "viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()} } };
         }
         std::ofstream(options.report) << data.dump(2) << '\n';
     }
