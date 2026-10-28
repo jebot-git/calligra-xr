@@ -149,8 +149,12 @@ struct SlideCanvas::Impl {
   const SlideScene *current = nullptr;
   uint64_t revision = UINT64_MAX, font_revision = UINT64_MAX;
   struct Prepared {
-    std::vector<SceneContour> contours;
-    std::vector<ScenePoint> triangles;
+    struct Geometry {
+      std::vector<SceneContour> contours;
+      std::vector<ScenePoint> triangles;
+    };
+    std::vector<Geometry> groups;
+    SceneRect text_area;
     TextBoxLayout text;
   };
   std::vector<Prepared> prepared;
@@ -196,27 +200,47 @@ struct SlideCanvas::Impl {
     error.clear();
     for (const auto &shape : model.shapes) {
       Prepared p;
-      p.contours = shape.path
-                       ? flatten_path(*shape.path, shape.path_map,
-                                      SceneTransform{scale_x, 0, 0, scale_y} *
-                                          shape.transform)
-                       : shape.contours;
-      for (const auto &contour : p.contours)
+      auto contours =
+          shape.path ? flatten_path(*shape.path, shape.path_map,
+                                    SceneTransform{scale_x, 0, 0, scale_y} *
+                                        shape.transform)
+                     : shape.contours;
+      for (const auto &contour : contours)
         geometry_points += contour.points.size();
       if (geometry_points > 1000000)
         throw std::runtime_error(
             "Slide geometry exceeds the display point limit");
-      if (shape.paint.fill)
-        p.triangles = Tess::make(p.contours, shape.paint.even_odd);
+      std::map<size_t, std::vector<SceneContour>> groups;
+      for (auto &contour : contours)
+        groups[contour.paint_group].push_back(std::move(contour));
+      for (auto &[id, items] : groups) {
+        Prepared::Geometry geometry;
+        geometry.contours = std::move(items);
+        if (shape.paint.fill) {
+          std::vector<SceneContour> filled;
+          for (const auto &c : geometry.contours)
+            if (c.fill)
+              filled.push_back(c);
+          bool even_odd = shape.path && shape.path->even_odd
+                              ? *shape.path->even_odd
+                              : shape.paint.even_odd;
+          geometry.triangles = Tess::make(filled, even_odd);
+        }
+        p.groups.push_back(std::move(geometry));
+      }
+      p.text_area =
+          shape.text_area.value_or(SceneRect{0, 0, shape.width, shape.height});
       if (!shape.text.empty() &&
-          shape.width > shape.paint.padding_left + shape.paint.padding_right &&
-          shape.height > shape.paint.padding_top + shape.paint.padding_bottom) {
+          p.text_area.width >
+              shape.paint.padding_left + shape.paint.padding_right &&
+          p.text_area.height >
+              shape.paint.padding_top + shape.paint.padding_bottom) {
         p.text = layout_text_box(shape.text_flow,
-                                 shape.width - shape.paint.padding_left -
+                                 p.text_area.width - shape.paint.padding_left -
                                      shape.paint.padding_right,
                                  shaper);
-        if (p.text.height >
-            shape.height - shape.paint.padding_top - shape.paint.padding_bottom)
+        if (p.text.height > p.text_area.height - shape.paint.padding_top -
+                                shape.paint.padding_bottom)
           ++text_stats.overflow_frames;
         text_stats.lines += p.text.lines.size();
         for (const auto &feature : p.text.unsupported)
@@ -230,15 +254,15 @@ struct SlideCanvas::Impl {
             text_stats.missing_glyphs += line.shaped->missing_glyphs;
           }
         double extra =
-            std::max(0., shape.height - shape.paint.padding_top -
+            std::max(0., p.text_area.height - shape.paint.padding_top -
                              shape.paint.padding_bottom - p.text.height);
         double y =
-            shape.paint.padding_top +
+            p.text_area.y + shape.paint.padding_top +
             (shape.paint.vertical_alignment == ScenePaint::Middle   ? extra / 2
              : shape.paint.vertical_alignment == ScenePaint::Bottom ? extra
                                                                     : 0);
         for (auto &line : p.text.lines) {
-          line.x += shape.paint.padding_left;
+          line.x += p.text_area.x + shape.paint.padding_left;
           line.y += y;
           line.baseline += y;
         }
@@ -364,30 +388,34 @@ struct SlideCanvas::Impl {
       const auto &shape = model.shapes[i];
       const auto &cached = prepared.at(i);
       auto transform = screen * shape.transform;
-      if (shape.paint.fill) {
-        scene_color(shape.paint.fill_color);
-        glBegin(GL_TRIANGLES);
-        for (auto p : cached.triangles)
-          vertex(transform.map(p));
-        glEnd();
-      }
-      if (shape.paint.stroke && shape.paint.stroke_width > 0) {
-        scene_color(shape.paint.stroke_color);
-        double r = shape.paint.stroke_width / 2;
-        glBegin(GL_QUADS);
-        for (const auto &c : cached.contours)
-          for (size_t j = 1; j < c.points.size() + (c.closed ? 1 : 0); ++j) {
-            auto a = c.points[j - 1], b = c.points[j % c.points.size()];
-            double dx = b.x - a.x, dy = b.y - a.y, n = std::hypot(dx, dy);
-            if (n == 0)
-              continue;
-            double nx = -dy / n * r, ny = dx / n * r;
-            vertex(transform.map({a.x + nx, a.y + ny}));
-            vertex(transform.map({b.x + nx, b.y + ny}));
-            vertex(transform.map({b.x - nx, b.y - ny}));
-            vertex(transform.map({a.x - nx, a.y - ny}));
-          }
-        glEnd();
+      for (const auto &geometry : cached.groups) {
+        if (shape.paint.fill) {
+          scene_color(shape.paint.fill_color);
+          glBegin(GL_TRIANGLES);
+          for (auto p : geometry.triangles)
+            vertex(transform.map(p));
+          glEnd();
+        }
+        if (shape.paint.stroke && shape.paint.stroke_width > 0) {
+          scene_color(shape.paint.stroke_color);
+          double r = shape.paint.stroke_width / 2;
+          glBegin(GL_QUADS);
+          for (const auto &c : geometry.contours)
+            if (c.stroke)
+              for (size_t j = 1; j < c.points.size() + (c.closed ? 1 : 0);
+                   ++j) {
+                auto a = c.points[j - 1], b = c.points[j % c.points.size()];
+                double dx = b.x - a.x, dy = b.y - a.y, n = std::hypot(dx, dy);
+                if (n == 0)
+                  continue;
+                double nx = -dy / n * r, ny = dx / n * r;
+                vertex(transform.map({a.x + nx, a.y + ny}));
+                vertex(transform.map({b.x + nx, b.y + ny}));
+                vertex(transform.map({b.x - nx, b.y - ny}));
+                vertex(transform.map({a.x - nx, a.y - ny}));
+              }
+          glEnd();
+        }
       }
       if (!shape.image.empty()) {
         auto texture = picture(
@@ -412,7 +440,11 @@ struct SlideCanvas::Impl {
       }
       if (!cached.text.lines.empty()) {
         glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT);
-        clip_frame(transform, shape.width, shape.height);
+        SceneTransform origin;
+        origin.e = cached.text_area.x;
+        origin.f = cached.text_area.y;
+        clip_frame(transform * origin, cached.text_area.width,
+                   cached.text_area.height);
         unsigned char r, g, b;
         Fl::get_color(FL_FOREGROUND_COLOR, r, g, b);
         for (const auto &line : cached.text.lines)

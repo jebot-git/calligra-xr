@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_presentation.h"
+#include "native_enhanced_geometry.h"
 #include "native_path.h"
 #include <charconv>
 #include <cmath>
@@ -412,7 +413,14 @@ struct Catalog {
         auto display = node.attributeNS(DRAW, "display", "always");
         if (display == "none" || display == "printer")
           continue;
-        if (node.localName() == "frame") {
+        bool supported =
+            TextList{"frame",   "rect",     "ellipse", "circle",      "path",
+                     "polygon", "polyline", "line",    "custom-shape"}
+                .contains(node.localName());
+        bool has_text = !children(node, TEXT, "p").empty() ||
+                        !children(node, TEXT, "h").empty() ||
+                        !child(node, DRAW, "text-box").isNull();
+        if (supported && (node.localName() == "frame" || has_text)) {
           if (slide.editable_sources.size() >= 100000)
             fail("Presentation frame limit exceeded");
           editor_ids[key] = slide.editable_sources.size();
@@ -504,9 +512,21 @@ struct Catalog {
       if (name == "frame") {
         shape.kind = SceneShape::Frame;
         shape.image = child(node, DRAW, "image").attributeNS(XLINK, "href");
-        if (!master)
-          shape.editor_index =
-              editor_ids.at(path + "/" + std::to_string(item.order));
+      } else if (name == "custom-shape") {
+        shape.kind = SceneShape::Custom;
+        auto geometry = child(node, DRAW, "enhanced-geometry");
+        if (geometry.isNull()) {
+          shape.path = std::make_shared<ScenePath>();
+          note(slide.unsupported, "Custom shape without enhanced geometry");
+        } else {
+          auto enhanced = read_enhanced_geometry(geometry, shape.width,
+                                                 shape.height, shape.paint);
+          shape.path = std::move(enhanced.path);
+          shape.path_map = enhanced.mapping;
+          shape.text_area = enhanced.text_area;
+          for (const auto &feature : enhanced.unsupported)
+            note(slide.unsupported, feature);
+        }
       } else if (name == "rect") {
         shape.kind = SceneShape::Rectangle;
         double rx = length(node.attributeNS(DRAW, "corner-radius"));
@@ -606,9 +626,14 @@ struct Catalog {
                                     length(node.attributeNS(SVG, "y2"))}},
                                   false});
       } else {
-        note(slide.unsupported, "Custom shapes, connectors and 3D objects");
+        note(slide.unsupported, "Connectors and 3D objects");
         continue;
       }
+      if (!master)
+        if (auto found =
+                editor_ids.find(path + "/" + std::to_string(item.order));
+            found != editor_ids.end())
+          shape.editor_index = found->second;
       if (shape.path) {
         path_bounds(*shape.path, shape.transform * shape.path_map);
         shape.contours =
@@ -821,11 +846,11 @@ bool SceneShape::hit(ScenePoint point) const {
   auto p = inverse->map(point);
   if (kind == Frame)
     return p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height;
-  bool inside = false;
-  int winding = 0;
+  std::map<size_t, std::pair<bool, int>> fills;
   for (const auto &contour : contours) {
     auto n = contour.points.size();
-    if (n >= 3 && paint.fill)
+    auto &[inside, winding] = fills[contour.paint_group];
+    if (n >= 3 && paint.fill && contour.fill)
       for (size_t i = 0, j = n - 1; i < n; j = i++) {
         auto a = contour.points[i], b = contour.points[j];
         if ((a.y > p.y) != (b.y > p.y) &&
@@ -837,7 +862,7 @@ bool SceneShape::hit(ScenePoint point) const {
         if (a.y > p.y && b.y <= p.y && cross < 0)
           --winding;
       }
-    if (paint.stroke)
+    if (paint.stroke && contour.stroke)
       for (size_t i = 1; i < n + (contour.closed ? 1 : 0); ++i) {
         auto a = contour.points[i - 1], b = contour.points[i % n];
         double dx = b.x - a.x, dy = b.y - a.y, l = dx * dx + dy * dy;
@@ -849,7 +874,15 @@ bool SceneShape::hit(ScenePoint point) const {
           return true;
       }
   }
-  return paint.even_odd ? inside : winding != 0;
+  bool even_odd = path && path->even_odd ? *path->even_odd : paint.even_odd;
+  for (const auto &[group, state] : fills)
+    if (even_odd ? state.first : state.second != 0)
+      return true;
+  if(!text.empty()){
+    auto area=text_area.value_or(SceneRect{0,0,width,height});
+    if(p.x>=area.x&&p.y>=area.y&&p.x<=area.x+area.width&&p.y<=area.y+area.height)return true;
+  }
+  return false;
 }
 int SlideScene::hit_test(ScenePoint p) const {
   for (size_t i = shapes.size(); i > 0; --i)

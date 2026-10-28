@@ -265,6 +265,7 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
     const auto& current = scene(slideIndex);
     auto frame = current.editable_sources.at(boxIndex);
     auto box = child(frame, DRAW, "text-box");
+    if(box.isNull()&&(!children(frame,TEXT,"p").empty()||!children(frame,TEXT,"h").empty()))box=frame;
     if (box.isNull())
         fail("This frame is not an editable text box");
     if (joined(box) == text)

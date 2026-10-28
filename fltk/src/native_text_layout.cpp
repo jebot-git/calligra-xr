@@ -359,6 +359,9 @@ struct Reader {
         flow.paragraphs.push_back(std::move(p));
       } else if (e.namespaceURI() == TEXT && e.localName() == "sequence-decls")
         continue;
+      else if((e.namespaceURI()==DRAW&&(e.localName()=="enhanced-geometry"||e.localName()=="glue-point"))||
+              (e.namespaceURI()==SVG&&(e.localName()=="title"||e.localName()=="desc"))||
+              (e.namespaceURI()==OFFICE&&e.localName()=="event-listeners"))continue;
       else {
         note(flow.unsupported, "Tables, lists, sections and floating frames");
         blocks(e, depth + 1);

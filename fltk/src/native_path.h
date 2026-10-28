@@ -12,9 +12,15 @@ struct PathSubpath {
   ScenePoint start;
   std::vector<PathSegment> segments;
   bool closed = false;
+  size_t paint_group = 0;
+};
+struct PathPaint {
+  bool fill = true, stroke = true;
 };
 struct ScenePath {
   std::vector<PathSubpath> subpaths;
+  std::vector<PathPaint> paints;
+  std::optional<bool> even_odd;
 };
 ScenePath parse_svg_path(const Text &);
 // Coordinates map path units to local shape units; device is used only for

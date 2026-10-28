@@ -84,7 +84,17 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   for strokes. Input paths are bounded to 16,384 segments/subpaths, one MiB of
   data and 16,384 flattened points per path; a slide has a million-point display
   budget. GLU fill output remains bounded to 300,000 triangle vertices per shape.
-  Lists/tables, text auto-growth/fit, vertical writing, custom shapes, advanced strokes/fills,
+  Custom shapes with explicit ODF enhanced geometry now use native equation and
+  path engines: modifier/equation references, arithmetic, the ten standard
+  functions and geometry identifiers, all enhanced commands including G, and
+  independent even-odd path sets with F/S fill/stroke control. Geometry mirrors
+  and formula-defined horizontal text areas work without Qt. Text on supported
+  shapes can be selected, edited and saved with the original equations/modifiers
+  retained. Legacy ODF T/U arc behavior follows the original loader through ODF
+  1.3; ODF 1.4 uses radial angles and clockwise arcs. Formula evaluation is
+  bounded and checks invalid references, cycles and non-finite results.
+  Lists/tables, text auto-growth/fit, vertical writing, custom preset lookup,
+  adjustment handles/stretch points, extrusion/text-on-path, advanced strokes/fills,
   master placeholder fields and animation/timing still require a full port.
 
 Office imports support Transitional and Strict namespaces and are content/data

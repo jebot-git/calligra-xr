@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus nine native calculation/matrix/text/scene regression suites. Actual
+assertions retained, plus ten native calculation/matrix/text/scene regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -109,6 +109,25 @@ fullscreen, verifies increased curve refinement and checks unchanged source
 bytes. Twelve Release and ASan/UBSan document suites pass. These are geometry
 subset checks; custom/enhanced shapes, advanced stroke/paint and shape editing
 remain incomplete.
+
+The native enhanced-geometry suite covers standard formula functions/operators,
+modifiers, named/Unicode equation references, lazy conditionals, cycle/domain
+rejection, all enhanced path commands and independent F/S/N paint sets. It
+checks mirrors, horizontal text areas, changed modifiers, direct custom-shape
+text edits and retained geometry/styles after save/reopen. Reversed text-area
+coordinates in a real upstream stencil are normalized and diagnosed. All 19
+upstream enhanced-geometry stencils load and produce bounded native contours;
+this is geometry-read evidence, not complete stencil visual/editing parity.
+An odfpy producer independently creates equations/modifiers/text areas and
+checks direct shape editing and save. Independent Python math checks 65 formula
+values and nine modern/legacy ellipse/bounds cases, including multi-turn G arcs.
+Framebuffer checks verify modifier arrows, mirroring, F/S paint suppression,
+even-odd holes, separately composited alpha sets and modern clockwise arcs.
+The keyboard flow selects mirrored/custom shapes, edits and undoes/redoes text,
+then independently compares saved equation/modifier/geometry attributes and
+styles.xml. Thirteen Release and ASan/UBSan suites pass. Preset lookup, geometry
+editing/handles, stretch points, vertical text, extrusion and text-on-path
+remain gaps.
 
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or

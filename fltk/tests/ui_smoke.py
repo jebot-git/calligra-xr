@@ -282,6 +282,31 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             assert paths.read_bytes()==original
             print('PASS: Stage curve fills/holes, rounded and partial ellipses, adaptive fullscreen geometry',initial_points,'to',fullscreen_points,'points, and unchanged source',flush=True)
+        enhanced=fixtures/'enhanced.odp';report=art/'enhanced.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-enhanced-test'),'--fixture',str(enhanced)],env=env,check=True)
+        ns='{urn:oasis:names:tc:opendocument:xmlns:drawing:1.0}'
+        def geometries(content):
+            def signature(e):return (e.tag,sorted(e.attrib.items()),[(signature(c)) for c in e])
+            return [signature(e) for e in ET.fromstring(content).iter(ns+'enhanced-geometry')]
+        with zipfile.ZipFile(enhanced) as z:original_geometry=geometries(z.read('content.xml'));original_styles=z.read('styles.xml')
+        with (art/'enhanced.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-stage-fltk'),str(enhanced),'--report',str(report),'--capture',str(art/'enhanced.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists() and (art/'enhanced.ppm').exists())
+            s=data()['scene'];assert s['shapes']==6 and s['editable_frames']==3 and not s['unsupported'] and not s['render_error'] and not s['missing_glyphs']
+            subprocess.run([sys.executable,str(ROOT/'fltk/tests/enhanced_pixels.py'),str(art/'enhanced.ppm'),str(report)],check=True)
+            host=wait(lambda:window('stage'))
+            def select(px,py):
+                s=data()['scene'];x,y,w,h=s['viewport'];scale=min((w-32)/s['width'],(h-32)/s['height'])
+                click(host,int(x+(w-s['width']*scale)/2+px*scale),int(y+(h-s['height']*scale)/2+py*scale))
+            select(335,97);wait(lambda:data()['scene']['selected_frame']==2);assert data()['text']=='Mirrored text'
+            select(60,97);wait(lambda:data()['scene']['selected_frame']==1);assert data()['text']=='Editable arrow'
+            click(host,350,565);key('a',('Control_L',));text('Arrow edited');wait(lambda:data()['text']=='Arrow edited')
+            key('z',('Control_L',));wait(lambda:data()['text']=='Editable arrow');key('z',('Control_L','Shift_L'));wait(lambda:data()['text']=='Arrow edited')
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            with zipfile.ZipFile(enhanced) as z:assert geometries(z.read('content.xml'))==original_geometry and z.read('styles.xml')==original_styles
+            assert not data()['scene']['render_error'];key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: enhanced custom shapes, formula text areas, mirrored selection, direct text undo/save and retained geometry/equations',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

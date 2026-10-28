@@ -343,6 +343,14 @@ std::vector<SceneContour> flatten_path(const ScenePath &path,
   Flatten f{coordinates, device, tolerance, point_limit};
   for (const auto &subpath : path.subpaths) {
     f.contours.push_back({{}, subpath.closed});
+    auto &contour = f.contours.back();
+    contour.paint_group = subpath.paint_group;
+    if (!path.paints.empty()) {
+      if (subpath.paint_group >= path.paints.size())
+        fail("Invalid path paint group");
+      contour.fill = path.paints[subpath.paint_group].fill;
+      contour.stroke = path.paints[subpath.paint_group].stroke;
+    }
     f.emit(coordinates.map(subpath.start));
     auto current = subpath.start;
     for (const auto &s : subpath.segments) {

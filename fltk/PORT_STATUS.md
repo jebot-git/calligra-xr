@@ -21,6 +21,10 @@ shape/animation stacks remain unported; editing retains the existing basic parag
 Stage now retains native cubic/quadratic/elliptical path segments, analytic
 curve bounds, viewport/pixel-density adaptive contours, compound winding fills,
 rounded rectangles and partial ellipses. ODP path geometry is preserved on save.
+Explicit ODF enhanced geometry now has a native equation/command engine,
+modifier references, independent path paint sets, mirrors and horizontal text
+areas. Text-bearing supported shapes participate in native selection/editing;
+their equations and modifiers are retained by saves.
 Sheets now uses a native parser/evaluator rather than the full upstream
 engine. It now has typed arrays, 19 additional reference/lookup/matrix functions,
 fixed ODF/XLSX matrix-block recalculation and cached-result saving. Calculation status
@@ -44,7 +48,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts | Full IME/preedit validation, accessibility, session recovery, printing/export UI, broad XR workflow tests |
 | Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, table/list/section layout, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
-| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG GPU preview, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, list/table/column and vertical text layout, text auto-growth/fit, advanced typography, custom/enhanced shapes, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
+| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG GPU preview, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, list/table/column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/adjustment handles/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
 | Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
@@ -116,11 +120,15 @@ native text, with stable group/z ordering and inverse frame hit testing. Rich
 text retains paragraph/inline font and color styles with continuous clipped
 flow. Full list/table/column/vertical layout, auto-growth, fit-to-size and rich
 editing controls remain incomplete. Gradient/bitmap/hatch fills, stroke dashes/caps/joins,
-custom/enhanced shapes, master placeholder fields and image crop remain
-incomplete. SVG path commands, rounded rectangles and full/arc/chord/pie
+custom preset lookup, adjustment handles, stretch points, extrusion, text on
+paths, master placeholder fields and image crop remain incomplete. Explicit
+enhanced geometry supports standard formulas/commands, modifiers, mirrors,
+independent paint sets and horizontal text areas. Vertical text remains
+unsupported. SVG path commands, rounded rectangles and full/arc/chord/pie
 ellipses now use native curve geometry with analytic bounds and adaptive GPU
 contours. Compound fills support both winding rules; open stroke contours stay
-open even when their fill closes implicitly. Shape editing tools are not yet
+open even when their fill closes implicitly. Native editing covers text on
+supported shapes; geometry editing tools are not yet
 ported. Unrecognized shapes and animations are
 preserved in packages, not rendered. Text undo history is local to the
 currently edited frame. X11/Xvfb fullscreen transitions can emit GLX diagnostics;
