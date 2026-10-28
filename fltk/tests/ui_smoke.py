@@ -95,6 +95,42 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('s',('Control_L',));time.sleep(.2);assert not chooser()
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: XLSX import, edit, Ctrl+S conversion to ODS and unchanged source',flush=True)
+        xlsx=fixtures/'arrays.xlsx';converted=fixtures/'arrays.ods';report=art/'xlsx-arrays.json'
+        subprocess.run([str(args.test_bin_dir/'calligra-fltk-xlsx-test'),'--array-fixture',str(xlsx)],env=env,check=True,stdout=subprocess.DEVNULL)
+        original=xlsx.read_bytes();report.unlink(missing_ok=True)
+        with (art/'xlsx-arrays.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-sheets-fltk'),str(xlsx),'--report',str(report),'--capture',str(art/'xlsx-arrays.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists());host=wait(lambda:window('sheets'))
+            wait(lambda:(art/'xlsx-arrays.ppm').exists())
+            click(host,410,74);key('a',('Control_L',));text('10');key('Return')
+            for _ in range(3):key('Right')
+            wait(lambda:data()['cell']['column']==4 and data()['cell']['value']=='64')
+            key('s',('Control_L',));dialog=wait(chooser)
+            dialog.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync();time.sleep(.2);key('Return')
+            wait(lambda:converted.exists() and data()['file']==str(converted))
+            with zipfile.ZipFile(converted) as archive:
+                content=ET.fromstring(archive.read('content.xml'))
+                table_ns='{urn:oasis:names:tc:opendocument:xmlns:table:1.0}'
+                office_ns='{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+                table=next(content.iter(table_ns+'table'));cells={};r=1
+                for row in table.findall(table_ns+'table-row'):
+                    c=1
+                    for cell in row:
+                        cells[(r,c)]=cell
+                        c+=int(cell.get(table_ns+'number-columns-repeated','1'))
+                    r+=int(row.get(table_ns+'number-rows-repeated','1'))
+                for at,value in {(1,4):'64',(1,5):'76',(2,4):'43',(2,5):'50',(1,7):'233',(9,4):'32',(11,4):'10',(11,5):'3',(12,4):'2',(12,5):'4'}.items():
+                    assert cells[at].get(office_ns+'value')==value,(at,cells[at].attrib)
+                assert cells[(1,4)].get(table_ns+'number-matrix-columns-spanned')=='2'
+                assert cells[(1,4)].get(table_ns+'number-matrix-rows-spanned')=='2'
+                assert cells[(1,8)].get(office_ns+'string-value')=='Český'
+                assert cells[(1,9)].get(office_ns+'string-value')=='#N/A'
+                assert cells[(2,8)].get(office_ns+'boolean-value')=='true'
+                assert cells[(5,1)].get(office_ns+'value')=='901' # Unsupported formula retains its source cache.
+            assert xlsx.read_bytes()==original
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: XLSX matrix import, keyboard edit, dependent recalculation and typed ODS result caches',flush=True)
         subprocess.run([str(args.test_bin_dir/'calligra-fltk-office-test'),'--fixtures',str(fixtures)],env=env,check=True)
         for app,source_ext,dest_ext in [('words','docx','odt'),('stage','pptx','odp')]:
             source=fixtures/f'import.{source_ext}';before=source.read_bytes()

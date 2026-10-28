@@ -6,6 +6,7 @@ import argparse
 import subprocess
 import tempfile
 from openpyxl import Workbook
+from openpyxl.worksheet.formula import ArrayFormula
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--test-bin-dir',type=Path,default=ROOT/'build-native/fltk')
@@ -22,6 +23,9 @@ with tempfile.TemporaryDirectory() as directory:
     first['D1'] = datetime.datetime(2024, 1, 1, 12, 30)
     first['E1'] = datetime.time(12, 30)
     first['F1'] = True
+    first['H1'] = ArrayFormula(ref='H1:I2', text='=MMULT({1,2;3,4},{5,6;7,8})')
+    first['K1'] = '=SUM(H1:I2)'
+    first['L1'] = ArrayFormula(ref='L1', text='=SUM(A1:A2*{2;3})')
     second = book.create_sheet('Other sheet')
     second['A1'] = '=First!B1*2'
     book.save(path)

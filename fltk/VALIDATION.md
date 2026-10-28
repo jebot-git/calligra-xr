@@ -17,6 +17,18 @@ remain an explicit limitation; tests do not establish the original complete
 formula catalogue. Additional installed/Wayland results are recorded in the
 local native-engine artifacts and installation receipt.
 
+The XLSX array-import regression now covers numeric/Boolean/Unicode/error
+results, single-cell array evaluation, dependencies, missing and stale result
+caches, fixed ODF spans and typed caches on save, unchanged unsupported caches,
+edit protection and failed-load rollback. It rejects missing/reversed/out-of-
+bounds/overlapping ranges, conflicting formulas and excessive matrix expansion.
+Transitional and Strict XLSX dialects pass. An independent openpyxl producer
+writes array formulas without calculated caches; the native engine calculates,
+edits and round-trips them. The keyboard flow imports an XLSX matrix workbook,
+edits an input, checks dependent recalculation, saves ODS and independently
+inspects the declared matrix spans and each expected result cache. This does
+not establish dynamic-array, data-table or complete XLSX support.
+
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or
 QtCore/XML no longer describe the default build.

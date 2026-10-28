@@ -166,6 +166,7 @@ OdfPackage import_xlsx(const Text& path)
     OdfPackage output(Kind::Sheets);
     Set<Text> names;
     int cells = 0;
+    Int64 matrixCells = 0;
     Int64 textSize = 0;
     auto account = [&](const Text& text) {
         textSize += text.size();
@@ -196,12 +197,20 @@ OdfPackage import_xlsx(const Text& path)
             int col, row;
         };
         Map<Text, Shared> shared;
+        using Position = std::pair<int, int>; // row, column
+        struct Extent {
+            int columns, rows;
+        };
+        std::map<Position, Extent> matrices;
+        std::map<Position, Position> matrixOwners;
         auto rows = children(child(worksheet, ns, "sheetData"), ns, "row");
-        // Shared-formula followers can precede their master in a package.
+        // Discover masters before reading followers or cached result cells.
         for (auto row : rows)
             for (auto c : children(row, ns, "c")) {
                 if (++cells > 1000000)
                     fail("Worksheet exceeds the import cell limit");
+                if (children(c, ns, "f").size() > 1)
+                    fail("Multiple formulas in one cell");
                 auto f = child(c, ns, "f");
                 if (f.attribute("t") == "shared" && !f.text().isEmpty()) {
                     auto at = address(c.attribute("r"));
@@ -209,6 +218,25 @@ OdfPackage import_xlsx(const Text& path)
                     if (index.isEmpty() || shared.contains(index))
                         fail("Invalid shared formula group");
                     shared[index] = { Formula::from_excel(f.text()), at.first, at.second };
+                }
+                if (f.attribute("t") == "array" && f.hasAttribute("ref")) {
+                    auto refs = f.attribute("ref").split(':');
+                    if (refs.size() < 1 || refs.size() > 2 || f.text().trimmed().isEmpty())
+                        fail("Invalid array formula master");
+                    auto first = address(refs[0]);
+                    auto last = address(refs.size() == 1 ? refs[0] : refs[1]);
+                    if (first != address(c.attribute("r")) || last.first < first.first || last.second < first.second)
+                        fail("Invalid array formula range");
+                    int columns = last.first - first.first + 1, height = last.second - first.second + 1;
+                    matrixCells += Int64(columns) * height;
+                    if (matrixCells > 1000000)
+                        fail("Array formulas exceed the import cell limit");
+                    Position master { first.second, first.first };
+                    for (int y = first.second; y <= last.second; ++y)
+                        for (int x = first.first; x <= last.first; ++x)
+                            if (!matrixOwners.emplace(Position { y, x }, master).second)
+                                fail("Overlapping array formulas");
+                    matrices.emplace(master, Extent { columns, height });
                 }
             }
         int lastRow = 0;
@@ -234,18 +262,36 @@ OdfPackage import_xlsx(const Text& path)
                 lastCol = at.first;
                 auto f = child(c, ns, "f");
                 Text value = child(c, ns, "v").text(), type = c.attribute("t");
+                Position position { r, at.first };
+                // Array followers may carry a cache or an empty array marker,
+                // but cannot contain an independent formula inside the block.
+                if (auto owner = matrixOwners.find(position);
+                    owner != matrixOwners.end() && owner->second != position) {
+                    if (!f.isNull()
+                        && (f.attribute("t") != "array" || !f.text().trimmed().isEmpty() || f.hasAttribute("ref")))
+                        fail("Formula conflicts with an array result cell");
+                    f = { };
+                }
                 if (!f.isNull()) {
                     const auto kind = f.attribute("t", "normal");
-                    if (kind != "normal" && kind != "shared")
-                        fail("Array and data-table formulas are not supported yet");
+                    if (kind != "normal" && kind != "shared" && kind != "array")
+                        fail("Unsupported formula type: " + kind);
                     Text formula;
                     if (kind == "shared") {
                         if (!shared.contains(f.attribute("si")))
                             fail("Missing shared formula master");
                         auto master = shared.value(f.attribute("si"));
                         formula = Formula::shift(master.formula, at.first-master.col, r-master.row);
-                    } else
+                    } else {
+                        if (kind == "array") {
+                            auto matrix = matrices.find(position);
+                            if (matrix == matrices.end())
+                                fail("Missing array formula master or range");
+                            cell.setAttributeNS(TABLE, "table:number-matrix-columns-spanned", matrix->second.columns);
+                            cell.setAttributeNS(TABLE, "table:number-matrix-rows-spanned", matrix->second.rows);
+                        }
                         formula = Formula::from_excel(f.text());
+                    }
                     account(formula);
                     cell.setAttributeNS(TABLE, "table:formula", "of:" + Formula::encode(formula));
                     // Keep the source cache for formulas the engine cannot evaluate.

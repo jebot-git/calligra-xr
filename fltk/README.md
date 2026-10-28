@@ -52,7 +52,7 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   preserves existing ODT character-style spans and links while editing runs,
   has undo/redo, and saves ODT. It is not a paginated word processor.
 - Sheets loads ODS and imports XLSX cell data, shared/inline Unicode strings,
-  numeric/Boolean values, shared formulas, cross-sheet references, global named
+  numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell
   editing, undo/redo, TSV paste and ODS saves. It does not export XLSX.
 - Stage loads ODP and imports PPTX text boxes and embedded PNG/JPEG images,
@@ -64,7 +64,7 @@ Office imports support Transitional and Strict namespaces and are content/data
 conversions, not full visual fidelity. DOCX formatting, headers/footers,
 numbering and drawings are omitted. PPTX themes, master content, rotations,
 crops, charts, media and animations are omitted. XLSX visual formatting, charts,
-pivots, macros, XLSX array/data-table formulas and local named expressions are not
+pivots, macros, XLSX data-table formulas and local named expressions are not
 supported. Ctrl+S proposes an ODF copy; imported Office files cannot be
 accidentally overwritten by an ODF save. Legacy binary formats are unsupported.
 
@@ -101,12 +101,18 @@ Materialized arrays are limited to one million cells; inversion/determinant
 matrices to 512 by 512, and matrix multiplication to 100 million products.
 Sparse range aggregates and dimension queries do not materialize huge ranges.
 
-Existing ODF fixed matrix blocks recalculate all their result cells, including
+Existing ODF fixed matrix blocks and imported XLSX array formulas recalculate all their result cells, including
 dependent formulas and missing/stale imported caches. Save updates each result
 cache while preserving the block's extent. Edit the master formula in its
 top-left cell; individual result cells are protected. The UI does not yet
 provide matrix-block creation/deletion or dynamic spill ranges. An array result
 in a normal cell displays and caches its top-left element.
+XLSX array masters retain their declared rectangle as ODF matrix spans; missing
+result caches are calculated, and unchanged unsupported formulas retain their
+source caches. Malformed, overlapping or conflicting blocks are rejected, with
+a total limit of one million matrix result cells per workbook. Single-cell
+array formulas also keep array evaluation for their input ranges. This follows
+the [SpreadsheetML formula model](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.cellformula).
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,
