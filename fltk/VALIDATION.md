@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus seven native calculation/matrix/text/scene regression suites. Actual
+assertions retained, plus eight native calculation/matrix/text/scene regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -78,6 +78,21 @@ saved XML and original style bytes. Rendered captures supplement model checks.
 background, solid fill, alpha compositing/stacking, a concave polygon/notch and
 a transformed image. The ten Release and ASan/UBSan document suites pass.
 These checks cover the documented basic scene subset, not full Stage fidelity.
+
+The native rich-text suite checks separate master/content automatic paragraph
+styles, font declarations resolved in the XML containing their style, inherited
+paragraph fonts/colors, inline font/weight/italic/color runs, styled links,
+Arabic bidi, independent frame padding, vertical alignment and continuous
+overflow layout. It checks native and reference-metric display lists, source
+coverage, retained styles after Words/Stage edits and saves, invalid paint and
+oversized edit rejection. Words defaults to black ink and white paper, reads
+declared page colors, and retains the session theme in its editor controls.
+An independent odfpy producer imports, edits and round-trips a styled ODP.
+Framebuffer checks count red/green/blue/purple runs in Words and Stage and
+verify text-frame overflow clipping and bottom alignment. Keyboard tests edit
+the rich Stage frame and inspect retained style names and original styles.xml.
+Eleven Release and ASan/UBSan document suites pass; these checks do not establish
+full typography, structured text editing or full office-suite parity.
 
 The following earlier milestone results describe the old baseline and are
 retained for provenance; references there to upstream calculation reuse or

@@ -69,7 +69,13 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   nested text-frame identity. Images and native shaped text use those transforms.
   The shared glyph cache is bounded to 64 MiB/4,096 entries; slide images to
   128 MiB/4,096 entries. Polygon tessellation uses GLU with at most 1,024 input points.
-  Rich slide text, custom/path shapes, rounded corners, advanced strokes/fills,
+  Native ODP frame text retains separate paragraphs, inherited paragraph styles,
+  styled spans/links, fonts and foreground colors. The shared reader resolves
+  automatic styles and font declarations in their original XML scopes. Frame
+  layout uses native shaping, bidi, wrapping, margins, spacing and line heights,
+  independent side padding and top/middle/bottom alignment. Overflow remains a
+  continuous flow clipped by the frame rather than a paginated first-page preview.
+  Lists/tables, text auto-growth/fit, vertical writing, custom/path shapes, rounded corners, advanced strokes/fills,
   master placeholder fields and animation/timing still require a full port.
 
 Office imports support Transitional and Strict namespaces and are content/data
@@ -195,6 +201,9 @@ Always keep originals for workbooks outside this implemented subset.
 
 The applications follow DomeD appearance and Unicode font settings, use OpenGL
 FLTK windows, export universal-menu commands and use native FLTK file choosers.
+Document previews use their declared ink and paper colors; Words defaults to
+white paper with black text. Explicit window-font-color styles use the session
+foreground. The editor controls retain the DomeD theme.
 There is no private menu bar. A popup menu is available outside DomeD.
 Standard shortcuts, undo/redo and Stage presentation controls are retained.
 

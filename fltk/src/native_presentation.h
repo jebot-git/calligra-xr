@@ -17,16 +17,17 @@ struct SceneTransform {
   std::optional<SceneTransform> inverse() const;
 };
 SceneTransform parse_scene_transform(const Text &);
-struct SceneColor {
-  unsigned char red = 0, green = 0, blue = 0;
-  double alpha = 1;
-};
+using SceneColor = TextColor;
 struct ScenePaint {
   bool fill = false, stroke = false;
   bool even_odd = false;
   SceneColor fill_color{255, 255, 255}, stroke_color, text_color;
+  bool use_window_text_color = false;
   double stroke_width = 1;
   double padding = 3.5;
+  double padding_left = 3.5, padding_right = 3.5, padding_top = 3.5,
+         padding_bottom = 3.5;
+  enum VerticalAlignment { Top, Middle, Bottom } vertical_alignment = Top;
   TextFont font;
 };
 struct SceneContour {
@@ -38,6 +39,8 @@ struct SceneShape {
   Text name, text, image;
   SceneTransform transform;
   ScenePaint paint;
+  TextFlow text_flow;
+  Text paragraph_style;
   double width = 0, height = 0;
   std::vector<SceneContour> contours;
   int editor_index = -1;
@@ -56,5 +59,7 @@ struct SlideScene {
   std::vector<Text> unsupported;
   int hit_test(ScenePoint) const; // Shape index; masters are not editable.
 };
-std::vector<SlideScene> read_presentation_scenes(const OdfPackage &);
+std::vector<SlideScene>
+read_presentation_scenes(const OdfPackage &,
+                         std::shared_ptr<OdfTextReader> = {});
 } // namespace DomeOffice

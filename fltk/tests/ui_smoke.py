@@ -238,6 +238,32 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             assert not data()['scene']['render_error']
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: Stage master/vector rendering, transformed frame selection, grouped edit and style-preserving save',flush=True)
+        rich_stage=fixtures/'rich.odp';rich_words=fixtures/'rich.odt'
+        subprocess.run([str(args.test_bin_dir/'calligra-native-rich-text-test'),'--fixture',str(rich_stage),str(rich_words)],env=env,check=True)
+        for app,doc in [('stage',rich_stage),('words',rich_words)]:
+            report=art/('rich-'+app+'.json');report.unlink(missing_ok=True)
+            capture=art/('rich-'+app+'.ppm')
+            with zipfile.ZipFile(doc) as z:style_bytes=z.read('styles.xml')
+            with (art/('rich-'+app+'.log')).open('w') as log:
+                command=[str(args.bin_dir.resolve()/('calligra-'+app+'-fltk')),str(doc),'--report',str(report),'--capture',str(capture)]
+                if app=='words':command.append('--page-layout')
+                process=subprocess.Popen(command,env=env,stdout=log,stderr=log)
+                def data():return json.loads(report.read_text())
+                wait(lambda:report.exists() and capture.exists())
+                if app=='stage':
+                    assert data()['scene']['shaped_lines']==18 and data()['scene']['overflow_frames']==1 and not data()['scene']['missing_glyphs'] and not data()['scene']['render_error']
+                subprocess.run([sys.executable,str(ROOT/'fltk/tests/rich_text_pixels.py'),str(capture),str(report)],check=True)
+                host=wait(lambda:window(app));host.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync()
+                if app=='stage':
+                    click(host,350,565);key('Home',('Control_L',));key('End');text(' edited')
+                    wait(lambda:'Rich native text edited' in data()['text'])
+                    key('s',('Control_L',));wait(lambda:not data()['modified'])
+                    with zipfile.ZipFile(doc) as z:
+                        assert z.read('styles.xml')==style_bytes
+                        xml=ET.fromstring(z.read('content.xml'))
+                        assert any(e.attrib.get('{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name')=='Red' for e in xml.iter())
+                key('q',('Control_L',));assert process.wait(timeout=10)==0
+                print('PASS:',app,'native rich-text colors, paper/frame layout and retained styles',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

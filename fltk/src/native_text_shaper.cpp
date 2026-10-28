@@ -27,14 +27,23 @@ struct Library {
   ~Library() { FT_Done_FreeType(ft); }
 };
 bool ignorable(uint32_t c) {
-  return u_hasBinaryProperty(c, UCHAR_DEFAULT_IGNORABLE_CODE_POINT) || c == '\n' || c == '\r' ||
-         c == '\t' || c == 0x2028 || c == 0x2029;
+  return u_hasBinaryProperty(c, UCHAR_DEFAULT_IGNORABLE_CODE_POINT) ||
+         c == '\n' || c == '\r' || c == '\t' || c == 0x2028 || c == 0x2029;
 }
-bool hard(uint32_t c) { return c == '\n' || c == '\r' || c == 0x2028 || c == 0x2029; }
-int weight(const TextFont &font) { return font.bold && font.weight < 600 ? 700 : font.weight; }
+bool hard(uint32_t c) {
+  return c == '\n' || c == '\r' || c == 0x2028 || c == 0x2029;
+}
+int weight(const TextFont &font) {
+  return font.bold && font.weight < 600 ? 700 : font.weight;
+}
 bool valid_font(const TextFont &font) {
-  return std::isfinite(font.size) && font.size > 0 && font.size <= 1000 && font.weight >= 1 &&
-         font.weight <= 1000 && font.family.size() <= 1024 && font.language.size() <= 128;
+  return std::isfinite(font.size) && font.size > 0 && font.size <= 1000 &&
+         font.weight >= 1 && font.weight <= 1000 &&
+         font.family.size() <= 1024 && font.language.size() <= 128;
+}
+bool valid_color(const std::optional<TextColor> &color) {
+  return !color || (std::isfinite(color->alpha) && color->alpha >= 0 &&
+                    color->alpha <= 1);
 }
 void size_face(FT_Face face, unsigned pixels) {
   if (FT_IS_SCALABLE(face)) {
@@ -72,7 +81,8 @@ void variations(FT_Library library, FT_Face face, const TextFont &font) {
       coords[i] = font.italic ? -12 * 65536L : 0;
     coords[i] = std::clamp(coords[i], axis.minimum, axis.maximum);
   }
-  auto error = FT_Set_Var_Design_Coordinates(face, axes->num_axis, coords.data());
+  auto error =
+      FT_Set_Var_Design_Coordinates(face, axes->num_axis, coords.data());
   FT_Done_MM_Var(library, axes);
   if (error)
     fail("Cannot configure variable document font");
@@ -111,15 +121,17 @@ struct NativeTextShaper::Impl {
   using FaceKey = std::tuple<std::string, int, int, bool>;
   std::map<FaceKey, std::weak_ptr<NativeTypeface>> faces;
   std::map<std::pair<Request, Text>, std::shared_ptr<NativeTypeface>> fallback;
-  Impl(const Text &preferred, int pixels) : family(preferred), bitmap_pixels(pixels) {
+  Impl(const Text &preferred, int pixels)
+      : family(preferred), bitmap_pixels(pixels) {
     if (pixels < 1 || pixels > 256 || preferred.size() > 1024)
       fail("Invalid document font defaults");
     config = FcConfigCreate();
     // Explicitly load the system font config into a private object. The FLTK
     // session's FONTCONFIG_FILE and Pango adapters remain untouched.
     if (!config ||
-        !FcConfigParseAndLoad(config, reinterpret_cast<const FcChar8 *>("/etc/fonts/fonts.conf"),
-                              false) ||
+        !FcConfigParseAndLoad(
+            config, reinterpret_cast<const FcChar8 *>("/etc/fonts/fonts.conf"),
+            false) ||
         !FcConfigBuildFonts(config)) {
       if (config)
         FcConfigDestroy(config);
@@ -131,14 +143,16 @@ struct NativeTextShaper::Impl {
     if (config)
       FcConfigDestroy(config);
   }
-  std::shared_ptr<NativeTypeface> match(const TextFont &font, const Text &characters = {},
+  std::shared_ptr<NativeTypeface> match(const TextFont &font,
+                                        const Text &characters = {},
                                         bool scalable = false) {
-    Request request{font.family.empty() ? family : font.family, weight(font), font.italic,
-                    font.language};
+    Request request{font.family.empty() ? family : font.family, weight(font),
+                    font.italic, font.language};
     if (characters.empty()) {
       if (auto found = primary.find(request); found != primary.end())
         return found->second;
-    } else if (auto found = fallback.find({request, characters}); found != fallback.end())
+    } else if (auto found = fallback.find({request, characters});
+               found != fallback.end())
       return found->second;
     using Pattern = std::unique_ptr<FcPattern, decltype(&FcPatternDestroy)>;
     Pattern pattern(FcPatternCreate(), FcPatternDestroy);
@@ -172,13 +186,17 @@ struct NativeTextShaper::Impl {
     if (quote)
       fail("Invalid quoted document font family");
     add_family();
-    FcPatternAddString(pattern.get(), FC_FAMILY, reinterpret_cast<const FcChar8 *>("monospace"));
-    FcPatternAddDouble(pattern.get(), FC_WEIGHT, FcWeightFromOpenTypeDouble(weight(font)));
-    FcPatternAddInteger(pattern.get(), FC_SLANT, font.italic ? FC_SLANT_ITALIC : FC_SLANT_ROMAN);
+    FcPatternAddString(pattern.get(), FC_FAMILY,
+                       reinterpret_cast<const FcChar8 *>("monospace"));
+    FcPatternAddDouble(pattern.get(), FC_WEIGHT,
+                       FcWeightFromOpenTypeDouble(weight(font)));
+    FcPatternAddInteger(pattern.get(), FC_SLANT,
+                        font.italic ? FC_SLANT_ITALIC : FC_SLANT_ROMAN);
     FcPatternAddDouble(pattern.get(), FC_PIXEL_SIZE, bitmap_pixels);
     if (!font.language.empty() && font.language != "none") {
       FcLangSet *languages = FcLangSetCreate();
-      FcLangSetAdd(languages, reinterpret_cast<const FcChar8 *>(font.language.toUtf8().c_str()));
+      FcLangSetAdd(languages, reinterpret_cast<const FcChar8 *>(
+                                  font.language.toUtf8().c_str()));
       FcPatternAddLangSet(pattern.get(), FC_LANG, languages);
       FcLangSetDestroy(languages);
     }
@@ -195,21 +213,25 @@ struct NativeTextShaper::Impl {
     FcConfigSubstitute(config, pattern.get(), FcMatchPattern);
     FcConfigSetDefaultSubstitute(config, pattern.get());
     FcResult result;
-    Pattern matched(FcFontMatch(config, pattern.get(), &result), FcPatternDestroy);
+    Pattern matched(FcFontMatch(config, pattern.get(), &result),
+                    FcPatternDestroy);
     FcChar8 *file = nullptr, *name = nullptr, *style = nullptr;
     int index = 0;
-    if (!matched || FcPatternGetString(matched.get(), FC_FILE, 0, &file) != FcResultMatch)
+    if (!matched ||
+        FcPatternGetString(matched.get(), FC_FILE, 0, &file) != FcResultMatch)
       fail("No usable native document font");
     FcPatternGetInteger(matched.get(), FC_INDEX, 0, &index);
     FcPatternGetString(matched.get(), FC_FAMILY, 0, &name);
     FcPatternGetString(matched.get(), FC_STYLE, 0, &style);
-    FaceKey key{reinterpret_cast<const char *>(file), index, weight(font), font.italic};
+    FaceKey key{reinterpret_cast<const char *>(file), index, weight(font),
+                font.italic};
     std::shared_ptr<NativeTypeface> face;
     if (auto found = faces.find(key); found != faces.end())
       face = found->second.lock();
     if (!face) {
       if (faces.size() >= 512) {
-        std::erase_if(faces, [](const auto &item) { return item.second.expired(); });
+        std::erase_if(faces,
+                      [](const auto &item) { return item.second.expired(); });
         if (faces.size() >= 512)
           fail("Native document font limit exceeded");
       }
@@ -223,7 +245,8 @@ struct NativeTextShaper::Impl {
       face->implementation = std::make_shared<NativeTypeface::Impl>();
       auto &native = *face->implementation;
       native.library = library;
-      if (FT_New_Face(library->ft, face->file.c_str(), index, &native.shaping) ||
+      if (FT_New_Face(library->ft, face->file.c_str(), index,
+                      &native.shaping) ||
           FT_New_Face(library->ft, face->file.c_str(), index, &native.raster))
         fail("Cannot open document font");
       face->scalable = FT_IS_SCALABLE(native.shaping);
@@ -231,12 +254,17 @@ struct NativeTextShaper::Impl {
       variations(library->ft, native.raster, font);
       size_face(native.shaping, face->scalable ? 64 : bitmap_pixels);
       native.hb = hb_ft_font_create_referenced(native.shaping);
-      hb_ft_font_set_load_flags(native.hb, face->scalable ? FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP
-                                                          : FT_LOAD_DEFAULT);
+      hb_ft_font_set_load_flags(
+          native.hb, face->scalable ? FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP
+                                    : FT_LOAD_DEFAULT);
       native.units = native.shaping->size->metrics.y_ppem * 64.;
-      native.metrics = {0, std::max(0., native.shaping->size->metrics.ascender / native.units),
-                        std::max(0., -native.shaping->size->metrics.descender / native.units)};
-      if (native.units <= 0 || native.metrics.ascent + native.metrics.descent <= 0)
+      native.metrics = {
+          0,
+          std::max(0., native.shaping->size->metrics.ascender / native.units),
+          std::max(0.,
+                   -native.shaping->size->metrics.descender / native.units)};
+      if (native.units <= 0 ||
+          native.metrics.ascent + native.metrics.descent <= 0)
         fail("Invalid document font metrics");
       faces[key] = face;
     }
@@ -274,16 +302,19 @@ struct ShapingParagraph::Impl {
     TextFont font;
     UScriptCode script;
     std::shared_ptr<NativeTypeface> face;
+    std::optional<TextColor> color;
   };
   std::vector<Segment> segments;
   ShapedText whole;
   Impl(std::shared_ptr<NativeTextShaper::Impl> e, const TextParagraph &p)
       : engine(std::move(e)), paragraph(p) {
-    if (p.text.size() > 1'000'000 || !valid_font(p.font))
+    if (p.text.size() > 1'000'000 || !valid_font(p.font) ||
+        !valid_color(p.color))
       fail("Invalid native shaping paragraph");
     size_t end = 0;
     for (const auto &s : p.spans) {
-      if (s.begin != end || s.end <= s.begin || s.end > p.text.size() || !valid_font(s.font))
+      if (s.begin != end || s.end <= s.begin || s.end > p.text.size() ||
+          !valid_font(s.font) || !valid_color(s.color))
         fail("Invalid native shaping span");
       end = s.end;
     }
@@ -317,18 +348,21 @@ struct ShapingParagraph::Impl {
     for (size_t i = 0; i < scalars.size(); ++i)
       if (hard(scalars[i]))
         direction_text[to16[i]] = 0x2028;
-    ubidi_setPara(bidi.get(), direction_text.empty() ? &empty : direction_text.data(),
+    ubidi_setPara(bidi.get(),
+                  direction_text.empty() ? &empty : direction_text.data(),
                   direction_text.size(), level, nullptr, &status);
     if (U_FAILURE(status))
       fail("Cannot resolve document text direction");
     std::unique_ptr<UBreakIterator, decltype(&ubrk_close)> iter(
-        ubrk_open(UBRK_CHARACTER, "und", text_data, utf16.size(), &status), ubrk_close);
+        ubrk_open(UBRK_CHARACTER, "und", text_data, utf16.size(), &status),
+        ubrk_close);
     if (U_FAILURE(status))
       fail("Cannot resolve shaping graphemes");
     struct Atom {
       size_t begin, end;
       TextFont font;
       UScriptCode script;
+      std::optional<TextColor> color;
     };
     std::vector<Atom> atoms;
     int32_t start = ubrk_first(iter.get());
@@ -339,6 +373,7 @@ struct ShapingParagraph::Impl {
       while (span + 1 < p.spans.size() && p.spans[span].end <= a)
         ++span;
       TextFont font = p.spans.empty() ? p.font : p.spans[span].font;
+      auto color = p.spans.empty() ? p.color : p.spans[span].color;
       UScriptCode script = USCRIPT_COMMON;
       for (size_t i = a; i < b; ++i) {
         auto candidate = uscript_getScript(scalars[i], &status);
@@ -347,7 +382,7 @@ struct ShapingParagraph::Impl {
           break;
         }
       }
-      atoms.push_back({a, b, font, script});
+      atoms.push_back({a, b, font, script, color});
     }
     UScriptCode previous = USCRIPT_COMMON;
     for (auto &a : atoms) {
@@ -374,11 +409,13 @@ struct ShapingParagraph::Impl {
     for (size_t first = 0; first < atoms.size();) {
       size_t last = first + 1;
       while (last < atoms.size() && atoms[last].font == atoms[first].font &&
-             atoms[last].script == atoms[first].script && !hard(scalars[atoms[last - 1].begin]) &&
+             atoms[last].script == atoms[first].script &&
+             !hard(scalars[atoms[last - 1].begin]) &&
              !hard(scalars[atoms[last].begin]))
         ++last;
       auto primary = engine->match(atoms[first].font);
-      auto text = p.text.mid(atoms[first].begin, atoms[last - 1].end - atoms[first].begin);
+      auto text = p.text.mid(atoms[first].begin,
+                             atoms[last - 1].end - atoms[first].begin);
       std::shared_ptr<NativeTypeface> group = primary;
       if (!NativeTextShaper::Impl::covers(*primary, text)) {
         auto candidate = engine->match(atoms[first].font, text, true);
@@ -391,13 +428,18 @@ struct ShapingParagraph::Impl {
         if (!NativeTextShaper::Impl::covers(*face, text))
           face = engine->match(atoms[i].font, text, true);
         if (!segments.empty() && segments.back().end == atoms[i].begin &&
-            segments.back().face == face && segments.back().font == atoms[i].font &&
-            segments.back().script == atoms[i].script && !hard(scalars[atoms[i].begin]) &&
-            !hard(scalars[segments.back().begin]) && scalars[atoms[i].begin] != '\t' &&
+            segments.back().face == face &&
+            segments.back().font == atoms[i].font &&
+            segments.back().color == atoms[i].color &&
+            segments.back().script == atoms[i].script &&
+            !hard(scalars[atoms[i].begin]) &&
+            !hard(scalars[segments.back().begin]) &&
+            scalars[atoms[i].begin] != '\t' &&
             scalars[segments.back().begin] != '\t')
           segments.back().end = atoms[i].end;
         else
-          segments.push_back({atoms[i].begin, atoms[i].end, atoms[i].font, atoms[i].script, face});
+          segments.push_back({atoms[i].begin, atoms[i].end, atoms[i].font,
+                              atoms[i].script, face, atoms[i].color});
       }
       first = last;
     }
@@ -410,13 +452,17 @@ struct ShapingParagraph::Impl {
           g.x += whole.metrics.width;
           whole.glyphs.push_back(std::move(g));
         }
-        whole.clusters.insert(whole.clusters.end(), part->clusters.begin(), part->clusters.end());
+        whole.clusters.insert(whole.clusters.end(), part->clusters.begin(),
+                              part->clusters.end());
         whole.metrics.width += part->metrics.width;
-        whole.metrics.ascent = std::max(whole.metrics.ascent, part->metrics.ascent);
-        whole.metrics.descent = std::max(whole.metrics.descent, part->metrics.descent);
+        whole.metrics.ascent =
+            std::max(whole.metrics.ascent, part->metrics.ascent);
+        whole.metrics.descent =
+            std::max(whole.metrics.descent, part->metrics.descent);
         whole.missing_glyphs += part->missing_glyphs;
         if (i < scalars.size())
-          whole.clusters.push_back({i, i + 1, {0, part->metrics.ascent, part->metrics.descent}});
+          whole.clusters.push_back(
+              {i, i + 1, {0, part->metrics.ascent, part->metrics.descent}});
         begin = i + 1;
       }
     whole.rtl = ubidi_getParaLevel(bidi.get()) & 1;
@@ -428,8 +474,9 @@ struct ShapingParagraph::Impl {
     output->rtl = ubidi_getParaLevel(bidi.get()) & 1;
     if (begin == end) {
       auto face = engine->match(paragraph.font);
-      output->metrics = {0, face->implementation->metrics.ascent * paragraph.font.size,
-                         face->implementation->metrics.descent * paragraph.font.size};
+      output->metrics = {
+          0, face->implementation->metrics.ascent * paragraph.font.size,
+          face->implementation->metrics.descent * paragraph.font.size};
       return output;
     }
     UErrorCode status = U_ZERO_ERROR;
@@ -441,11 +488,14 @@ struct ShapingParagraph::Impl {
     std::map<size_t, ShapedCluster> logical;
     for (int run = 0; run < count; ++run) {
       int32_t start16, length16;
-      bool rtl = ubidi_getVisualRun(line.get(), run, &start16, &length16) == UBIDI_RTL;
-      size_t a = from16[to16[begin] + start16], b = from16[to16[begin] + start16 + length16];
+      bool rtl =
+          ubidi_getVisualRun(line.get(), run, &start16, &length16) == UBIDI_RTL;
+      size_t a = from16[to16[begin] + start16],
+             b = from16[to16[begin] + start16 + length16];
       std::vector<const Segment *> pieces;
-      auto first = std::lower_bound(segments.begin(), segments.end(), a,
-                                    [](const Segment &s, size_t pos) { return s.end <= pos; });
+      auto first = std::lower_bound(
+          segments.begin(), segments.end(), a,
+          [](const Segment &s, size_t pos) { return s.end <= pos; });
       for (auto it = first; it != segments.end() && it->begin < b; ++it)
         pieces.push_back(&*it);
       if (rtl)
@@ -459,20 +509,24 @@ struct ShapingParagraph::Impl {
         output->metrics.ascent = std::max(output->metrics.ascent, ascent);
         output->metrics.descent = std::max(output->metrics.descent, descent);
         Buffer buffer(hb_buffer_create());
-        hb_buffer_set_cluster_level(buffer.get(), HB_BUFFER_CLUSTER_LEVEL_MONOTONE_GRAPHEMES);
-        hb_buffer_set_direction(buffer.get(), rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
-        hb_buffer_set_script(buffer.get(),
-                             hb_script_from_string(uscript_getShortName(segment->script), -1));
+        hb_buffer_set_cluster_level(buffer.get(),
+                                    HB_BUFFER_CLUSTER_LEVEL_MONOTONE_GRAPHEMES);
+        hb_buffer_set_direction(buffer.get(),
+                                rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
+        hb_buffer_set_script(
+            buffer.get(),
+            hb_script_from_string(uscript_getShortName(segment->script), -1));
         if (!segment->font.language.empty())
           hb_buffer_set_language(
-              buffer.get(), hb_language_from_string(segment->font.language.toUtf8().c_str(), -1));
+              buffer.get(), hb_language_from_string(
+                                segment->font.language.toUtf8().c_str(), -1));
         bool tab = scalars[lo] == '\t';
         const uint32_t spaces[4] = {' ', ' ', ' ', ' '};
         if (tab)
           hb_buffer_add_utf32(buffer.get(), spaces, 4, 0, 4);
         else
-          hb_buffer_add_utf32(buffer.get(), scalars.data() + begin, end - begin, lo - begin,
-                              hi - lo);
+          hb_buffer_add_utf32(buffer.get(), scalars.data() + begin, end - begin,
+                              lo - begin, hi - lo);
         hb_shape(native.hb, buffer.get(), nullptr, 0);
         unsigned length;
         auto *info = hb_buffer_get_glyph_infos(buffer.get(), &length);
@@ -482,7 +536,8 @@ struct ShapingParagraph::Impl {
         std::set<size_t> boundaries{lo, hi};
         for (unsigned i = 0; i < length; ++i)
           boundaries.insert(tab ? lo : begin + info[i].cluster);
-        for (auto it = boundaries.begin(); std::next(it) != boundaries.end(); ++it)
+        for (auto it = boundaries.begin(); std::next(it) != boundaries.end();
+             ++it)
           logical[*it] = {*it, *std::next(it), {0, ascent, descent}};
         for (unsigned i = 0; i < length; ++i) {
           size_t source = tab ? lo : begin + info[i].cluster;
@@ -492,9 +547,11 @@ struct ShapingParagraph::Impl {
           double advance = positions[i].x_advance * unit;
           if (advance < 0)
             fail("Unsupported negative horizontal font advance");
-          output->glyphs.push_back({segment->face, info[i].codepoint, source, *next,
-                                    output->metrics.width + positions[i].x_offset * unit,
-                                    -positions[i].y_offset * unit, advance, segment->font.size});
+          output->glyphs.push_back(
+              {segment->face, info[i].codepoint, source, *next,
+               output->metrics.width + positions[i].x_offset * unit,
+               -positions[i].y_offset * unit, advance, segment->font.size,
+               segment->color});
           output->metrics.width += advance;
           if (!info[i].codepoint)
             ++output->missing_glyphs;
@@ -519,20 +576,23 @@ NativeTextShaper::NativeTextShaper(const Text &family, int pixels)
 ShapingParagraph NativeTextShaper::prepare(const TextParagraph &p) const {
   return ShapingParagraph(std::make_shared<ShapingParagraph::Impl>(impl_, p));
 }
-ShapedText NativeTextShaper::shape(const Text &text, const TextFont &font, bool rtl) const {
+ShapedText NativeTextShaper::shape(const Text &text, const TextFont &font,
+                                   bool rtl) const {
   TextParagraph p;
   p.text = text;
   p.font = font;
   p.direction = rtl ? TextParagraph::RTL : TextParagraph::Auto;
   return prepare(p).whole();
 }
-ShapingParagraph::ShapingParagraph(std::shared_ptr<Impl> impl) : impl_(std::move(impl)) {}
+ShapingParagraph::ShapingParagraph(std::shared_ptr<Impl> impl)
+    : impl_(std::move(impl)) {}
 const ShapedText &ShapingParagraph::whole() const { return impl_->whole; }
-std::shared_ptr<ShapedText> ShapingParagraph::line(size_t begin, size_t end) const {
+std::shared_ptr<ShapedText> ShapingParagraph::line(size_t begin,
+                                                   size_t end) const {
   return impl_->shape_line(begin, end);
 }
-GlyphBitmap NativeTextShaper::rasterize(const NativeTypeface &font, uint32_t glyph,
-                                        unsigned pixels) {
+GlyphBitmap NativeTextShaper::rasterize(const NativeTypeface &font,
+                                        uint32_t glyph, unsigned pixels) {
   if (!font.implementation || pixels < 1 || pixels > 4096)
     fail("Invalid native glyph raster request");
   auto face = font.implementation->raster;
@@ -548,12 +608,13 @@ GlyphBitmap NativeTextShaper::rasterize(const NativeTypeface &font, uint32_t gly
   result.top = -face->glyph->bitmap_top;
   result.pixels_per_em = face->size->metrics.y_ppem;
   if (result.width > 16384 || result.height > 4096 ||
-      size_t(result.width) * result.height > 16'000'000 || result.pixels_per_em <= 0)
+      size_t(result.width) * result.height > 16'000'000 ||
+      result.pixels_per_em <= 0)
     fail("Native glyph raster limit exceeded");
   result.alpha.resize(size_t(result.width) * result.height);
   for (int y = 0; y < result.height; ++y) {
-    auto row =
-        bitmap.buffer + (bitmap.pitch >= 0 ? y : result.height - 1 - y) * std::abs(bitmap.pitch);
+    auto row = bitmap.buffer + (bitmap.pitch >= 0 ? y : result.height - 1 - y) *
+                                   std::abs(bitmap.pitch);
     for (int x = 0; x < result.width; ++x) {
       unsigned value;
       if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY)

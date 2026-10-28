@@ -910,11 +910,16 @@ public:
             std::vector<std::string> unsupported;
             for (const auto& feature : model.unsupported)
                 unsupported.push_back(utf8(feature));
+            const auto &text = canvas->text_stats();
+            for (const auto& feature : text.unsupported)
+                unsupported.push_back(utf8(feature));
             data["scene"] = { { "page", slide + 1 }, { "width", model.width },
                 { "height", model.height }, { "shapes", model.shapes.size() },
                 { "master_shapes", masters }, { "editable_frames", model.editable_sources.size() },
                 { "selected_frame", box }, { "rendered_shapes", canvas->rendered_shapes() },
                 { "render_error", canvas->render_error() }, { "unsupported", unsupported },
+                { "shaped_lines", text.lines }, { "glyphs", text.glyphs },
+                { "missing_glyphs", text.missing_glyphs }, { "overflow_frames", text.overflow_frames },
                 { "viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()} } };
         }
         std::ofstream(options.report) << data.dump(2) << '\n';

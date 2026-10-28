@@ -16,6 +16,7 @@ struct ShapedGlyph {
   uint32_t glyph = 0;
   size_t begin = 0, end = 0;
   double x = 0, y = 0, advance = 0, size = 12;
+  std::optional<TextColor> color;
 };
 struct ShapedCluster {
   size_t begin = 0, end = 0;
@@ -43,14 +44,17 @@ public:
 private:
   std::shared_ptr<Impl> impl_;
 };
-// A single-threaded native shaping/raster context. Typeface handles retain their
-// FreeType library, so display lists may outlive the context that shaped them.
+// A single-threaded native shaping/raster context. Typeface handles retain
+// their FreeType library, so display lists may outlive the context that shaped
+// them.
 class NativeTextShaper {
 public:
-  explicit NativeTextShaper(const Text &default_family = "monospace", int bitmap_pixels = 16);
+  explicit NativeTextShaper(const Text &default_family = "monospace",
+                            int bitmap_pixels = 16);
   ShapingParagraph prepare(const TextParagraph &) const;
   ShapedText shape(const Text &, const TextFont &, bool rtl = false) const;
-  static GlyphBitmap rasterize(const NativeTypeface &, uint32_t glyph, unsigned pixels);
+  static GlyphBitmap rasterize(const NativeTypeface &, uint32_t glyph,
+                               unsigned pixels);
   struct Impl;
 
 private:

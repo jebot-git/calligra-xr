@@ -137,6 +137,9 @@ struct GpuTextCache::Impl {
       const auto &raster = get(glyph, pixels);
       if (!raster.texture)
         continue;
+      const auto paint = glyph.color.value_or(color);
+      glColor4d(paint.red / 255., paint.green / 255., paint.blue / 255.,
+                paint.alpha);
       double unit = glyph.size / raster.em;
       double x = glyph.x + raster.left * unit, y = glyph.y + raster.top * unit;
       auto a = transform.map({x, y}),

@@ -50,6 +50,7 @@ private:
     OdfPackage package_ { Kind::Stage };
     bool imported_office_ = false;
     mutable std::vector<SlideScene> scenes_;
+    mutable std::shared_ptr<OdfTextReader> text_reader_;
     uint64_t revision_ = 0;
 };
 }

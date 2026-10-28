@@ -146,27 +146,33 @@ Text joined(const XmlElement &parent) {
   return parts.join('\n');
 }
 struct Source {
+  XmlElement root;
   std::map<std::pair<Text, Text>, XmlElement> automatic;
   std::map<Text, XmlElement> layouts;
+  std::map<Text, Text> fonts;
 };
 struct Catalog {
   Source styles, content;
   std::map<std::pair<Text, Text>, XmlElement> common;
   std::map<Text, XmlElement> defaults, masters;
-  std::map<Text, Text> fonts;
+  std::shared_ptr<OdfTextReader> text_reader;
   std::vector<XmlDocument> documents;
   std::map<std::string, int> editor_ids;
   size_t nodes = 0, points = 0;
-  Catalog(const OdfPackage &package) {
+  Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader)
+      : text_reader(reader ? std::move(reader)
+                           : std::make_shared<OdfTextReader>(package)) {
     auto bytes = package.entry("styles.xml");
     if (!bytes.empty())
       scan(read_document_xml(bytes), styles);
     scan(package.xml, content);
   }
   void scan(const XmlDocument &doc, Source &source) {
+    source.root = doc.documentElement();
     documents.push_back(doc);
     for (auto e : doc.elementsByTagNameNS(STYLE, "font-face"))
-      fonts[e.attributeNS(STYLE, "name")] = e.attributeNS(SVG, "font-family");
+      source.fonts[e.attributeNS(STYLE, "name")] =
+          e.attributeNS(SVG, "font-family");
     for (auto group : children(doc.documentElement(), OFFICE)) {
       bool automatic = group.localName() == "automatic-styles";
       if (automatic || group.localName() == "styles") {
@@ -256,13 +262,49 @@ struct Catalog {
       paint.padding = length(p.attributeNS(FO, "padding"));
       if (paint.padding < 0)
         fail("Negative text frame padding");
+      paint.padding_left = paint.padding_right = paint.padding_top =
+          paint.padding_bottom = paint.padding;
     }
+    for (auto [name, target] :
+         std::initializer_list<std::pair<const char *, double *>>{
+             {"padding-left", &paint.padding_left},
+             {"padding-right", &paint.padding_right},
+             {"padding-top", &paint.padding_top},
+             {"padding-bottom", &paint.padding_bottom}})
+      if (p.hasAttributeNS(FO, name)) {
+        *target = length(p.attributeNS(FO, name));
+        if (*target < 0)
+          fail("Negative text frame padding");
+      }
+    if (p.hasAttributeNS(DRAW, "textarea-vertical-align")) {
+      auto value = p.attributeNS(DRAW, "textarea-vertical-align");
+      paint.vertical_alignment = value == "middle"   ? ScenePaint::Middle
+                                 : value == "bottom" ? ScenePaint::Bottom
+                                                     : ScenePaint::Top;
+      if (value != "top" && value != "middle" && value != "bottom")
+        note(slide.unsupported, "Distributed vertical text alignment");
+    }
+    if (p.attributeNS(DRAW, "fit-to-size") == "true" ||
+        p.attributeNS(DRAW, "auto-grow-width") == "true" ||
+        p.attributeNS(DRAW, "auto-grow-height") == "true")
+      note(slide.unsupported, "Text frame auto-growth and fit-to-size");
     auto text = child(style, STYLE, "text-properties");
-    if (text.hasAttributeNS(FO, "color"))
+    if (text.hasAttributeNS(FO, "color")) {
       paint.text_color = color(text.attributeNS(FO, "color"));
+      paint.use_window_text_color = false;
+    }
+    if (text.hasAttributeNS(STYLE, "use-window-font-color"))
+      paint.use_window_text_color =
+          text.attributeNS(STYLE, "use-window-font-color") == "true";
     if (text.hasAttributeNS(STYLE, "font-name")) {
       auto name = text.attributeNS(STYLE, "font-name");
-      paint.font.family = fonts.contains(name) ? fonts.at(name) : name;
+      const auto &font_source =
+          style.ownerDocument().documentElement() == styles.root ? styles
+                                                                 : content;
+      paint.font.family = font_source.fonts.contains(name)
+                              ? font_source.fonts.at(name)
+                          : styles.fonts.contains(name) ? styles.fonts.at(name)
+                                                        : name;
     }
     if (text.hasAttributeNS(FO, "font-family"))
       paint.font.family = text.attributeNS(FO, "font-family");
@@ -303,6 +345,8 @@ struct Catalog {
                    SlideScene &slide) {
     ScenePaint result;
     result.font.size = 18;
+    if (auto p = defaults.find("text"); p != defaults.end())
+      paint_properties(result, p->second, slide);
     if (auto p = defaults.find("paragraph"); p != defaults.end())
       paint_properties(result, p->second, slide);
     for (auto family : {Text("graphic"), Text("presentation")}) {
@@ -442,20 +486,19 @@ struct Catalog {
       if (shape.width < 0 || shape.height < 0)
         fail("Negative presentation shape extent");
       shape.text = joined(node);
+      shape.paragraph_style = node.attributeNS(DRAW, "text-style-name");
       if (!shape.text.empty()) {
-        for (auto style :
-             chain(source, "paragraph",
-                   node.attributeNS(DRAW, "text-style-name"), false))
-          paint_properties(shape.paint, style, slide);
-        auto paragraphs = node.elementsByTagNameNS(TEXT, "p");
-        if (!paragraphs.empty())
-          for (auto style :
-               chain(source, "paragraph",
-                     paragraphs[0].attributeNS(TEXT, "style-name"), false))
-            paint_properties(shape.paint, style, slide);
-        if (!node.elementsByTagNameNS(TEXT, "span").empty() ||
-            paragraphs.size() > 1)
-          note(slide.unsupported, "Rich text runs and full paragraph layout");
+        TextParagraph base;
+        base.font = shape.paint.font;
+        if (!shape.paint.use_window_text_color)
+          base.color = shape.paint.text_color;
+        auto container = child(node, DRAW, "text-box");
+        if (container.isNull())
+          container = node;
+        shape.text_flow =
+            text_reader->frame(container, base, shape.paragraph_style, master);
+        for (const auto &feature : shape.text_flow.unsupported)
+          note(slide.unsupported, feature);
       }
       if (name == "frame") {
         shape.kind = SceneShape::Frame;
@@ -753,10 +796,12 @@ int SlideScene::hit_test(ScenePoint p) const {
       return i - 1;
   return -1;
 }
-std::vector<SlideScene> read_presentation_scenes(const OdfPackage &package) {
+std::vector<SlideScene>
+read_presentation_scenes(const OdfPackage &package,
+                         std::shared_ptr<OdfTextReader> reader) {
   if (package.kind() != Kind::Stage)
     fail("Slide scenes require a presentation");
-  Catalog catalog(package);
+  Catalog catalog(package, std::move(reader));
   auto pages = children(package.body(), DRAW, "page");
   if (pages.empty() || pages.size() > 4096)
     fail("Invalid presentation page count");

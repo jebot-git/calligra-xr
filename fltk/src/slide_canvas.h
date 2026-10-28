@@ -3,6 +3,10 @@
 #include "gpu_text.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
+struct SceneTextStats {
+  size_t lines = 0, glyphs = 0, missing_glyphs = 0, overflow_frames = 0;
+  std::vector<Text> unsupported;
+};
 class SlideCanvas : public Fl_Widget {
 public:
   std::function<const SlideScene &()> scene;
@@ -15,6 +19,7 @@ public:
   void reset();
   const std::string &render_error() const;
   size_t rendered_shapes() const;
+  const SceneTextStats &text_stats() const;
   int handle(int) override;
 
 private:

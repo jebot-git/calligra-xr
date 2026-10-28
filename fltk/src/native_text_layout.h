@@ -2,8 +2,14 @@
 #pragma once
 #include "odf_package.h"
 #include <functional>
+#include <optional>
 
 namespace DomeOffice {
+struct TextColor {
+  unsigned char red = 0, green = 0, blue = 0;
+  double alpha = 1;
+  bool operator==(const TextColor &) const = default;
+};
 // All geometry is in typographic points. Text offsets count Unicode scalars,
 // independent of the frontend's UTF-8 buffer representation.
 struct TextFont {
@@ -16,10 +22,12 @@ struct TextFont {
 struct TextSpan {
   size_t begin = 0, end = 0;
   TextFont font;
+  std::optional<TextColor> color;
 };
 struct TextParagraph {
   Text text, master;
   TextFont font;
+  std::optional<TextColor> color;
   std::vector<TextSpan> spans;
   double left = 0, right = 0, indent = 0, before = 0, after = 0;
   double line_factor = 1.2, line_height = 0;
@@ -34,6 +42,7 @@ struct TextPageStyle {
   double width = 595.275590551, height = 841.88976378;
   double left = 56.692913386, right = 56.692913386;
   double top = 56.692913386, bottom = 56.692913386;
+  TextColor background{255,255,255};
 };
 struct TextFlow {
   std::vector<TextParagraph> paragraphs;
@@ -49,11 +58,13 @@ struct TextFragment {
   Text text;
   TextFont font;
   double x = 0, width = 0;
+  std::optional<TextColor> color;
 };
 struct TextLine {
   size_t paragraph = 0, begin = 0, end = 0;
   double x = 0, y = 0, baseline = 0, height = 0, width = 0;
-  std::vector<TextFragment> fragments; // Logical source runs; shaped has visual glyph positions.
+  std::vector<TextFragment>
+      fragments; // Logical source runs; shaped has visual glyph positions.
   std::shared_ptr<const struct ShapedText> shaped;
 };
 struct TextPage {
@@ -64,6 +75,28 @@ struct TextPagination {
   std::vector<TextPage> pages;
   std::vector<Text> unsupported;
 };
+// Reuse one scoped ODF style catalogue across a document's text frames.
+// Like NativeTextShaper, each reader is used by one document thread.
+class OdfTextReader {
+public:
+  explicit OdfTextReader(const OdfPackage &);
+  TextFlow frame(const XmlElement &, const TextParagraph &base,
+                 const Text &paragraph_style = {},
+                 bool styles_source = false) const;
+
+private:
+  struct Impl;
+  std::shared_ptr<Impl> impl_;
+};
+struct TextBoxLayout {
+  std::vector<TextLine> lines;
+  double height = 0;
+  std::vector<Text> unsupported;
+};
+TextBoxLayout layout_text_box(const TextFlow &, double width,
+                              const MeasureText &);
+TextBoxLayout layout_text_box(const TextFlow &, double width,
+                              class NativeTextShaper &);
 TextFlow read_text_flow(const OdfPackage &);
 TextPagination paginate_text(const TextFlow &, const MeasureText &);
 TextPagination paginate_text(const TextFlow &, class NativeTextShaper &);

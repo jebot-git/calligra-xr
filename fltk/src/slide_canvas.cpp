@@ -149,7 +149,7 @@ struct SlideCanvas::Impl {
   uint64_t revision = UINT64_MAX, font_revision = UINT64_MAX;
   struct Prepared {
     std::vector<ScenePoint> triangles;
-    TextPagination text;
+    TextBoxLayout text;
   };
   std::vector<Prepared> prepared;
   NativeTextShaper shaper;
@@ -164,6 +164,7 @@ struct SlideCanvas::Impl {
   Fl_Gl_Window *window = nullptr;
   std::string error;
   size_t rendered = 0;
+  SceneTextStats text_stats;
   void clear_images() {
     if (window && context && window->context() == context) {
       window->make_current();
@@ -184,24 +185,46 @@ struct SlideCanvas::Impl {
           Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
     current = nullptr;
     prepared.clear();
+    text_stats = {};
     error.clear();
     for (const auto &shape : model.shapes) {
       Prepared p;
       if (shape.paint.fill)
         p.triangles = Tess::make(shape);
-      if (!shape.text.empty() && shape.width > 2 * shape.paint.padding &&
-          shape.height > 2 * shape.paint.padding) {
-        TextFlow flow;
-        TextPageStyle page;
-        page.width = shape.width;
-        page.height = shape.height;
-        page.left = page.right = page.top = page.bottom = shape.paint.padding;
-        flow.masters[{}] = page;
-        TextParagraph paragraph;
-        paragraph.font = shape.paint.font;
-        paragraph.text = shape.text;
-        flow.paragraphs.push_back(std::move(paragraph));
-        p.text = paginate_text(flow, shaper);
+      if (!shape.text.empty() &&
+          shape.width > shape.paint.padding_left + shape.paint.padding_right &&
+          shape.height > shape.paint.padding_top + shape.paint.padding_bottom) {
+        p.text = layout_text_box(shape.text_flow,
+                                 shape.width - shape.paint.padding_left -
+                                     shape.paint.padding_right,
+                                 shaper);
+        if (p.text.height >
+            shape.height - shape.paint.padding_top - shape.paint.padding_bottom)
+          ++text_stats.overflow_frames;
+        text_stats.lines += p.text.lines.size();
+        for (const auto &feature : p.text.unsupported)
+          if (std::find(text_stats.unsupported.begin(),
+                        text_stats.unsupported.end(),
+                        feature) == text_stats.unsupported.end())
+            text_stats.unsupported.push_back(feature);
+        for (const auto &line : p.text.lines)
+          if (line.shaped) {
+            text_stats.glyphs += line.shaped->glyphs.size();
+            text_stats.missing_glyphs += line.shaped->missing_glyphs;
+          }
+        double extra =
+            std::max(0., shape.height - shape.paint.padding_top -
+                             shape.paint.padding_bottom - p.text.height);
+        double y =
+            shape.paint.padding_top +
+            (shape.paint.vertical_alignment == ScenePaint::Middle   ? extra / 2
+             : shape.paint.vertical_alignment == ScenePaint::Bottom ? extra
+                                                                    : 0);
+        for (auto &line : p.text.lines) {
+          line.x += shape.paint.padding_left;
+          line.y += y;
+          line.baseline += y;
+        }
       }
       prepared.push_back(std::move(p));
     }
@@ -368,16 +391,17 @@ struct SlideCanvas::Impl {
           glDisable(GL_TEXTURE_2D);
         }
       }
-      if (!cached.text.pages.empty()) {
+      if (!cached.text.lines.empty()) {
         glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT);
         clip_frame(transform, shape.width, shape.height);
-        for (const auto &line : cached.text.pages[0].lines)
+        unsigned char r, g, b;
+        Fl::get_color(FL_FOREGROUND_COLOR, r, g, b);
+        for (const auto &line : cached.text.lines)
           if (line.shaped) {
             SceneTransform baseline;
             baseline.e = line.x;
             baseline.f = line.baseline;
-            glyphs.draw(*line.shaped, transform * baseline,
-                        shape.paint.text_color, *window);
+            glyphs.draw(*line.shaped, transform * baseline, {r, g, b}, *window);
           }
         glPopAttrib();
       }
@@ -407,6 +431,9 @@ void SlideCanvas::reset() {
 }
 const std::string &SlideCanvas::render_error() const { return impl_->error; }
 size_t SlideCanvas::rendered_shapes() const { return impl_->rendered; }
+const SceneTextStats &SlideCanvas::text_stats() const {
+  return impl_->text_stats;
+}
 SceneTransform SlideCanvas::screen_transform(const SlideScene &model) const {
   double scale = std::max(
       .001, std::min((w() - 32) / model.width, (h() - 32) / model.height));

@@ -174,9 +174,11 @@ void Presentation::load(const Text& p)
     else candidate.load(p);
     if (children(candidate.body(), DRAW, "page").isEmpty())
         fail("The presentation has no slides");
-    auto scenes = read_presentation_scenes(candidate);
+    auto reader = std::make_shared<OdfTextReader>(candidate);
+    auto scenes = read_presentation_scenes(candidate, reader);
     package_ = std::move(candidate);
     scenes_ = std::move(scenes);
+    text_reader_ = std::move(reader);
     ++revision_;
     imported_office_ = office;
 }
@@ -190,7 +192,10 @@ void Presentation::save(const Text& p)
 const SlideScene& Presentation::scene(int index) const
 {
     if (index < 0 || index >= count()) fail("Invalid slide");
-    if (scenes_.empty()) scenes_ = read_presentation_scenes(package_);
+    if (scenes_.empty()) {
+        text_reader_ = std::make_shared<OdfTextReader>(package_);
+        scenes_ = read_presentation_scenes(package_, text_reader_);
+    }
     return scenes_.at(index);
 }
 Slide Presentation::slide(int index) const
@@ -251,6 +256,12 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
 {
     if (read_only())
         fail("This presentation is read-only");
+    if (text.size() > 4000000) fail("Text frame exceeds native layout text limit");
+    size_t length = 0, paragraphs = 1;
+    for (auto character : text) {
+        if (character == '\n') { length = 0; if (++paragraphs > 100000) fail("Too many text paragraphs"); }
+        else if (++length > 1000000) fail("Paragraph exceeds layout text limit");
+    }
     const auto& current = scene(slideIndex);
     auto frame = current.editable_sources.at(boxIndex);
     auto box = child(frame, DRAW, "text-box");
@@ -259,7 +270,11 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
     if (joined(box) == text)
         return;
     set_paragraphs(box, text, true);
-    scenes_.at(slideIndex).shapes.at(current.editor_shapes.at(boxIndex)).text = joined(frame);
+    auto& shape = scenes_.at(slideIndex).shapes.at(current.editor_shapes.at(boxIndex));
+    shape.text = joined(frame);
+    TextParagraph base; base.font = shape.paint.font;
+    if (!shape.paint.use_window_text_color) base.color = shape.paint.text_color;
+    shape.text_flow = text_reader_->frame(box,base,shape.paragraph_style);
     ++revision_;
 }
 }

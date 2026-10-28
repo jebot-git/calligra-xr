@@ -3,6 +3,7 @@
 #include "suite/fltk_appearance.h"
 #include <FL/fl_draw.H>
 #include <algorithm>
+#include <cmath>
 namespace DomeOffice {
 TextPageCanvas::TextPageCanvas(int x,int y,int w,int h):Fl_Widget(x,y,w,h),glyphs_(std::make_unique<GpuTextCache>()){}
 TextPageCanvas::~TextPageCanvas()=default;
@@ -56,8 +57,11 @@ void TextPageCanvas::draw() {
     double left = x() + (w() - page.style.width * zoom) / 2;
     double height = page.style.height * zoom;
     if (top + height >= y() && top <= y() + h()) {
-      // Session colors apply to page, text and border as well as controls.
-      fl_color(FL_BACKGROUND2_COLOR);
+      // Paper and explicit ink colors belong to the document; controls keep
+      // the session theme. Composite transparent page colors over white paper.
+      const auto color = page.style.background;
+      auto channel = [&](unsigned char c){return static_cast<unsigned char>(std::lround(c*color.alpha+255*(1-color.alpha)));};
+      fl_color(fl_rgb_color(channel(color.red),channel(color.green),channel(color.blue)));
       fl_rectf(int(left), int(top), int(page.style.width * zoom), int(height));
       fl_color(FL_INACTIVE_COLOR);
       fl_rect(int(left), int(top), int(page.style.width * zoom), int(height));

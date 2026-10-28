@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_layout.h"
 #include "native_text_shaper.h"
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -18,7 +19,8 @@ void note(std::vector<Text> &notes, const Text &value) {
     notes.push_back(value);
 }
 double length(const Text &value) {
-  static const Regex re("^([+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+))(cm|mm|in|pt|pc|px)$");
+  static const Regex re(
+      "^([+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+))(cm|mm|in|pt|pc|px)$");
   auto match = re.match(value.trimmed());
   if (!match.hasMatch())
     fail("Unsupported text-layout length");
@@ -44,36 +46,73 @@ double proportion(const Text &value, double base) {
   return result;
 }
 void check_page(const TextPageStyle &p) {
-  if (p.width < 1 || p.height < 1 || p.width > 10000 || p.height > 10000 || p.left < 0 ||
-      p.right < 0 || p.top < 0 || p.bottom < 0 || p.width - p.left - p.right < 1 ||
-      p.height - p.top - p.bottom < 1)
+  if (!std::isfinite(p.background.alpha) || p.background.alpha < 0 ||
+      p.background.alpha > 1)
+    fail("Invalid page background color");
+  if (p.width < 1 || p.height < 1 || p.width > 10000 || p.height > 10000 ||
+      p.left < 0 || p.right < 0 || p.top < 0 || p.bottom < 0 ||
+      p.width - p.left - p.right < 1 || p.height - p.top - p.bottom < 1)
     fail("Invalid text page geometry");
+}
+TextColor text_color(const Text &value) {
+  auto text = value.toStdString();
+  if (text == "transparent")
+    return {0, 0, 0, 0};
+  if (text == "black")
+    return {};
+  if (text == "white")
+    return {255, 255, 255};
+  if (text.size() != 7 || text[0] != '#')
+    fail("Invalid document text color");
+  unsigned n;
+  auto parsed = std::from_chars(text.data() + 1, text.data() + 7, n, 16);
+  if (parsed.ec != std::errc() || parsed.ptr != text.data() + 7)
+    fail("Invalid document text color");
+  return {static_cast<unsigned char>(n >> 16),
+          static_cast<unsigned char>(n >> 8), static_cast<unsigned char>(n)};
 }
 struct Reader {
   TextFlow flow;
   std::map<Text, XmlElement> paragraph_styles, text_styles;
+  std::map<Text, XmlElement> common_paragraph_styles, common_text_styles;
+  std::map<Text, XmlElement> master_paragraph_styles, master_text_styles;
   XmlElement paragraph_default, text_default;
-  std::map<Text, Text> fonts;
+  std::map<Text, Text> fonts, master_fonts;
   std::map<Text, XmlElement> layouts;
   std::vector<XmlDocument> documents;
   size_t text_size = 0;
+  bool styles_source = false;
+  XmlElement styles_root;
+  std::optional<TextParagraph> frame_base;
+  Text frame_paragraph_style;
 
-  void scan(const XmlDocument &document) {
+  void scan(const XmlDocument &document, bool master = false) {
+    if (master)
+      styles_root = document.documentElement();
     documents.push_back(document);
     for (auto e : document.elementsByTagNameNS(STYLE, "font-face"))
-      fonts[e.attributeNS(STYLE, "name")] = e.attributeNS(SVG, "font-family");
+      (master ? master_fonts : fonts)[e.attributeNS(STYLE, "name")] =
+          e.attributeNS(SVG, "font-family");
     for (auto e : document.elementsByTagNameNS(STYLE, "default-style")) {
       if (e.attributeNS(STYLE, "family") == "paragraph")
         paragraph_default = e;
       if (e.attributeNS(STYLE, "family") == "text")
         text_default = e;
     }
-    for (auto e : document.elementsByTagNameNS(STYLE, "style")) {
-      auto family = e.attributeNS(STYLE, "family"), name = e.attributeNS(STYLE, "name");
-      if (family == "paragraph")
-        paragraph_styles[name] = e;
-      if (family == "text")
-        text_styles[name] = e;
+    for (auto group : children(document.documentElement(), OFFICE)) {
+      bool automatic = group.localName() == "automatic-styles";
+      if (!automatic && group.localName() != "styles")
+        continue;
+      for (auto e : children(group, STYLE, "style")) {
+        auto family = e.attributeNS(STYLE, "family"),
+             name = e.attributeNS(STYLE, "name");
+        if (family == "paragraph")
+          (automatic ? (master ? master_paragraph_styles : paragraph_styles)
+                     : common_paragraph_styles)[name] = e;
+        if (family == "text")
+          (automatic ? (master ? master_text_styles : text_styles)
+                     : common_text_styles)[name] = e;
+      }
     }
     for (auto e : document.elementsByTagNameNS(STYLE, "page-layout"))
       layouts[e.attributeNS(STYLE, "name")] = e;
@@ -87,7 +126,9 @@ struct Reader {
     if (p.hasAttributeNS(FO, "font-weight")) {
       auto weight = p.attributeNS(FO, "font-weight");
       bool valid = true;
-      font.weight = weight == "bold" ? 700 : weight == "normal" ? 400 : weight.toInt(&valid);
+      font.weight = weight == "bold"     ? 700
+                    : weight == "normal" ? 400
+                                         : weight.toInt(&valid);
       if (!valid || font.weight < 1 || font.weight > 1000)
         fail("Invalid text font weight");
       font.bold = font.weight >= 600;
@@ -96,7 +137,13 @@ struct Reader {
       font.italic = p.attributeNS(FO, "font-style") != "normal";
     if (p.hasAttributeNS(STYLE, "font-name")) {
       auto name = p.attributeNS(STYLE, "font-name");
-      font.family = fonts.contains(name) ? fonts.at(name) : name;
+      bool declaration_in_styles =
+          !styles_root.isNull() &&
+          style.ownerDocument().documentElement() == styles_root;
+      font.family = !declaration_in_styles && fonts.contains(name)
+                        ? fonts.at(name)
+                    : master_fonts.contains(name) ? master_fonts.at(name)
+                                                  : name;
     }
     if (p.hasAttributeNS(FO, "font-family"))
       font.family = p.attributeNS(FO, "font-family");
@@ -107,19 +154,30 @@ struct Reader {
         font.language += "-" + country;
     }
   }
+  void character(TextFont &f, std::optional<TextColor> &color,
+                 const XmlElement &style) {
+    font(f, style);
+    auto p = child(style, STYLE, "text-properties");
+    if (p.hasAttributeNS(FO, "color"))
+      color = text_color(p.attributeNS(FO, "color"));
+    if (p.attributeNS(STYLE, "use-window-font-color") == "true")
+      color.reset();
+  }
   void properties(TextParagraph &p, const XmlElement &style) {
-    font(p.font, style);
+    character(p.font, p.color, style);
     if (style.hasAttributeNS(STYLE, "master-page-name"))
       p.master = style.attributeNS(STYLE, "master-page-name");
     auto e = child(style, STYLE, "paragraph-properties");
     if (e.hasAttributeNS(FO, "margin"))
-      p.left = p.right = p.before = p.after = length(e.attributeNS(FO, "margin"));
+      p.left = p.right = p.before = p.after =
+          length(e.attributeNS(FO, "margin"));
     for (auto [name, target] :
-         std::initializer_list<std::pair<const char *, double *>>{{"margin-left", &p.left},
-                                                                  {"margin-right", &p.right},
-                                                                  {"margin-top", &p.before},
-                                                                  {"margin-bottom", &p.after},
-                                                                  {"text-indent", &p.indent}})
+         std::initializer_list<std::pair<const char *, double *>>{
+             {"margin-left", &p.left},
+             {"margin-right", &p.right},
+             {"margin-top", &p.before},
+             {"margin-bottom", &p.after},
+             {"text-indent", &p.indent}})
       if (e.hasAttributeNS(FO, name))
         *target = length(e.attributeNS(FO, name));
     if (e.hasAttributeNS(FO, "line-height")) {
@@ -143,8 +201,10 @@ struct Reader {
                     : align == "justify" ? TextParagraph::Justify
                                          : TextParagraph::Left;
     }
-    for (auto [name, target] : std::initializer_list<std::pair<const char *, bool *>>{
-             {"break-before", &p.break_before}, {"break-after", &p.break_after}})
+    for (auto [name, target] :
+         std::initializer_list<std::pair<const char *, bool *>>{
+             {"break-before", &p.break_before},
+             {"break-after", &p.break_after}})
       if (e.hasAttributeNS(FO, name)) {
         auto value = e.attributeNS(FO, name);
         *target = value == "page";
@@ -155,7 +215,8 @@ struct Reader {
       p.keep_together = e.attributeNS(FO, "keep-together") == "always";
     if (e.hasAttributeNS(FO, "keep-with-next"))
       p.keep_next = e.attributeNS(FO, "keep-with-next") == "always";
-    for (auto [name, target] : std::initializer_list<std::pair<const char *, int *>>{
+    for (auto [name, target] :
+         std::initializer_list<std::pair<const char *, int *>>{
              {"orphans", &p.orphans}, {"widows", &p.widows}})
       if (e.hasAttributeNS(FO, name)) {
         bool ok;
@@ -176,21 +237,37 @@ struct Reader {
     }
   }
   template <class Apply>
-  void chain(const std::map<Text, XmlElement> &styles, const Text &name, Apply apply) {
+  std::vector<XmlElement> chain(bool text, const Text &name, Apply apply) {
+    const auto &styles =
+        text ? (styles_source ? master_text_styles : text_styles)
+             : (styles_source ? master_paragraph_styles : paragraph_styles);
+    const auto &common = text ? common_text_styles : common_paragraph_styles;
     std::vector<XmlElement> stack;
-    std::set<Text> visited;
-    Text current = name;
-    while (!current.empty() && styles.contains(current)) {
-      if (!visited.insert(current).second || stack.size() >= 256)
+    XmlElement current;
+    if (auto found = styles.find(name); found != styles.end())
+      current = found->second;
+    else if (auto found = common.find(name); found != common.end())
+      current = found->second;
+    while (!current.isNull()) {
+      if (std::find(stack.begin(), stack.end(), current) != stack.end() ||
+          stack.size() >= 256)
         fail("Cyclic or excessive text style inheritance");
-      auto e = styles.at(current);
-      stack.push_back(e);
-      current = e.attributeNS(STYLE, "parent-style-name");
+      stack.push_back(current);
+      auto parent = current.attributeNS(STYLE, "parent-style-name");
+      current = {};
+      if (!parent.empty()) {
+        if (auto found = common.find(parent); found != common.end())
+          current = found->second;
+        else if (auto found = styles.find(parent); found != styles.end())
+          current = found->second;
+      }
     }
     for (auto it = stack.rbegin(); it != stack.rend(); ++it)
       apply(*it);
+    return stack;
   }
-  void inlines(TextParagraph &paragraph, const XmlElement &parent, TextFont current,
+  void inlines(TextParagraph &paragraph, const XmlElement &parent,
+               TextFont current, std::optional<TextColor> color,
                int depth = 0) {
     if (depth > 256)
       fail("Excessive inline text depth");
@@ -204,21 +281,26 @@ struct Reader {
         size_t begin = paragraph.text.size();
         paragraph.text += text;
         if (!text.empty()) {
-          if (!paragraph.spans.empty() && paragraph.spans.back().font == current)
+          if (!paragraph.spans.empty() &&
+              paragraph.spans.back().font == current &&
+              paragraph.spans.back().color == color)
             paragraph.spans.back().end = paragraph.text.size();
           else
-            paragraph.spans.push_back({begin, paragraph.text.size(), current});
+            paragraph.spans.push_back(
+                {begin, paragraph.text.size(), current, color});
         }
       };
       if (n.isText() || n.isCDATASection())
         append(n.nodeValue());
       else if (n.isElement()) {
         auto e = n.toElement();
-        if (e.namespaceURI() == TEXT && (e.localName() == "span" || e.localName() == "a")) {
+        if (e.namespaceURI() == TEXT &&
+            (e.localName() == "span" || e.localName() == "a")) {
           auto next = current;
-          chain(text_styles, e.attributeNS(TEXT, "style-name"),
-                [&](const XmlElement &s) { font(next, s); });
-          inlines(paragraph, e, next, depth + 1);
+          auto next_color = color;
+          chain(true, e.attributeNS(TEXT, "style-name"),
+                [&](const XmlElement &s) { character(next, next_color, s); });
+          inlines(paragraph, e, next, next_color, depth + 1);
         } else if (e.namespaceURI() == TEXT && e.localName() == "s") {
           bool ok;
           int count = e.attributeNS(TEXT, "c", "1").toInt(&ok);
@@ -230,10 +312,11 @@ struct Reader {
         else if (e.namespaceURI() == TEXT && e.localName() == "line-break")
           append("\n");
         else if (e.namespaceURI() == TEXT &&
-                 e.localName() == "soft-page-break") { /* Reflow from styles and metrics. */
+                 e.localName() ==
+                     "soft-page-break") { /* Reflow from styles and metrics. */
         } else {
           note(flow.unsupported, "Inline fields, notes and anchored objects");
-          inlines(paragraph, e, current, depth + 1);
+          inlines(paragraph, e, current, color, depth + 1);
         }
       }
     }
@@ -241,19 +324,38 @@ struct Reader {
   void blocks(const XmlElement &parent, int depth = 0) {
     if (depth > 256)
       fail("Excessive text flow depth");
-    for (auto node = parent.firstChild(); !node.isNull(); node = node.nextSibling()) {
+    for (auto node = parent.firstChild(); !node.isNull();
+         node = node.nextSibling()) {
       if (!node.isElement())
         continue;
       auto e = node.toElement();
-      if (e.namespaceURI() == TEXT && (e.localName() == "p" || e.localName() == "h")) {
+      if (e.namespaceURI() == TEXT &&
+          (e.localName() == "p" || e.localName() == "h")) {
         if (flow.paragraphs.size() >= 100'000)
           fail("Too many text paragraphs");
         TextParagraph p;
-        font(p.font, text_default);
+        p.color = TextColor{}; // Document text defaults to black on paper.
+        character(p.font, p.color, text_default);
         properties(p, paragraph_default);
-        chain(paragraph_styles, e.attributeNS(TEXT, "style-name"),
-              [&](const XmlElement &s) { properties(p, s); });
-        inlines(p, e, p.font);
+        if (frame_base) {
+          p.font = frame_base->font;
+          p.color = frame_base->color;
+        }
+        auto explicit_styles = chain(false, e.attributeNS(TEXT, "style-name"),
+                                     [](const XmlElement &) {});
+        auto frame_styles =
+            chain(false, frame_paragraph_style, [](const XmlElement &) {});
+        // An explicit paragraph may already inherit the frame's text style.
+        // Apply that chain once, so relative sizes do not compound twice.
+        if (frame_styles.empty() ||
+            std::find(explicit_styles.begin(), explicit_styles.end(),
+                      frame_styles.front()) == explicit_styles.end())
+          for (auto it = frame_styles.rbegin(); it != frame_styles.rend(); ++it)
+            properties(p, *it);
+        for (auto it = explicit_styles.rbegin(); it != explicit_styles.rend();
+             ++it)
+          properties(p, *it);
+        inlines(p, e, p.font, p.color);
         flow.paragraphs.push_back(std::move(p));
       } else if (e.namespaceURI() == TEXT && e.localName() == "sequence-decls")
         continue;
@@ -272,9 +374,14 @@ struct Reader {
         auto name = master.attributeNS(STYLE, "page-layout-name");
         if (layouts.contains(name)) {
           auto props = child(layouts.at(name), STYLE, "page-layout-properties");
+          if (props.hasAttributeNS(FO, "background-color"))
+            p.background =
+                text_color(props.attributeNS(FO, "background-color"));
           if (props.hasAttributeNS(FO, "margin"))
-            p.left = p.right = p.top = p.bottom = length(props.attributeNS(FO, "margin"));
-          for (auto [name, target] : std::initializer_list<std::pair<const char *, double *>>{
+            p.left = p.right = p.top = p.bottom =
+                length(props.attributeNS(FO, "margin"));
+          for (auto [name, target] :
+               std::initializer_list<std::pair<const char *, double *>>{
                    {"page-width", &p.width},
                    {"page-height", &p.height},
                    {"margin-left", &p.left},
@@ -303,11 +410,13 @@ struct Cluster {
   TextFont font;
   TextMetrics metrics;
   bool allowed = false, hard = false;
+  std::optional<TextColor> color;
 };
 void check_metrics(const TextMetrics &metrics) {
   if (!std::isfinite(metrics.width) || !std::isfinite(metrics.ascent) ||
-      !std::isfinite(metrics.descent) || metrics.width < 0 || metrics.ascent < 0 ||
-      metrics.descent < 0 || metrics.ascent + metrics.descent <= 0)
+      !std::isfinite(metrics.descent) || metrics.width < 0 ||
+      metrics.ascent < 0 || metrics.descent < 0 ||
+      metrics.ascent + metrics.descent <= 0)
     fail("Invalid native text metrics");
 }
 struct Breaks {
@@ -330,11 +439,13 @@ struct Breaks {
     if (U_FAILURE(status))
       fail("Cannot analyze Unicode layout boundaries");
     std::vector<size_t> result;
-    for (int at = ubrk_first(iterator); at != UBRK_DONE; at = ubrk_next(iterator))
+    for (int at = ubrk_first(iterator); at != UBRK_DONE;
+         at = ubrk_next(iterator))
       result.push_back(indices.at(at));
     return result;
   }
-  std::vector<Cluster> clusters(const TextParagraph &p, const MeasureText &measure,
+  std::vector<Cluster> clusters(const TextParagraph &p,
+                                const MeasureText &measure,
                                 const ShapedText *shaped = nullptr) {
     auto utf8 = p.text.toUtf8();
     std::vector<size_t> indices(utf8.size() + 1);
@@ -354,25 +465,32 @@ struct Breaks {
       size_t cursor = 0;
       Cluster pending{};
       for (const auto &cluster : shaped->clusters) {
-        if (cluster.begin != cursor || cluster.end <= cursor || cluster.end > p.text.size())
+        if (cluster.begin != cursor || cluster.end <= cursor ||
+            cluster.end > p.text.size())
           fail("Invalid native shaped source coverage");
         if (pending.end == pending.begin) {
           pending.begin = cluster.begin;
-          while (span + 1 < p.spans.size() && p.spans[span].end <= cluster.begin)
+          while (span + 1 < p.spans.size() &&
+                 p.spans[span].end <= cluster.begin)
             ++span;
           pending.font = p.spans.empty() ? p.font : p.spans[span].font;
+          pending.color = p.spans.empty() ? p.color : p.spans[span].color;
         }
         pending.end = cluster.end;
         pending.metrics.width += cluster.metrics.width;
-        pending.metrics.ascent = std::max(pending.metrics.ascent, cluster.metrics.ascent);
-        pending.metrics.descent = std::max(pending.metrics.descent, cluster.metrics.descent);
+        pending.metrics.ascent =
+            std::max(pending.metrics.ascent, cluster.metrics.ascent);
+        pending.metrics.descent =
+            std::max(pending.metrics.descent, cluster.metrics.descent);
         auto value = p.text.mid(cluster.begin, cluster.end - cluster.begin);
-        pending.hard = pending.hard || value.contains('\n') || value.contains('\r') ||
-                       value.contains(Char(0x2028)) || value.contains(Char(0x2029));
+        pending.hard = pending.hard || value.contains('\n') ||
+                       value.contains('\r') || value.contains(Char(0x2028)) ||
+                       value.contains(Char(0x2029));
         cursor = cluster.end;
         if (std::binary_search(graphemes.begin(), graphemes.end(), cursor)) {
           check_metrics(pending.metrics);
-          pending.allowed = std::binary_search(legal.begin(), legal.end(), cursor);
+          pending.allowed =
+              std::binary_search(legal.begin(), legal.end(), cursor);
           result.push_back(pending);
           pending = {};
         }
@@ -387,13 +505,18 @@ struct Breaks {
         ++span;
       TextFont font = p.spans.empty() ? p.font : p.spans[span].font;
       auto value = p.text.mid(begin, end - begin);
-      bool hard = value.contains('\n') || value.contains('\r') || value.contains(Char(0x2028));
-      auto metrics = measure(hard ? Text(" ") : value == "\t" ? Text("    ") : value, font);
+      bool hard = value.contains('\n') || value.contains('\r') ||
+                  value.contains(Char(0x2028));
+      auto metrics = measure(hard            ? Text(" ")
+                             : value == "\t" ? Text("    ")
+                                             : value,
+                             font);
       check_metrics(metrics);
       if (hard)
         metrics.width = 0;
-      result.push_back(
-          {begin, end, font, metrics, std::binary_search(legal.begin(), legal.end(), end), hard});
+      result.push_back({begin, end, font, metrics,
+                        std::binary_search(legal.begin(), legal.end(), end),
+                        hard, p.spans.empty() ? p.color : p.spans[span].color});
     }
     return result;
   }
@@ -402,15 +525,19 @@ struct WrappedLine {
   TextLine line;
   bool hard = false;
 };
-std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster> &clusters,
-                              const TextPageStyle &page, size_t start, const MeasureText &measure,
+std::vector<WrappedLine> wrap(const TextParagraph &p,
+                              const std::vector<Cluster> &clusters,
+                              const TextPageStyle &page, size_t start,
+                              const MeasureText &measure,
                               const ShapingParagraph *shaping = nullptr) {
-  const double available = page.width - page.left - page.right - p.left - p.right;
+  const double available =
+      page.width - page.left - page.right - p.left - p.right;
   if (!std::isfinite(available) || available < 1)
     fail("Paragraph margins leave no text area");
   std::vector<WrappedLine> lines;
-  size_t i = std::lower_bound(clusters.begin(), clusters.end(), start,
-                              [](const Cluster &c, size_t pos) { return c.begin < pos; }) -
+  size_t i = std::lower_bound(
+                 clusters.begin(), clusters.end(), start,
+                 [](const Cluster &c, size_t pos) { return c.begin < pos; }) -
              clusters.begin();
   bool trailing = !clusters.empty() && clusters.back().hard;
   do {
@@ -438,10 +565,11 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
       end = allowed;
     std::shared_ptr<ShapedText> shape;
     auto shaped_line = [&](size_t stop) {
-      size_t a = begin < clusters.size() ? clusters[begin].begin : p.text.size();
+      size_t a =
+          begin < clusters.size() ? clusters[begin].begin : p.text.size();
       size_t b = stop > begin ? clusters[stop - 1].end : a;
-      while (b > a && (p.text[b - 1] == '\n' || p.text[b - 1] == '\r' || p.text[b - 1] == 0x2028 ||
-                       p.text[b - 1] == 0x2029))
+      while (b > a && (p.text[b - 1] == '\n' || p.text[b - 1] == '\r' ||
+                       p.text[b - 1] == 0x2028 || p.text[b - 1] == 0x2029))
         --b;
       return shaping->line(a, b);
     };
@@ -469,7 +597,8 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
       }
     }
     TextLine line;
-    line.begin = begin < clusters.size() ? clusters[begin].begin : p.text.size();
+    line.begin =
+        begin < clusters.size() ? clusters[begin].begin : p.text.size();
     line.end = end ? clusters[end - 1].end : line.begin;
     line.x = page.left + p.left + indent;
     width = 0;
@@ -482,13 +611,16 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
       auto text = p.text.mid(c.begin, c.end - c.begin);
       if (text == "\t")
         text = "    ";
-      // Separate whitespace fragments so justification can expand their advance.
-      if (!line.fragments.empty() && line.fragments.back().font == c.font && text != " " &&
+      // Separate whitespace fragments so justification can expand their
+      // advance.
+      if (!line.fragments.empty() && line.fragments.back().font == c.font &&
+          line.fragments.back().color == c.color && text != " " &&
           !line.fragments.back().text.endsWith(' ')) {
         line.fragments.back().text += text;
         line.fragments.back().width += c.metrics.width;
       } else
-        line.fragments.push_back({text, c.font, width, c.metrics.width});
+        line.fragments.push_back(
+            {text, c.font, width, c.metrics.width, c.color});
       width += c.metrics.width;
     }
     if (begin == end) {
@@ -507,7 +639,8 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
     if (!std::isfinite(line.height) || line.height <= 0)
       fail("Invalid native line height");
     line.baseline = (line.height - natural) / 2 + max_ascent;
-    // Trailing wrap spaces stay in the source range but do not affect alignment.
+    // Trailing wrap spaces stay in the source range but do not affect
+    // alignment.
     double visible = width;
     for (size_t at = end; at > begin && !clusters[at - 1].hard; --at) {
       const auto &c = clusters[at - 1];
@@ -522,32 +655,40 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
     if (shape && rtl)
       for (auto &glyph : shape->glyphs)
         glyph.x -= width - line.width;
-    if (p.alignment == TextParagraph::Right || (p.alignment == TextParagraph::Start && rtl) ||
+    if (p.alignment == TextParagraph::Right ||
+        (p.alignment == TextParagraph::Start && rtl) ||
         (p.alignment == TextParagraph::End && !rtl))
       line.x += std::max(0., limit - line.width);
     if (p.alignment == TextParagraph::Center)
       line.x += std::max(0., (limit - line.width) / 2);
-    if (p.alignment == TextParagraph::Justify && end < clusters.size() && !hard) {
+    if (p.alignment == TextParagraph::Justify && end < clusters.size() &&
+        !hard) {
       if (shape) {
         size_t trim = end;
         while (trim > begin &&
                (p.text.mid(clusters[trim - 1].begin,
-                           clusters[trim - 1].end - clusters[trim - 1].begin) == " " ||
+                           clusters[trim - 1].end - clusters[trim - 1].begin) ==
+                    " " ||
                 p.text.mid(clusters[trim - 1].begin,
-                           clusters[trim - 1].end - clusters[trim - 1].begin) == "\t"))
+                           clusters[trim - 1].end - clusters[trim - 1].begin) ==
+                    "\t"))
           --trim;
         std::set<size_t> spaces;
         for (const auto &cluster : shape->clusters)
-          if (cluster.begin < (trim > begin ? clusters[trim - 1].end : line.begin) &&
+          if (cluster.begin <
+                  (trim > begin ? clusters[trim - 1].end : line.begin) &&
               p.text.mid(cluster.begin, cluster.end - cluster.begin) == " ")
             spaces.insert(cluster.begin);
-        double extra = spaces.empty() ? 0 : std::max(0., limit - line.width) / spaces.size(),
+        double extra = spaces.empty()
+                           ? 0
+                           : std::max(0., limit - line.width) / spaces.size(),
                offset = 0;
         for (size_t n = 0; n < shape->glyphs.size(); ++n) {
           auto &glyph = shape->glyphs[n];
           glyph.x += offset;
           if (spaces.contains(glyph.begin) &&
-              (n + 1 == shape->glyphs.size() || shape->glyphs[n + 1].begin != glyph.begin)) {
+              (n + 1 == shape->glyphs.size() ||
+               shape->glyphs[n + 1].begin != glyph.begin)) {
             glyph.advance += extra;
             offset += extra;
           }
@@ -563,7 +704,8 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
         for (const auto &f : line.fragments)
           if (f.text == " " && f.x < visible)
             ++count;
-        double extra = count ? std::max(0., limit - visible) / count : 0, offset = 0;
+        double extra = count ? std::max(0., limit - visible) / count : 0,
+               offset = 0;
         for (auto &f : line.fragments) {
           f.x += offset;
           if (f.text == " " && f.x - offset < visible)
@@ -588,13 +730,37 @@ std::vector<WrappedLine> wrap(const TextParagraph &p, const std::vector<Cluster>
 }
 } // namespace
 
+struct OdfTextReader::Impl {
+  Reader reader;
+};
+OdfTextReader::OdfTextReader(const OdfPackage &package)
+    : impl_(std::make_shared<Impl>()) {
+  auto styles = package.entry("styles.xml");
+  if (!styles.empty())
+    impl_->reader.scan(read_document_xml(styles), true);
+  impl_->reader.scan(package.xml);
+}
+TextFlow OdfTextReader::frame(const XmlElement &container,
+                              const TextParagraph &base,
+                              const Text &paragraph_style,
+                              bool styles_source) const {
+  auto &reader = impl_->reader;
+  reader.flow = {};
+  reader.text_size = 0;
+  reader.styles_source = styles_source;
+  reader.frame_base = base;
+  reader.frame_paragraph_style = paragraph_style;
+  reader.blocks(container);
+  return std::move(reader.flow);
+}
+
 TextFlow read_text_flow(const OdfPackage &package) {
   if (package.kind() != Kind::Words)
     fail("Text flow requires a Words document");
   Reader reader;
   auto styles = package.entry("styles.xml");
   if (!styles.empty())
-    reader.scan(read_document_xml(styles));
+    reader.scan(read_document_xml(styles), true);
   reader.scan(package.xml);
   reader.pages();
   reader.blocks(package.body());
@@ -609,7 +775,99 @@ TextFlow read_text_flow(const OdfPackage &package) {
   return std::move(reader.flow);
 }
 
-static TextPagination paginate_impl(const TextFlow &flow, const MeasureText &measure,
+static void check_paragraph(const TextParagraph &p) {
+  for (double value : {p.left, p.right, p.indent, p.before, p.after,
+                       p.line_factor, p.line_height})
+    if (!std::isfinite(value))
+      fail("Invalid paragraph geometry");
+  if (p.orphans < 0 || p.widows < 0 || p.orphans > 1000 || p.widows > 1000 ||
+      p.line_factor <= 0 || p.line_height < 0)
+    fail("Invalid paragraph pagination settings");
+  auto font_valid = [](const TextFont &font) {
+    return std::isfinite(font.size) && font.size > 0 && font.size <= 1000 &&
+           font.weight >= 1 && font.weight <= 1000;
+  };
+  auto color_valid = [](const std::optional<TextColor> &color) {
+    return !color || (std::isfinite(color->alpha) && color->alpha >= 0 &&
+                      color->alpha <= 1);
+  };
+  if (!font_valid(p.font) || !color_valid(p.color))
+    fail("Invalid paragraph text style");
+  size_t end = 0;
+  for (const auto &span : p.spans) {
+    if (span.begin != end || span.end <= span.begin ||
+        span.end > p.text.size() || !font_valid(span.font) ||
+        !color_valid(span.color))
+      fail("Invalid inline text span");
+    end = span.end;
+  }
+  if (!p.spans.empty() && end != p.text.size())
+    fail("Incomplete inline text spans");
+}
+static TextBoxLayout text_box_impl(const TextFlow &flow, double width,
+                                   const MeasureText &measure,
+                                   NativeTextShaper *shaper) {
+  if (!measure || !std::isfinite(width) || width < 1 || width > 10000)
+    fail("Invalid native text frame width");
+  TextBoxLayout result;
+  result.unsupported = flow.unsupported;
+  TextPageStyle frame;
+  frame.width = width;
+  frame.left = frame.right = frame.top = frame.bottom = 0;
+  Breaks breaks;
+  double y = 0, previous_after = 0;
+  size_t total = 0;
+  for (size_t i = 0; i < flow.paragraphs.size(); ++i) {
+    const auto &p = flow.paragraphs[i];
+    total += p.text.size();
+    if (total > 4000000 || p.text.size() > 1000000 ||
+        flow.paragraphs.size() > 100000)
+      fail("Text frame exceeds native layout limits");
+    check_paragraph(p);
+    auto prepared = shaper
+                        ? std::make_shared<ShapingParagraph>(shaper->prepare(p))
+                        : nullptr;
+    if (prepared && prepared->whole().missing_glyphs)
+      note(result.unsupported, "Missing font glyphs");
+    auto clusters =
+        breaks.clusters(p, measure, prepared ? &prepared->whole() : nullptr);
+    auto lines = wrap(p, clusters, frame, 0, measure, prepared.get());
+    y += std::max(previous_after, std::max(0., p.before));
+    for (auto &wrapped : lines) {
+      auto line = std::move(wrapped.line);
+      line.paragraph = i;
+      line.y = y;
+      line.baseline += y;
+      y += line.height;
+      result.lines.push_back(std::move(line));
+      if (result.lines.size() > 100000 || y > 10000000)
+        fail("Text frame exceeds native line limits");
+    }
+    previous_after = std::max(0., p.after);
+    if (p.break_before || p.break_after || p.keep_next || p.keep_together ||
+        !p.master.empty())
+      note(result.unsupported,
+           "Page and keep settings in unlinked text frames");
+  }
+  result.height = y + previous_after;
+  return result;
+}
+TextBoxLayout layout_text_box(const TextFlow &flow, double width,
+                              const MeasureText &measure) {
+  return text_box_impl(flow, width, measure, nullptr);
+}
+TextBoxLayout layout_text_box(const TextFlow &flow, double width,
+                              NativeTextShaper &shaper) {
+  return text_box_impl(
+      flow, width,
+      [&](const Text &t, const TextFont &f) {
+        return shaper.shape(t, f).metrics;
+      },
+      &shaper);
+}
+
+static TextPagination paginate_impl(const TextFlow &flow,
+                                    const MeasureText &measure,
                                     NativeTextShaper *shaper) {
   if (!measure)
     fail("Native text measurement is required");
@@ -621,35 +879,17 @@ static TextPagination paginate_impl(const TextFlow &flow, const MeasureText &mea
   size_t total = 0;
   for (const auto &p : flow.paragraphs) {
     total += p.text.size();
-    if (total > 4'000'000 || p.text.size() > 1'000'000 || flow.paragraphs.size() > 100'000)
+    if (total > 4'000'000 || p.text.size() > 1'000'000 ||
+        flow.paragraphs.size() > 100'000)
       fail("Document exceeds native layout limits");
-    for (double value :
-         {p.left, p.right, p.indent, p.before, p.after, p.line_factor, p.line_height})
-      if (!std::isfinite(value))
-        fail("Invalid paragraph geometry");
-    if (p.orphans < 0 || p.widows < 0 || p.orphans > 1000 || p.widows > 1000 ||
-        p.line_factor <= 0 || p.line_height < 0)
-      fail("Invalid paragraph pagination settings");
-    auto font_valid = [](const TextFont &font) {
-      return std::isfinite(font.size) && font.size > 0 && font.size <= 1000 && font.weight >= 1 &&
-             font.weight <= 1000;
-    };
-    if (!font_valid(p.font))
-      fail("Invalid paragraph font size");
-    size_t end = 0;
-    for (const auto &span : p.spans) {
-      if (span.begin != end || span.end <= span.begin || span.end > p.text.size() ||
-          !font_valid(span.font))
-        fail("Invalid inline text span");
-      end = span.end;
-    }
-    if (!p.spans.empty() && end != p.text.size())
-      fail("Incomplete inline text spans");
-    shaping.push_back(shaper ? std::make_shared<ShapingParagraph>(shaper->prepare(p)) : nullptr);
+    check_paragraph(p);
+    shaping.push_back(
+        shaper ? std::make_shared<ShapingParagraph>(shaper->prepare(p))
+               : nullptr);
     if (shaping.back() && shaping.back()->whole().missing_glyphs)
       note(result.unsupported, "Missing font glyphs");
-    clusters.push_back(
-        breaks.clusters(p, measure, shaping.back() ? &shaping.back()->whole() : nullptr));
+    clusters.push_back(breaks.clusters(
+        p, measure, shaping.back() ? &shaping.back()->whole() : nullptr));
   }
   Text master = flow.first_master;
   auto style = [&]() {
@@ -683,7 +923,8 @@ static TextPagination paginate_impl(const TextFlow &flow, const MeasureText &mea
       else
         advance(false);
       y = result.pages.back().style.top;
-    } else if ((p.break_before || pending_break) && !result.pages.back().lines.empty())
+    } else if ((p.break_before || pending_break) &&
+               !result.pages.back().lines.empty())
       advance(p.master.empty());
     pending_break = false;
     size_t start = 0;
@@ -696,14 +937,16 @@ static TextPagination paginate_impl(const TextFlow &flow, const MeasureText &mea
       const auto &page = result.pages.back().style;
       auto geometry = std::make_tuple(page.width, page.left, page.right);
       if (wrapped.empty() || geometry != wrap_geometry) {
-        wrapped = wrap(p, clusters[paragraph], page, start, measure, shaping[paragraph].get());
+        wrapped = wrap(p, clusters[paragraph], page, start, measure,
+                       shaping[paragraph].get());
         wrap_geometry = geometry;
         line_offset = 0;
         heights = {0};
         for (const auto &line : wrapped)
           heights.push_back(heights.back() + line.line.height);
       }
-      std::span<WrappedLine> lines(wrapped.data() + line_offset, wrapped.size() - line_offset);
+      std::span<WrappedLine> lines(wrapped.data() + line_offset,
+                                   wrapped.size() - line_offset);
       double gap = first ? std::max(previous_after, std::max(0., p.before)) : 0;
       double bottom = page.height - page.bottom;
       double height = heights.back() - heights[line_offset];
@@ -711,41 +954,48 @@ static TextPagination paginate_impl(const TextFlow &flow, const MeasureText &mea
       double group_height = height;
       if (first && p.keep_next) {
         size_t next = paragraph;
-        while (next + 1 < flow.paragraphs.size() && flow.paragraphs[next].keep_next &&
+        while (next + 1 < flow.paragraphs.size() &&
+               flow.paragraphs[next].keep_next &&
                group_height <= bottom - page.top && next - paragraph < 1000) {
           const auto &following = flow.paragraphs[next + 1];
           if (flow.paragraphs[next].break_after || following.break_before ||
               !following.master.empty())
             break;
-          group_height +=
-              std::max(std::max(0., flow.paragraphs[next].after), std::max(0., following.before));
-          auto next_lines =
-              wrap(following, clusters[next + 1], page, 0, measure, shaping[next + 1].get());
+          group_height += std::max(std::max(0., flow.paragraphs[next].after),
+                                   std::max(0., following.before));
+          auto next_lines = wrap(following, clusters[next + 1], page, 0,
+                                 measure, shaping[next + 1].get());
           for (const auto &line : next_lines)
             group_height += line.line.height;
           ++next;
         }
       }
       if (first && !result.pages.back().lines.empty() &&
-          ((p.keep_together && height <= bottom - page.top && y + gap + height > bottom) ||
-           (p.keep_next && group_height <= bottom - page.top && y + gap + group_height > bottom))) {
+          ((p.keep_together && height <= bottom - page.top &&
+            y + gap + height > bottom) ||
+           (p.keep_next && group_height <= bottom - page.top &&
+            y + gap + group_height > bottom))) {
         advance(true);
         continue;
       }
       size_t fit = 0;
       double used = gap;
-      while (fit < lines.size() && y + used + lines[fit].line.height <= bottom + 1e-7)
+      while (fit < lines.size() &&
+             y + used + lines[fit].line.height <= bottom + 1e-7)
         used += lines[fit++].line.height;
       if (fit < lines.size()) {
         if (fit && lines.size() - fit < size_t(p.widows))
           fit = lines.size() > size_t(p.widows) ? lines.size() - p.widows : 0;
-        if ((!fit || (first && fit < size_t(p.orphans))) && !result.pages.back().lines.empty()) {
+        if ((!fit || (first && fit < size_t(p.orphans))) &&
+            !result.pages.back().lines.empty()) {
           advance(true);
           continue;
         }
         if (!fit) {
-          // Unsatisfiable keep/widow rules or an oversized line must still progress.
-          while (fit < lines.size() && y + gap + lines[fit].line.height <= bottom + 1e-7) {
+          // Unsatisfiable keep/widow rules or an oversized line must still
+          // progress.
+          while (fit < lines.size() &&
+                 y + gap + lines[fit].line.height <= bottom + 1e-7) {
             gap += lines[fit].line.height;
             ++fit;
           }
@@ -783,7 +1033,9 @@ TextPagination paginate_text(const TextFlow &flow, const MeasureText &measure) {
 TextPagination paginate_text(const TextFlow &flow, NativeTextShaper &shaper) {
   return paginate_impl(
       flow,
-      [&](const Text &text, const TextFont &font) { return shaper.shape(text, font).metrics; },
+      [&](const Text &text, const TextFont &font) {
+        return shaper.shape(text, font).metrics;
+      },
       &shaper);
 }
 } // namespace DomeOffice
