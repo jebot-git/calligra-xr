@@ -2,6 +2,6 @@
 #pragma once
 #include "odf_package.h"
 namespace DomeOffice {
-OdfPackage import_docx(const QString& path);
-OdfPackage import_pptx(const QString& path);
+OdfPackage import_docx(const Text& path);
+OdfPackage import_pptx(const Text& path);
 }

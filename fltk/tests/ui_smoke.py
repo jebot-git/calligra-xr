@@ -18,8 +18,9 @@ from Xlib.error import XError
 from Xlib.ext import xtest
 ROOT=Path(__file__).resolve().parents[2]
 parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('--bin-dir',type=Path,default=ROOT/'build-fltk/fltk')
-parser.add_argument('--artifacts',type=Path,default=ROOT/'build-fltk/ui-artifacts')
+parser.add_argument('--bin-dir',type=Path,default=ROOT/'build-native/fltk')
+parser.add_argument('--artifacts',type=Path,default=ROOT/'build-native/ui-artifacts')
+parser.add_argument('--test-bin-dir',type=Path,default=ROOT/'build-native/fltk')
 args=parser.parse_args()
 if not os.environ.get('CALLIGRA_UI_BUS'):
     os.execvpe('dbus-run-session',['dbus-run-session','--',sys.executable,*sys.argv],{**os.environ,'CALLIGRA_UI_BUS':'1'})
@@ -67,9 +68,9 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
         xtest.fake_input(xd,X.ButtonPress,1);xtest.fake_input(xd,X.ButtonRelease,1);xd.sync();time.sleep(.06)
     try:
         fixtures=base/'fixtures'
-        subprocess.run([str(ROOT/'build-fltk/fltk/calligra-fltk-test'),'--fixtures',str(fixtures)],env=env,check=True,stdout=subprocess.DEVNULL)
+        subprocess.run([str(args.test_bin_dir/'calligra-fltk-test'),'--fixtures',str(fixtures)],env=env,check=True,stdout=subprocess.DEVNULL)
         xlsx=fixtures/'import.xlsx'
-        subprocess.run([str(ROOT/'build-fltk/fltk/calligra-fltk-xlsx-test'),'--fixture',str(xlsx)],env=env,check=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-fltk-xlsx-test'),'--fixture',str(xlsx)],env=env,check=True)
         original=xlsx.read_bytes();converted=fixtures/'import.ods';report=art/'xlsx.json'
         report.unlink(missing_ok=True)
         with (art/'xlsx.log').open('w') as log:
@@ -94,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('s',('Control_L',));time.sleep(.2);assert not chooser()
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: XLSX import, edit, Ctrl+S conversion to ODS and unchanged source',flush=True)
-        subprocess.run([str(ROOT/'build-fltk/fltk/calligra-fltk-office-test'),'--fixtures',str(fixtures)],env=env,check=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-fltk-office-test'),'--fixtures',str(fixtures)],env=env,check=True)
         for app,source_ext,dest_ext in [('words','docx','odt'),('stage','pptx','odp')]:
             source=fixtures/f'import.{source_ext}';before=source.read_bytes()
             converted=fixtures/f'import.{dest_ext}';report=art/f'{source_ext}.json'

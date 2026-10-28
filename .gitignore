@@ -40,3 +40,5 @@ plugins/textediting/autocorrection/libs/autotests/data/empty-generated.xml
 /build-fltk/
 
 __pycache__/
+
+/build-native/

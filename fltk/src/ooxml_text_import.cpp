@@ -1,72 +1,70 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ooxml_text_import.h"
-#include <QDir>
-#include <QSet>
 #include <cmath>
 #include <stdexcept>
 
 namespace DomeOffice {
 namespace {
-    const QString REL = "http://schemas.openxmlformats.org/package/2006/relationships";
-    const QString DOCREL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-    const QString STRICTREL = "http://purl.oclc.org/ooxml/officeDocument/relationships";
-    const QString WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-    const QString STRICTWORD = "http://purl.oclc.org/ooxml/wordprocessingml/main";
-    const QString PPT = "http://schemas.openxmlformats.org/presentationml/2006/main";
-    const QString STRICTPPT = "http://purl.oclc.org/ooxml/presentationml/main";
-    const QString ART = "http://schemas.openxmlformats.org/drawingml/2006/main";
-    const QString STRICTART = "http://purl.oclc.org/ooxml/drawingml/main";
-    const QString STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
-    const QString FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
-    [[noreturn]] void fail(const QString& message)
+    const Text REL = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const Text DOCREL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const Text STRICTREL = "http://purl.oclc.org/ooxml/officeDocument/relationships";
+    const Text WORD = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const Text STRICTWORD = "http://purl.oclc.org/ooxml/wordprocessingml/main";
+    const Text PPT = "http://schemas.openxmlformats.org/presentationml/2006/main";
+    const Text STRICTPPT = "http://purl.oclc.org/ooxml/presentationml/main";
+    const Text ART = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    const Text STRICTART = "http://purl.oclc.org/ooxml/drawingml/main";
+    const Text STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
+    const Text FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
+    [[noreturn]] void fail(const Text& message)
     {
         throw std::runtime_error(("Office import: " + message).toStdString());
     }
-    QDomElement append(QDomElement parent, const QString& ns, const QString& name)
+    XmlElement append(XmlElement parent, const Text& ns, const Text& name)
     {
         auto e = parent.ownerDocument().createElementNS(ns, name);
         parent.appendChild(e);
         return e;
     }
-    bool relation_type(const QString& type, const QString& kind)
+    bool relation_type(const Text& type, const Text& kind)
     {
         return type == DOCREL + '/' + kind || type == STRICTREL + '/' + kind;
     }
     struct Link {
-        QString type, target;
+        Text type, target;
         bool external;
     };
     struct Archive {
-        QMap<QString, QByteArray> entries;
-        explicit Archive(const QString& path)
+        Map<Text, Bytes> entries;
+        explicit Archive(const Text& path)
             : entries(read_document_archive(path))
         {
             for (auto it = entries.cbegin(); it != entries.cend(); ++it)
-                if (it.key().startsWith("_xmlsignatures/", Qt::CaseInsensitive)
-                    || it.key().endsWith("vbaProject.bin", Qt::CaseInsensitive))
+                if (it.key().startsWith("_xmlsignatures/", CaseInsensitive)
+                    || it.key().endsWith("vbaProject.bin", CaseInsensitive))
                     fail("Signed or macro-enabled documents are not supported");
             auto types = xml("[Content_Types].xml");
             for (auto e :
                 children(types.documentElement(), "http://schemas.openxmlformats.org/package/2006/content-types")) {
                 auto type = e.attribute("ContentType");
-                if (type.contains("macroEnabled", Qt::CaseInsensitive)
-                    || type.contains("vbaProject", Qt::CaseInsensitive)
-                    || type.contains("digital-signature", Qt::CaseInsensitive))
+                if (type.contains("macroEnabled", CaseInsensitive)
+                    || type.contains("vbaProject", CaseInsensitive)
+                    || type.contains("digital-signature", CaseInsensitive))
                     fail("Signed or macro-enabled documents are not supported");
             }
         }
-        QDomDocument xml(const QString& path) const
+        XmlDocument xml(const Text& path) const
         {
             if (!entries.contains(path))
                 fail("Missing package part: " + path);
             return read_document_xml(entries.value(path));
         }
-        QMap<QString, Link> links(const QString& part) const
+        Map<Text, Link> links(const Text& part) const
         {
             int slash = part.lastIndexOf('/');
-            auto name = part.isEmpty() ? QString("_rels/.rels")
+            auto name = part.isEmpty() ? Text("_rels/.rels")
                                        : part.left(slash + 1) + "_rels/" + part.mid(slash + 1) + ".rels";
-            QMap<QString, Link> result;
+            Map<Text, Link> result;
             if (!entries.contains(name))
                 return result;
             auto root = xml(name).documentElement();
@@ -82,21 +80,21 @@ namespace {
                     if (target.contains('\\') || target.contains('%') || target.contains(':') || target.contains('#')
                         || target.contains('?'))
                         fail("Unsupported package target");
-                    target = QDir::cleanPath(target.startsWith('/') ? target.mid(1) : part.left(slash + 1) + target);
+                    target = Dir::cleanPath(target.startsWith('/') ? target.mid(1) : part.left(slash + 1) + target);
                     if (target == "." || target == ".." || target.startsWith("../") || target.startsWith('/'))
                         fail("Package target escapes archive");
                 }
                 auto type = e.attribute("Type");
-                if (type.contains("digital-signature", Qt::CaseInsensitive)
-                    || type.contains("vbaProject", Qt::CaseInsensitive))
+                if (type.contains("digital-signature", CaseInsensitive)
+                    || type.contains("vbaProject", CaseInsensitive))
                     fail("Signed or macro-enabled documents are not supported");
                 result[id] = { type, target, external };
             }
             return result;
         }
-        QString main_part(const QString& type) const
+        Text main_part(const Text& type) const
         {
-            QString part;
+            Text part;
             for (const auto& link : links({}))
                 if (relation_type(link.type, "officeDocument")) {
                     if (link.external || !part.isEmpty())
@@ -119,21 +117,21 @@ namespace {
         }
     };
     struct Budget {
-        qint64 text = 0;
+        Int64 text = 0;
         int nodes = 0;
-        void account(const QString& s = {})
+        void account(const Text& s = {})
         {
             text += s.size();
             if (++nodes > 100000 || text > 32 * 1024 * 1024)
                 fail("Document exceeds the text/object import limit");
         }
     };
-    QString rid(const QDomElement& e, const QString& name = "id")
+    Text rid(const XmlElement& e, const Text& name = "id")
     {
         return e.attributeNS(DOCREL, name, e.attributeNS(STRICTREL, name));
     }
-    QString cm(double emu) { return QString::number(emu / 360000.0, 'g', 12) + "cm"; }
-    double number(const QDomElement& e, const QString& name, bool positive = false)
+    Text cm(double emu) { return Text::number(emu / 360000.0, 'g', 12) + "cm"; }
+    double number(const XmlElement& e, const Text& name, bool positive = false)
     {
         bool ok = false;
         double n = e.attribute(name).toDouble(&ok);
@@ -143,9 +141,9 @@ namespace {
     }
     // Import only visible run text. Field instructions, deleted revisions and objects
     // are deliberately excluded. Recurse through hyperlinks/content controls, not drawings.
-    QString word_text(const QDomElement& e, const QString& ns)
+    Text word_text(const XmlElement& e, const Text& ns)
     {
-        QString result;
+        Text result;
         for (auto n : children(e, ns)) {
             auto name = n.localName();
             if (name == "t")
@@ -155,16 +153,16 @@ namespace {
             else if (name == "br" || name == "cr")
                 result += '\n';
             else if (name == "noBreakHyphen")
-                result += QChar(0x2011);
+                result += Char(0x2011);
             else if (name == "softHyphen")
-                result += QChar(0x00ad);
-            else if (QStringList { "r", "hyperlink", "fldSimple", "ins", "sdt", "sdtContent", "smartTag", "customXml" }.contains(
+                result += Char(0x00ad);
+            else if (TextList { "r", "hyperlink", "fldSimple", "ins", "sdt", "sdtContent", "smartTag", "customXml" }.contains(
                          name))
                 result += word_text(n, ns);
         }
         return result;
     }
-    void word_blocks(QDomElement out, const QDomElement& input, const QString& ns, Budget& budget)
+    void word_blocks(XmlElement out, const XmlElement& input, const Text& ns, Budget& budget)
     {
         for (auto e : children(input, ns)) {
             if (e.localName() == "p") {
@@ -174,7 +172,7 @@ namespace {
             } else if (e.localName() == "tbl") {
                 budget.account();
                 auto table = append(out, TABLE, "table:table");
-                table.setAttributeNS(TABLE, "table:name", QString("Table%1").arg(budget.nodes));
+                table.setAttributeNS(TABLE, "table:name", Text("Table%1").arg(budget.nodes));
                 for (auto row : children(e, ns, "tr")) {
                     budget.account();
                     auto r = append(table, TABLE, "table:table-row");
@@ -186,14 +184,14 @@ namespace {
                             append(c, TEXT, "text:p");
                     }
                 }
-            } else if (QStringList { "sdt", "sdtContent", "ins", "customXml" }.contains(e.localName()))
+            } else if (TextList { "sdt", "sdtContent", "ins", "customXml" }.contains(e.localName()))
                 word_blocks(out, e, ns, budget);
         }
     }
-    void drawing_text(QDomElement out, const QDomElement& input, const QString& ns, Budget& budget)
+    void drawing_text(XmlElement out, const XmlElement& input, const Text& ns, Budget& budget)
     {
         for (auto p : children(input, ns, "p")) {
-            QString text;
+            Text text;
             for (auto e : children(p, ns)) {
                 if (e.localName() == "r" || e.localName() == "fld")
                     text += child(e, ns, "t").text();
@@ -204,10 +202,10 @@ namespace {
             set_plain_text(append(out, TEXT, "text:p"), text);
         }
     }
-    QDomElement related_root(const Archive& archive, const QMap<QString, Link>& links, const QString& kind,
-        const QString& ns, const QString& rootName)
+    XmlElement related_root(const Archive& archive, const Map<Text, Link>& links, const Text& kind,
+        const Text& ns, const Text& rootName)
     {
-        QDomElement result;
+        XmlElement result;
         for (const auto& link : links)
             if (relation_type(link.type, kind)) {
                 if (link.external || !result.isNull())
@@ -218,8 +216,8 @@ namespace {
             }
         return result;
     }
-    QDomElement placeholder_transform(
-        const QDomElement& shape, const QDomElement& layout, const QString& ns, const QString& art)
+    XmlElement placeholder_transform(
+        const XmlElement& shape, const XmlElement& layout, const Text& ns, const Text& art)
     {
         auto direct = child(child(shape, ns, "spPr"), art, "xfrm");
         if (!direct.isNull())
@@ -238,7 +236,7 @@ namespace {
     struct Rect {
         double x = 360000, y = 360000, w = 8640000, h = 1080000;
     };
-    Rect rectangle(const QDomElement& transform, const QString& ns)
+    Rect rectangle(const XmlElement& transform, const Text& ns)
     {
         Rect r;
         if (!transform.isNull()) {
@@ -254,7 +252,7 @@ namespace {
         }
         return r;
     }
-    QDomElement frame(QDomElement page, const Rect& r, Budget& budget)
+    XmlElement frame(XmlElement page, const Rect& r, Budget& budget)
     {
         budget.account();
         auto f = append(page, DRAW, "draw:frame");
@@ -265,7 +263,7 @@ namespace {
         return f;
     }
 } // namespace
-OdfPackage import_docx(const QString& path)
+OdfPackage import_docx(const Text& path)
 {
     Archive archive(path);
     auto part = archive.main_part("application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml");
@@ -284,7 +282,7 @@ OdfPackage import_docx(const QString& path)
         append(output.body(), TEXT, "text:p");
     return output;
 }
-OdfPackage import_pptx(const QString& path)
+OdfPackage import_pptx(const Text& path)
 {
     Archive archive(path);
     auto part = archive.main_part("application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml");
@@ -307,8 +305,8 @@ OdfPackage import_pptx(const QString& path)
         output.set_entry("styles.xml", styles.toByteArray(-1), "text/xml");
     }
     Budget budget;
-    QMap<QString, QString> media;
-    QSet<QString> ids, parts;
+    Map<Text, Text> media;
+    Set<Text> ids, parts;
     for (auto slide : slides) {
         auto id = rid(slide);
         auto link = links.value(id);
@@ -327,7 +325,7 @@ OdfPackage import_pptx(const QString& path)
         if (tree.isNull())
             fail("Slide has no shape tree");
         auto page = append(output.body(), DRAW, "draw:page");
-        page.setAttributeNS(DRAW, "draw:name", QString("Slide %1").arg(ids.size()));
+        page.setAttributeNS(DRAW, "draw:name", Text("Slide %1").arg(ids.size()));
         page.setAttributeNS(DRAW, "draw:master-page-name", "Default");
         // Direct text boxes and pictures, including layout placeholder geometry.
         // Full theme/master inheritance, groups, rotations, charts and other
@@ -350,17 +348,17 @@ OdfPackage import_pptx(const QString& path)
                     || !archive.entries.contains(imageLink.target))
                     fail("Invalid image relationship");
                 const auto bytes = archive.entries.value(imageLink.target);
-                QString ext, type;
-                if (bytes.startsWith(QByteArray::fromHex("89504e470d0a1a0a"))) {
+                Text ext, type;
+                if (bytes.startsWith(Bytes::fromHex("89504e470d0a1a0a"))) {
                     ext = "png";
                     type = "image/png";
-                } else if (bytes.startsWith(QByteArray::fromHex("ffd8ff"))) {
+                } else if (bytes.startsWith(Bytes::fromHex("ffd8ff"))) {
                     ext = "jpg";
                     type = "image/jpeg";
                 } else
                     continue;
                 if (!media.contains(imageLink.target)) {
-                    auto name = QString("Pictures/image%1.%2").arg(media.size() + 1).arg(ext);
+                    auto name = Text("Pictures/image%1.%2").arg(media.size() + 1).arg(ext);
                     output.set_entry(name, bytes, type);
                     media[imageLink.target] = name;
                 }

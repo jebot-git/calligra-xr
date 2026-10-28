@@ -1,3 +1,21 @@
+# Native engine milestone — 2026-10-28
+
+The default Words/Sheets/Stage document, XML/package and spreadsheet calculation
+paths now use native C++20, libxml2, libzip and the installed system FLTK. They
+require no Qt or KDE headers/libraries. The upstream Qt/KDE build remains an
+explicit opt-in. No fake Qt shared library or static Qt copy is used.
+
+The original Words paginated layout and Stage shape/animation stacks remain
+unported; the native paragraph/slide engines retain the existing basic editing
+scope. Sheets now uses a native parser/evaluator rather than the full upstream
+engine. Its smaller function catalogue is listed in README.md. Unknown
+functions return errors and their existing package caches remain intact.
+Passing the retained document and GUI tests does not establish full function
+or office-suite parity. This limitation supersedes the previous engine-reuse
+claims below; the following assessment is historical context.
+
+---
+
 # Port status and remaining office-suite work
 
 Baseline: KDE Calligra `edb7aee19cf4c38b55389149ea052982d7a6d41e`, retrieved

@@ -1,7 +1,3 @@
-#include <QCoreApplication>
-#include <QFileInfo>
-#include <QLocale>
-#include <QUrl>
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "suite/desktop-menu.h"
 #include "suite/gpu-window.h"
@@ -19,7 +15,7 @@
 #include <FL/Fl_Table.H>
 #include <FL/Fl_Text_Editor.H>
 #include <FL/platform.H>
-#include <engine/calligra_sheets_limits.h>
+#include "native_limits.h"
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -28,8 +24,8 @@
 #include <vector>
 using namespace DomeOffice;
 namespace {
-std::string utf8(const QString& s) { return s.toUtf8().toStdString(); }
-QString qs(const char* s) { return QString::fromUtf8(s ? s : ""); }
+std::string utf8(const Text& s) { return s.toUtf8().toStdString(); }
+Text qs(const char* s) { return Text::fromUtf8(s ? s : ""); }
 std::string column_name(int column)
 {
     std::string s;
@@ -172,7 +168,7 @@ class SlideCanvas : public Fl_Widget {
 
 public:
     std::function<Slide()> slide;
-    std::function<QByteArray(const QString&)> image;
+    std::function<Bytes(const Text&)> image;
     std::function<void(int)> selected;
     int box = -1;
     SlideCanvas(int x, int y, int w, int h)
@@ -204,7 +200,7 @@ public:
             if (!b.image.isEmpty()) {
                 auto name = utf8(b.image);
                 if (!images_.contains(name)) {
-                    auto bytes = image(QUrl::fromPercentEncoding(b.image.toUtf8()));
+                    auto bytes = image(Url::fromPercentEncoding(b.image.toUtf8()));
                     std::unique_ptr<Fl_Image> decoded;
                     if (bytes.startsWith("\x89PNG"))
                         decoded = std::make_unique<Fl_PNG_Image>(
@@ -288,7 +284,7 @@ public:
     size_t history_index = 0;
     struct CellEdit {
         int sheet, col, row;
-        QString old_value, new_value;
+        Text old_value, new_value;
     };
     std::vector<std::vector<CellEdit>> cell_history;
     size_t cell_history_index = 0;
@@ -404,7 +400,7 @@ public:
                 this);
             canvas = new SlideCanvas(194, 62, 894, 418);
             canvas->slide = [this] { return stage->slide(slide); };
-            canvas->image = [this](const QString& path) { return stage->image(path); };
+            canvas->image = [this](const Text& path) { return stage->image(path); };
             canvas->selected = [this](int n) {
                 if (presenting) {
                     command(Next);
@@ -496,7 +492,7 @@ public:
     void title()
     {
         std::string app = kind == Kind::Words ? "Words" : kind == Kind::Sheets ? "Sheets" : "Stage";
-        window.copy_label(((file.empty() ? "Untitled" : QFileInfo(qs(file.c_str())).fileName().toStdString())
+        window.copy_label(((file.empty() ? "Untitled" : FileInfo(qs(file.c_str())).fileName().toStdString())
             + (modified ? " *" : "") + " — Calligra " + app)
                 .c_str());
     }
@@ -507,7 +503,7 @@ public:
         free(text);
         return result;
     }
-    void fill_buffer(const QString& text)
+    void fill_buffer(const Text& text)
     {
         updating = true;
         buffer.text(utf8(text).c_str());
@@ -609,7 +605,7 @@ public:
         title();
         grid->redraw();
     }
-    void paste_cells(const QString& text)
+    void paste_cells(const Text& text)
     {
         std::vector<CellEdit> changes;
         auto rows = text.split('\n');
@@ -669,7 +665,7 @@ public:
         }
         box = std::clamp(box, 0, std::max(0, int(current.boxes.size()) - 1));
         boxes->value(box);
-        fill_buffer(current.boxes.isEmpty() ? QString() : current.boxes[box].text);
+        fill_buffer(current.boxes.isEmpty() ? Text() : current.boxes[box].text);
         if (current.boxes.isEmpty() || !current.boxes[box].image.isEmpty())
             editor->deactivate();
         canvas->box = box;
@@ -719,12 +715,12 @@ public:
         commit_text();
         std::string target = file;
         bool imported = kind == Kind::Sheets
-            ? QFileInfo(qs(file.c_str())).suffix().compare("xlsx", Qt::CaseInsensitive) == 0
+            ? FileInfo(qs(file.c_str())).suffix().compare("xlsx", CaseInsensitive) == 0
             : kind == Kind::Words ? words->imported_office() : stage->imported_office();
         if (as || target.empty() || imported) {
             if (imported)
                 target = utf8(
-                    QFileInfo(qs(file.c_str())).path() + "/" + QFileInfo(qs(file.c_str())).completeBaseName() + "." + suffix(kind));
+                    FileInfo(qs(file.c_str())).path() + "/" + FileInfo(qs(file.c_str())).completeBaseName() + "." + suffix(kind));
             auto filter = "*." + utf8(suffix(kind));
             const char* chosen = fl_file_chooser(
                 imported ? "Save imported document as OpenDocument (conversion may omit features)" : "Save document",
@@ -732,7 +728,7 @@ public:
             if (!chosen)
                 return false;
             target = chosen;
-            if (QFileInfo(qs(target.c_str())).suffix().isEmpty())
+            if (FileInfo(qs(target.c_str())).suffix().isEmpty())
                 target += '.' + utf8(suffix(kind));
             if (target != file && std::filesystem::exists(target)
                 && fl_choice("Replace the existing file?", "Cancel", "Replace", nullptr) != 1)
@@ -950,7 +946,7 @@ public:
     static void tick(void* data)
     {
         auto* self = static_cast<Office*>(data);
-        QCoreApplication::processEvents();
+
         self->report();
         if (self->window.shown())
             Fl::repeat_timeout(.1, tick, data);
@@ -1023,9 +1019,7 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
             else
                 options.file = arg;
         }
-        QCoreApplication core(argc, argv);
-        QCoreApplication::setApplicationName("calligra-fltk");
-        QLocale::setDefault(QLocale::c());
+
         if (!getenv("FLTK_BACKEND"))
             setenv("FLTK_BACKEND", "wayland", 0);
         dx::init();

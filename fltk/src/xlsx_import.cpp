@@ -1,52 +1,50 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "xlsx_import.h"
-#include <QDateTime>
-#include <QDir>
-#include <QRegularExpression>
 #include <cmath>
-#include <engine/OdfFormula.h>
-#include <engine/Util.h>
+#include "native_formula.h"
+#include "native_time.h"
+
 #include <stdexcept>
 
 namespace DomeOffice {
 namespace {
-    const QString MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-    const QString STRICT = "http://purl.oclc.org/ooxml/spreadsheetml/main";
-    const QString REL = "http://schemas.openxmlformats.org/package/2006/relationships";
-    const QString DOCREL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
-    const QString STRICTREL = "http://purl.oclc.org/ooxml/officeDocument/relationships";
-    [[noreturn]] void fail(const QString& message)
+    const Text MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+    const Text STRICT = "http://purl.oclc.org/ooxml/spreadsheetml/main";
+    const Text REL = "http://schemas.openxmlformats.org/package/2006/relationships";
+    const Text DOCREL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    const Text STRICTREL = "http://purl.oclc.org/ooxml/officeDocument/relationships";
+    [[noreturn]] void fail(const Text& message)
     {
         throw std::runtime_error(("XLSX import: " + message).toStdString());
     }
     struct Link {
-        QString type, target;
+        Text type, target;
         bool external;
     };
     struct Archive {
-        QMap<QString, QByteArray> entries;
-        QDomDocument xml(const QString& name) const
+        Map<Text, Bytes> entries;
+        XmlDocument xml(const Text& name) const
         {
             if (!entries.contains(name))
                 fail("Missing package part: " + name);
             return read_document_xml(entries.value(name));
         }
-        QMap<QString, Link> links(const QString& part) const
+        Map<Text, Link> links(const Text& part) const
         {
             const auto slash = part.lastIndexOf('/');
-            const auto path = part.isEmpty() ? QString("_rels/.rels")
+            const auto path = part.isEmpty() ? Text("_rels/.rels")
                                              : part.left(slash + 1) + "_rels/" + part.mid(slash + 1) + ".rels";
-            QMap<QString, Link> result;
+            Map<Text, Link> result;
             for (auto e : children(xml(path).documentElement(), REL, "Relationship")) {
                 auto id = e.attribute("Id");
                 if (id.isEmpty() || result.contains(id))
                     fail("Invalid relationship ID");
                 bool external = e.attribute("TargetMode") == "External";
-                QString target = e.attribute("Target");
+                Text target = e.attribute("Target");
                 if (!external) {
                     if (target.contains('\\') || target.contains('%') || target.contains(':') || target.contains('#'))
                         fail("Unsupported package target");
-                    target = QDir::cleanPath(target.startsWith('/') ? target.mid(1) : part.left(slash + 1) + target);
+                    target = Dir::cleanPath(target.startsWith('/') ? target.mid(1) : part.left(slash + 1) + target);
                     if (target == ".." || target.startsWith("../") || target.isEmpty())
                         fail("Package target escapes archive");
                 }
@@ -55,9 +53,9 @@ namespace {
             return result;
         }
     };
-    QString find_part(const QMap<QString, Link>& links, const QString& kind, bool required = true)
+    Text find_part(const Map<Text, Link>& links, const Text& kind, bool required = true)
     {
-        QString result;
+        Text result;
         for (const auto& link : links) {
             if (link.type != DOCREL + '/' + kind && link.type != STRICTREL + '/' + kind)
                 continue;
@@ -69,23 +67,23 @@ namespace {
             fail("Missing " + kind + " relationship");
         return result;
     }
-    QPair<int, int> address(const QString& ref)
+    Pair<int, int> address(const Text& ref)
     {
-        static const QRegularExpression pattern("^([A-Z]{1,3})([1-9][0-9]{0,6})$");
+        static const Regex pattern("^([A-Z]{1,3})([1-9][0-9]{0,6})$");
         auto match = pattern.match(ref);
         if (!match.hasMatch())
             fail("Invalid cell address: " + ref);
         int col = 0;
         for (auto c : match.captured(1))
-            col = col * 26 + c.unicode() - 'A' + 1;
+            col = col * 26 + c - 'A' + 1;
         int row = match.captured(2).toInt();
         if (col > 16384 || row > 1048576)
             fail("Cell address exceeds XLSX limits");
         return { col, row };
     }
-    QString rich_text(const QDomElement& element, const QString& ns)
+    Text rich_text(const XmlElement& element, const Text& ns)
     {
-        QString result;
+        Text result;
         for (auto e : children(element, ns)) {
             if (e.localName() == "t")
                 result += e.text();
@@ -94,26 +92,26 @@ namespace {
         }
         return result;
     }
-    QDomElement append(QDomElement parent, const QString& ns, const QString& name)
+    XmlElement append(XmlElement parent, const Text& ns, const Text& name)
     {
         auto e = parent.ownerDocument().createElementNS(ns, name);
         parent.appendChild(e);
         return e;
     }
-    void text_cell(QDomElement cell, const QString& text)
+    void text_cell(XmlElement cell, const Text& text)
     {
         cell.setAttributeNS(OFFICE, "office:value-type", "string");
         set_plain_text(append(cell, TEXT, "text:p"), text);
     }
 } // namespace
-OdfPackage import_xlsx(const QString& path)
+OdfPackage import_xlsx(const Text& path)
 {
     Archive archive { read_document_archive(path) };
     for (const auto& name : archive.entries.keys()) {
-        if (name.startsWith("_xmlsignatures/") || name.endsWith("vbaProject.bin", Qt::CaseInsensitive))
+        if (name.startsWith("_xmlsignatures/") || name.endsWith("vbaProject.bin", CaseInsensitive))
             fail("Signed or macro-enabled workbooks are not supported");
     }
-    const QString workbookPath = find_part(archive.links({ }), "officeDocument");
+    const Text workbookPath = find_part(archive.links({ }), "officeDocument");
     auto types = archive.xml("[Content_Types].xml");
     bool correctType = false;
     for (auto e :
@@ -132,7 +130,7 @@ OdfPackage import_xlsx(const QString& path)
     auto links = archive.links(workbookPath);
     bool epoch1904 = child(root, ns, "workbookPr").attribute("date1904") == "1"
         || child(root, ns, "workbookPr").attribute("date1904") == "true";
-    QStringList strings;
+    TextList strings;
     auto stringsPath = find_part(links, "sharedStrings", false);
     if (!stringsPath.isEmpty()) {
         auto doc = archive.xml(stringsPath);
@@ -143,33 +141,33 @@ OdfPackage import_xlsx(const QString& path)
         }
     }
     // Classify date/time formats; ordinary visual formatting is not imported.
-    QList<int> dateStyles; // 0: number, 1: date/datetime, 2: time/duration
+    List<int> dateStyles; // 0: number, 1: date/datetime, 2: time/duration
     auto stylesPath = find_part(links, "styles", false);
     if (!stylesPath.isEmpty()) {
         auto doc = archive.xml(stylesPath);
-        QMap<int, QString> custom;
+        Map<int, Text> custom;
         for (auto e : children(child(doc.documentElement(), ns, "numFmts"), ns, "numFmt"))
             custom[e.attribute("numFmtId").toInt()] = e.attribute("formatCode");
         for (auto e : children(child(doc.documentElement(), ns, "cellXfs"), ns, "xf")) {
             int id = e.attribute("numFmtId").toInt();
-            QString format = custom.value(id);
-            format.remove(QRegularExpression("\"[^\"]*\"|\\\\.|\\[[^\\]]*\\]"));
+            Text format = custom.value(id);
+            format.remove(Regex("\"[^\"]*\"|\\\\.|\\[[^\\]]*\\]"));
             bool date = (id >= 14 && id <= 22) || (id >= 27 && id <= 36) || (id >= 45 && id <= 47)
                 || (id >= 50 && id <= 58)
-                || format.contains(QRegularExpression("[ymdhs]", QRegularExpression::CaseInsensitiveOption));
+                || format.contains(Regex("[ymdhs]", Regex::CaseInsensitiveOption));
             bool time = (id >= 18 && id <= 21) || (id >= 45 && id <= 47)
-                || (!format.contains(QRegularExpression("[yd]", QRegularExpression::CaseInsensitiveOption))
-                    && format.contains(QRegularExpression("[hs]", QRegularExpression::CaseInsensitiveOption)))
+                || (!format.contains(Regex("[yd]", Regex::CaseInsensitiveOption))
+                    && format.contains(Regex("[hs]", Regex::CaseInsensitiveOption)))
                 || custom.value(id).contains(
-                    QRegularExpression("\\[[hms]+\\]", QRegularExpression::CaseInsensitiveOption));
+                    Regex("\\[[hms]+\\]", Regex::CaseInsensitiveOption));
             dateStyles << (time ? 2 : date ? 1 : 0);
         }
     }
     OdfPackage output(Kind::Sheets);
-    QSet<QString> names;
+    Set<Text> names;
     int cells = 0;
-    qint64 textSize = 0;
-    auto account = [&](const QString& text) {
+    Int64 textSize = 0;
+    auto account = [&](const Text& text) {
         textSize += text.size();
         if (textSize > 32 * 1024 * 1024)
             fail("Expanded cell text exceeds the import limit");
@@ -178,7 +176,7 @@ OdfPackage import_xlsx(const QString& path)
     if (sheets.isEmpty() || sheets.size() > 1024)
         fail("Invalid worksheet count");
     for (auto sheet : sheets) {
-        QString name = sheet.attribute("name");
+        Text name = sheet.attribute("name");
         if (name.isEmpty() || names.contains(name.toCaseFolded()))
             fail("Invalid or duplicate sheet name");
         names.insert(name.toCaseFolded());
@@ -194,10 +192,10 @@ OdfPackage import_xlsx(const QString& path)
         if (!child(worksheet, ns, "sheetProtection").isNull())
             table.setAttributeNS(TABLE, "table:protected", "true");
         struct Shared {
-            QString formula;
+            Text formula;
             int col, row;
         };
-        QMap<QString, Shared> shared;
+        Map<Text, Shared> shared;
         auto rows = children(child(worksheet, ns, "sheetData"), ns, "row");
         // Shared-formula followers can precede their master in a package.
         for (auto row : rows)
@@ -210,13 +208,13 @@ OdfPackage import_xlsx(const QString& path)
                     auto index = f.attribute("si");
                     if (index.isEmpty() || shared.contains(index))
                         fail("Invalid shared formula group");
-                    shared[index] = { Calligra::Sheets::Odf::convertMSOOXMLFormula(f.text()), at.first, at.second };
+                    shared[index] = { Formula::from_excel(f.text()), at.first, at.second };
                 }
             }
         int lastRow = 0;
         for (auto row : rows) {
             bool ok;
-            int r = row.attribute("r", QString::number(lastRow + 1)).toInt(&ok);
+            int r = row.attribute("r", Text::number(lastRow + 1)).toInt(&ok);
             if (!ok || r <= lastRow || r > 1048576)
                 fail("Invalid worksheet row order");
             if (r > lastRow + 1)
@@ -235,22 +233,21 @@ OdfPackage import_xlsx(const QString& path)
                 auto cell = append(odfRow, TABLE, "table:table-cell");
                 lastCol = at.first;
                 auto f = child(c, ns, "f");
-                QString value = child(c, ns, "v").text(), type = c.attribute("t");
+                Text value = child(c, ns, "v").text(), type = c.attribute("t");
                 if (!f.isNull()) {
                     const auto kind = f.attribute("t", "normal");
                     if (kind != "normal" && kind != "shared")
                         fail("Array and data-table formulas are not supported yet");
-                    QString formula;
+                    Text formula;
                     if (kind == "shared") {
                         if (!shared.contains(f.attribute("si")))
                             fail("Missing shared formula master");
                         auto master = shared.value(f.attribute("si"));
-                        formula = Calligra::Sheets::Util::adjustFormulaReference(
-                            master.formula, master.row, master.col, r, at.first);
+                        formula = Formula::shift(master.formula, at.first-master.col, r-master.row);
                     } else
-                        formula = Calligra::Sheets::Odf::convertMSOOXMLFormula(f.text());
+                        formula = Formula::from_excel(f.text());
                     account(formula);
-                    cell.setAttributeNS(TABLE, "table:formula", "of:" + Calligra::Sheets::Odf::encodeFormula(formula));
+                    cell.setAttributeNS(TABLE, "table:formula", "of:" + Formula::encode(formula));
                     // Keep the source cache for formulas the engine cannot evaluate.
                     // Supported formulas receive fresh caches on ODS save.
                     if (type == "str" || type == "e") {
@@ -267,7 +264,7 @@ OdfPackage import_xlsx(const QString& path)
                         if (!value.isEmpty() && (!numeric || !std::isfinite(cache)))
                             fail("Invalid formula cache");
                         cell.setAttributeNS(OFFICE, "office:value-type", "float");
-                        cell.setAttributeNS(OFFICE, "office:value", value.isEmpty() ? QString("0") : value);
+                        cell.setAttributeNS(OFFICE, "office:value", value.isEmpty() ? Text("0") : value);
                     }
                 } else if (type == "s") {
                     int index = value.toInt(&ok);
@@ -288,8 +285,8 @@ OdfPackage import_xlsx(const QString& path)
                     cell.setAttributeNS(OFFICE, "office:value-type", "boolean");
                     cell.setAttributeNS(OFFICE, "office:boolean-value", value == "1" ? "true" : "false");
                 } else if (type == "d") {
-                    if (!QDateTime::fromString(value, Qt::ISODate).isValid()
-                        && !QDate::fromString(value, Qt::ISODate).isValid())
+                    if (!DateTime::fromString(value, ISODate).isValid()
+                        && !Date::fromString(value, ISODate).isValid())
                         fail("Invalid ISO date");
                     cell.setAttributeNS(OFFICE, "office:value-type", "date");
                     cell.setAttributeNS(OFFICE, "office:date-value", value);
@@ -307,17 +304,17 @@ OdfPackage import_xlsx(const QString& path)
                             fail("Unsupported time serial");
                         cell.setAttributeNS(OFFICE, "office:value-type", "time");
                         cell.setAttributeNS(
-                            OFFICE, "office:time-value", "PT" + QString::number(number * 86400, 'g', 15) + "S");
+                            OFFICE, "office:time-value", "PT" + Text::number(number * 86400, 'g', 15) + "S");
                     } else if (style < dateStyles.size() && dateStyles[style] == 1) {
                         if (number < 0 || number > 2958465 || (!epoch1904 && std::floor(number) == 60))
                             fail("Unsupported Excel date serial");
-                        qint64 days = std::floor(number);
-                        auto date = (epoch1904 ? QDate(1904, 1, 1) : QDate(1899, 12, 31))
+                        Int64 days = std::floor(number);
+                        auto date = (epoch1904 ? Date(1904, 1, 1) : Date(1899, 12, 31))
                                         .addDays(days - (!epoch1904 && days > 60 ? 1 : 0));
-                        auto time = QTime(0, 0).addMSecs(qRound64((number - days) * 86400000));
+                        auto time = Time(0, 0).addMSecs(std::llround((number - days) * 86400000));
                         cell.setAttributeNS(OFFICE, "office:value-type", "date");
                         cell.setAttributeNS(
-                            OFFICE, "office:date-value", QDateTime(date, time, Qt::UTC).toString(Qt::ISODateWithMs));
+                            OFFICE, "office:date-value", DateTime(date, time, UTC).toString(ISODateWithMs));
                     } else {
                         cell.setAttributeNS(OFFICE, "office:value-type", "float");
                         cell.setAttributeNS(OFFICE, "office:value", value);
@@ -331,15 +328,15 @@ OdfPackage import_xlsx(const QString& path)
     for (auto e : children(child(root, ns, "definedNames"), ns, "definedName")) {
         if (e.hasAttribute("localSheetId") || e.attribute("name").startsWith("_xlnm."))
             continue;
-        QString formula = Calligra::Sheets::Odf::convertMSOOXMLFormula(e.text());
-        if (!QRegularExpression("^='?[^=+*/()]+![\\$A-Z0-9:]+$").match(formula).hasMatch())
+        Text formula = Formula::from_excel(e.text());
+        if (!Regex("^='?[^=+*/()]+![\\$A-Z0-9:]+$").match(formula).hasMatch())
             continue;
         auto range = append(child(output.body(), TABLE, "named-expressions").isNull()
                 ? append(output.body(), TABLE, "table:named-expressions")
                 : child(output.body(), TABLE, "named-expressions"),
             TABLE, "table:named-range");
         range.setAttributeNS(TABLE, "table:name", e.attribute("name"));
-        range.setAttributeNS(TABLE, "table:cell-range-address", Calligra::Sheets::Odf::saveRegion(formula.mid(1)));
+        range.setAttributeNS(TABLE, "table:cell-range-address", Formula::save_region(formula.mid(1)));
     }
     return output;
 }

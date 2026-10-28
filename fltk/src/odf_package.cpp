@@ -1,10 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "odf_package.h"
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QTemporaryFile>
-#include <QXmlStreamReader>
 #include <fcntl.h>
 #include <memory>
 #include <stdexcept>
@@ -12,31 +7,21 @@
 #include <zip.h>
 namespace DomeOffice {
 namespace {
-    [[noreturn]] void fail(const QString& error) { throw std::runtime_error(error.toStdString()); }
-    QString local(Kind kind)
+    [[noreturn]] void fail(const Text& error) { throw std::runtime_error(error.toStdString()); }
+    Text local(Kind kind)
     {
         return kind == Kind::Words ? "text" : kind == Kind::Sheets ? "spreadsheet" : "presentation";
     }
-    void validate_xml(const QByteArray& data)
+    void validate_xml(const Bytes& data)
     {
-        QXmlStreamReader reader(data);
-        int depth = 0;
-        while (!reader.atEnd()) {
-            auto token = reader.readNext();
-            if (token == QXmlStreamReader::DTD || token == QXmlStreamReader::EntityReference)
-                fail("Document entity declarations are not supported");
-            if (token == QXmlStreamReader::StartElement && ++depth > 256)
-                fail("Document XML nesting is too deep");
-            if (token == QXmlStreamReader::EndElement)
-                --depth;
-        }
-        if (reader.hasError())
-            fail("Malformed document XML: " + reader.errorString());
+        XmlDocument validation;
+        if(!validation.setContent(data))fail("Malformed XML, entity declaration or excessive document depth");
     }
+
 } // namespace
-QString mime(Kind kind) { return "application/vnd.oasis.opendocument." + local(kind); }
-QString suffix(Kind kind) { return kind == Kind::Words ? "odt" : kind == Kind::Sheets ? "ods" : "odp"; }
-QDomElement child(const QDomElement& parent, const QString& ns, const QString& name)
+Text mime(Kind kind) { return "application/vnd.oasis.opendocument." + local(kind); }
+Text suffix(Kind kind) { return kind == Kind::Words ? "odt" : kind == Kind::Sheets ? "ods" : "odp"; }
+XmlElement child(const XmlElement& parent, const Text& ns, const Text& name)
 {
     for (auto n = parent.firstChild(); !n.isNull(); n = n.nextSibling()) {
         auto e = n.toElement();
@@ -45,9 +30,9 @@ QDomElement child(const QDomElement& parent, const QString& ns, const QString& n
     }
     return { };
 }
-QList<QDomElement> children(const QDomElement& parent, const QString& ns, const QString& name)
+List<XmlElement> children(const XmlElement& parent, const Text& ns, const Text& name)
 {
-    QList<QDomElement> result;
+    List<XmlElement> result;
     for (auto n = parent.firstChild(); !n.isNull(); n = n.nextSibling()) {
         auto e = n.toElement();
         if (e.namespaceURI() == ns && (name.isEmpty() || e.localName() == name))
@@ -55,9 +40,9 @@ QList<QDomElement> children(const QDomElement& parent, const QString& ns, const 
     }
     return result;
 }
-QString plain_text(const QDomElement& element)
+Text plain_text(const XmlElement& element)
 {
-    QString result;
+    Text result;
     for (auto node = element.firstChild(); !node.isNull(); node = node.nextSibling()) {
         if (node.isText() || node.isCDATASection())
             result += node.nodeValue();
@@ -68,7 +53,7 @@ QString plain_text(const QDomElement& element)
                 int count = e.attributeNS(TEXT, "c", "1").toInt(&ok);
                 if (!ok || count < 1 || count > 65536)
                     fail("Invalid repeated spaces in document");
-                result += QString(count, ' ');
+                result += Text(count, ' ');
             } else if (e.namespaceURI() == TEXT && e.localName() == "tab")
                 result += '\t';
             else if (e.namespaceURI() == TEXT && e.localName() == "line-break")
@@ -79,12 +64,12 @@ QString plain_text(const QDomElement& element)
     }
     return result;
 }
-void set_plain_text(QDomElement element, const QString& value)
+void set_plain_text(XmlElement element, const Text& value)
 {
     while (!element.firstChild().isNull())
         element.removeChild(element.firstChild());
     auto doc = element.ownerDocument();
-    QString run;
+    Text run;
     auto flush = [&] {
         if (!run.isEmpty()) {
             element.appendChild(doc.createTextNode(run));
@@ -92,7 +77,7 @@ void set_plain_text(QDomElement element, const QString& value)
         }
     };
     for (int i = 0; i < value.size(); ++i) {
-        QChar c = value[i];
+        Char c = value[i];
         if (c == ' ' || c == '\t' || c == '\n') {
             flush();
             auto node = doc.createElementNS(TEXT, c == ' ' ? "text:s" : c == '\t' ? "text:tab" : "text:line-break");
@@ -113,7 +98,7 @@ void set_plain_text(QDomElement element, const QString& value)
 OdfPackage::OdfPackage(Kind kind)
     : kind_(kind)
 {
-    const QByteArray start = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document-content "
+    const Bytes start = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?><office:document-content "
                               "xmlns:office=\""
         + OFFICE + "\" xmlns:text=\"" + TEXT + "\" xmlns:table=\"" + TABLE + "\" xmlns:draw=\"" + DRAW
         + "\" xmlns:svg=\"" + SVG + "\" xmlns:xlink=\"" + XLINK
@@ -124,10 +109,10 @@ OdfPackage::OdfPackage(Kind kind)
           "<office:automatic-styles/><office:body><office:"
         + local(kind) + "/></office:body></office:document-content>")
                                  .toUtf8();
-    if (!xml.setContent(start, QDomDocument::ParseOption::UseNamespaceProcessing))
+    if (!xml.setContent(start, XmlDocument::ParseOption::UseNamespaceProcessing))
         fail("Cannot create document");
     entries_["mimetype"] = mime(kind).toUtf8();
-    const QString STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
+    const Text STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
                   FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
     entries_["styles.xml"] = ("<?xml version=\"1.0\"?><office:document-styles xmlns:office=\"" + OFFICE
         + "\" xmlns:style=\"" + STYLE + "\" xmlns:fo=\"" + FO
@@ -135,8 +120,8 @@ OdfPackage::OdfPackage(Kind kind)
           "office:version=\"1.3\"><office:styles/"
           "><office:automatic-styles><style:page-layout "
           "style:name=\"pm1\"><style:page-layout-properties fo:page-width=\""
-        + (kind == Kind::Stage ? QString("28cm") : QString("21cm")) + "\" fo:page-height=\""
-        + (kind == Kind::Stage ? QString("15.75cm") : QString("29.7cm"))
+        + (kind == Kind::Stage ? Text("28cm") : Text("21cm")) + "\" fo:page-height=\""
+        + (kind == Kind::Stage ? Text("15.75cm") : Text("29.7cm"))
         + "\"/></style:page-layout></"
           "office:automatic-styles><office:master-styles><style:master-page "
           "style:name=\"Default\" "
@@ -155,19 +140,19 @@ OdfPackage::OdfPackage(Kind kind)
           "manifest:media-type=\"text/xml\"/></manifest:manifest>")
                                             .toUtf8();
 }
-QDomElement OdfPackage::body() const
+XmlElement OdfPackage::body() const
 {
     return child(child(xml.documentElement(), OFFICE, "body"), OFFICE, local(kind_));
 }
-QMap<QString, QByteArray> read_document_archive(const QString& path)
+Map<Text, Bytes> read_document_archive(const Text& path)
 {
     int error = 0;
     std::unique_ptr<zip_t, decltype(&zip_discard)> zip(
-        zip_open(QFile::encodeName(path).constData(), ZIP_RDONLY, &error), zip_discard);
+        zip_open(File::encodeName(path).constData(), ZIP_RDONLY, &error), zip_discard);
     if (!zip)
         fail("Cannot open document archive");
-    QMap<QString, QByteArray> contents;
-    quint64 total = 0;
+    Map<Text, Bytes> contents;
+    UInt64 total = 0;
     auto count = zip_get_num_entries(zip.get(), 0);
     if (count < 0 || count > 10000)
         fail("Too many document archive entries");
@@ -178,12 +163,12 @@ QMap<QString, QByteArray> read_document_archive(const QString& path)
             fail("Cannot inspect archive entry");
         if (info.encryption_method != ZIP_EM_NONE)
             fail("Encrypted documents are not supported yet");
-        QString name = QString::fromUtf8(info.name);
+        Text name = Text::fromUtf8(info.name);
         if (name.startsWith('/') || name.split('/').contains("..") || contents.contains(name))
             fail("Invalid or duplicate document archive name");
         if (info.size > 64 * 1024 * 1024 || (total += info.size) > 256 * 1024 * 1024)
             fail("Document exceeds the current import size limit");
-        QByteArray data;
+        Bytes data;
         data.resize(info.size);
         zip_file_t* file = zip_fopen_index(zip.get(), i, 0);
         if (!file)
@@ -203,15 +188,15 @@ QMap<QString, QByteArray> read_document_archive(const QString& path)
     }
     return contents;
 }
-QDomDocument read_document_xml(const QByteArray& data)
+XmlDocument read_document_xml(const Bytes& data)
 {
     validate_xml(data);
-    QDomDocument result;
-    if (!result.setContent(data, QDomDocument::ParseOption::UseNamespaceProcessing))
+    XmlDocument result;
+    if (!result.setContent(data, XmlDocument::ParseOption::UseNamespaceProcessing))
         fail("Malformed document XML");
     return result;
 }
-void OdfPackage::load(const QString& path)
+void OdfPackage::load(const Text& path)
 {
     auto contents = read_document_archive(path);
     if (contents.value("mimetype") != mime(kind_).toUtf8())
@@ -220,10 +205,10 @@ void OdfPackage::load(const QString& path)
     validate_xml(content);
     if (contents.contains("styles.xml"))
         validate_xml(contents.value("styles.xml"));
-    QDomDocument parsed;
-    auto result = parsed.setContent(content, QDomDocument::ParseOption::UseNamespaceProcessing);
+    XmlDocument parsed;
+    auto result = parsed.setContent(content, XmlDocument::ParseOption::UseNamespaceProcessing);
     if (!result)
-        fail("Malformed document XML: " + result.errorMessage);
+        fail("Malformed document XML");
     auto b = child(child(parsed.documentElement(), OFFICE, "body"), OFFICE, local(kind_));
     if (b.isNull())
         fail("Document has no expected content body");
@@ -231,15 +216,15 @@ void OdfPackage::load(const QString& path)
     entries_ = contents;
     read_only_ = false;
     for (const auto& name : entries_.keys())
-        if (name.startsWith("META-INF/") && name.contains("signature", Qt::CaseInsensitive))
+        if (name.startsWith("META-INF/") && name.contains("signature", CaseInsensitive))
             read_only_ = true;
 }
-void OdfPackage::set_entry(const QString& name, const QByteArray& data, const QString& mediaType)
+void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& mediaType)
 {
-    const QString MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
+    const Text MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
     auto manifest = read_document_xml(entries_.value("META-INF/manifest.xml"));
     auto root = manifest.documentElement();
-    auto entry = QDomElement();
+    auto entry = XmlElement();
     for (auto e : children(root, MANIFEST, "file-entry"))
         if (e.attributeNS(MANIFEST, "full-path") == name) entry = e;
     if (entry.isNull()) {
@@ -251,23 +236,23 @@ void OdfPackage::set_entry(const QString& name, const QByteArray& data, const QS
     entries_[name] = data;
     entries_["META-INF/manifest.xml"] = manifest.toByteArray(-1);
 }
-void OdfPackage::save(const QString& path)
+void OdfPackage::save(const Text& path)
 {
     if (read_only_)
         fail("Signed documents are read-only in this port; signatures must not be "
              "silently invalidated");
     auto contents = entries_;
     contents["content.xml"] = xml.toByteArray(-1);
-    QTemporaryFile temporary(QFileInfo(path).absolutePath() + "/.calligra-XXXXXX");
+    TempFile temporary(FileInfo(path).absolutePath() + "/.calligra-XXXXXX");
     if (!temporary.open())
         fail("Cannot create document in the selected directory");
-    QString temp = temporary.fileName();
+    Text temp = temporary.fileName();
     temporary.close();
     int error = 0;
-    zip_t* zip = zip_open(QFile::encodeName(temp).constData(), ZIP_CREATE | ZIP_TRUNCATE, &error);
+    zip_t* zip = zip_open(File::encodeName(temp).constData(), ZIP_CREATE | ZIP_TRUNCATE, &error);
     if (!zip)
         fail("Cannot create OpenDocument archive");
-    auto add = [&](const QString& name, const QByteArray& value, bool stored) {
+    auto add = [&](const Text& name, const Bytes& value, bool stored) {
         auto* source = zip_source_buffer(zip, value.constData(), value.size(), 0);
         if (!source)
             fail("Cannot prepare document archive entry");
@@ -292,14 +277,14 @@ void OdfPackage::save(const QString& path)
         zip_discard(zip);
         fail("Cannot finish document archive");
     }
-    QFile synced(temp);
-    if (!synced.open(QIODevice::ReadOnly) || fsync(synced.handle()))
+    File synced(temp);
+    if (!synced.open(IO::ReadOnly) || fsync(synced.handle()))
         fail("Cannot synchronize document");
     synced.close();
-    if (::rename(QFile::encodeName(temp).constData(), QFile::encodeName(path).constData()))
+    if (::rename(File::encodeName(temp).constData(), File::encodeName(path).constData()))
         fail("Cannot replace the selected document");
     int directory
-        = open(QFile::encodeName(QFileInfo(path).absolutePath()).constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        = open(File::encodeName(FileInfo(path).absolutePath()).constData(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
     if (directory >= 0) {
         fsync(directory);
         close(directory);

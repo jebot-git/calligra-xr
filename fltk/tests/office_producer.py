@@ -3,6 +3,7 @@
 """Independent producers: uv run --with python-docx --with python-pptx python ..."""
 from pathlib import Path
 import base64
+import argparse
 import subprocess
 import tempfile
 from docx import Document
@@ -10,6 +11,9 @@ from pptx import Presentation
 from pptx.util import Inches
 from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--test-bin-dir',type=Path,default=ROOT/'build-native/fltk')
+args = parser.parse_args()
 with tempfile.TemporaryDirectory() as directory:
     base = Path(directory)
     docx, pptx = base / 'producer.docx', base / 'producer.pptx'
@@ -34,5 +38,5 @@ with tempfile.TemporaryDirectory() as directory:
     slide.shapes.add_picture(str(jpeg), Inches(2), Inches(4), Inches(1), Inches(1))
     presentation.save(pptx)
     before = docx.read_bytes(), pptx.read_bytes()
-    subprocess.run([str(ROOT / 'build-fltk/fltk/calligra-fltk-office-test'), '--external', str(docx), str(pptx)], check=True)
+    subprocess.run([str(args.test_bin_dir / 'calligra-fltk-office-test'), '--external', str(docx), str(pptx)], check=True)
     assert before == (docx.read_bytes(), pptx.read_bytes())

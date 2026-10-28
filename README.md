@@ -6,7 +6,9 @@ Sheets and Stage**, with DomeD universal menus, appearance and Wayland/OpenGL
 integration. The upstream Qt/KDE frontend is an explicit opt-in.
 
 **This is the first working port milestone, not a complete office replacement.**
-Sheets reuses the upstream calculation engine. Words currently edits ODT
+The default FLTK applications now use Qt-free native C++ document/calculation
+engines and the installed system FLTK. Sheets has a smaller, explicitly
+documented function catalogue than the original Qt-based engine. Words currently edits ODT
 paragraph text; Stage currently edits/previews ODP text/image frames. The
 original Words pagination and complete Stage shape/animation models still need
 porting. Existing ODF package data is retained, but full layout fidelity and

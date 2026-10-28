@@ -1,29 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "workbook.h"
 #include "xlsx_import.h"
-#include <QCoreApplication>
-#include <QDateTime>
-#include <QFileInfo>
-#include <engine/CalculationSettings.h>
-#include <engine/CellBase.h>
-#include <engine/CellBaseStorage.h>
-#include <engine/DependencyManager.h>
-#include <engine/FunctionModuleRegistry.h>
-#include <engine/FunctionRepository.h>
-#include <engine/NamedAreaManager.h>
-#include <engine/OdfFormula.h>
-#include <engine/RecalcManager.h>
-#include <engine/SheetBase.h>
-#include <engine/Value.h>
-#include <engine/ValueConverter.h>
-#include <engine/calligra_sheets_limits.h>
+#include "native_formula.h"
 #include <mutex>
 #include <stdexcept>
-using namespace Calligra::Sheets;
+
 namespace DomeOffice {
 namespace {
     [[noreturn]] void fail(const char* error) { throw std::runtime_error(error); }
-    int repeated(const QDomElement& e, const QString& name)
+    int repeated(const XmlElement& e, const Text& name)
     {
         bool ok;
         auto v = e.attributeNS(TABLE, name, "1").toLongLong(&ok);
@@ -31,7 +16,7 @@ namespace {
             fail("Invalid repeated rows or cells");
         return int(v);
     }
-    QDomElement split(QDomElement e, int index, int count, const QString& repeat)
+    XmlElement split(XmlElement e, int index, int count, const Text& repeat)
     {
         auto parent = e.parentNode();
         if (index > 1) {
@@ -47,7 +32,7 @@ namespace {
         e.removeAttributeNS(TABLE, repeat);
         return e;
     }
-    QDomElement row_at(QDomElement table, int desired)
+    XmlElement row_at(XmlElement table, int desired)
     {
         auto rows = table.elementsByTagNameNS(TABLE, "table-row");
         int at = 1;
@@ -68,7 +53,7 @@ namespace {
         table.appendChild(e);
         return e;
     }
-    QDomElement cell_at(QDomElement row, int desired)
+    XmlElement cell_at(XmlElement row, int desired)
     {
         int at = 1;
         for (auto e : children(row, TABLE)) {
@@ -92,9 +77,9 @@ namespace {
         row.appendChild(e);
         return e;
     }
-    QString text_value(const QDomElement& cell)
+    Text text_value(const XmlElement& cell)
     {
-        QStringList parts;
+        TextList parts;
         for (auto p : children(cell, TEXT))
             if (p.localName() == "p" || p.localName() == "h")
                 parts << plain_text(p);
@@ -108,16 +93,11 @@ Workbook::Workbook()
 }
 void Workbook::initialize()
 {
-    static std::once_flag once;
-    std::call_once(once, [] {
-        FunctionRepository::self();
-        FunctionModuleRegistry::instance()->loadFunctionModules();
-    });
-    map_ = std::make_unique<MapBase>();
+    map_ = std::make_unique<SheetEngine>();
 }
 int Workbook::sheet_count() const { return map_->count(); }
-QString Workbook::sheet_name(int s) const { return map_->sheet(s)->sheetName(); }
-void Workbook::add_sheet(const QString& name)
+Text Workbook::sheet_name(int s) const { return map_->sheet(s)->sheetName(); }
+void Workbook::add_sheet(const Text& name)
 {
     if (read_only())
         fail("This document is read-only");
@@ -131,17 +111,16 @@ void Workbook::add_sheet(const QString& name)
 }
 int Workbook::rows(int s) const { return map_->sheet(s)->cellStorage()->rows(false); }
 int Workbook::columns(int s) const { return map_->sheet(s)->cellStorage()->columns(false); }
-QString Workbook::input(int s, int c, int r) const { return CellBase(map_->sheet(s), c, r).userInput(); }
-QString Workbook::display(int s, int c, int r) const
+Text Workbook::input(int s, int c, int r) const { return NativeCell(map_->sheet(s), c, r).userInput(); }
+Text Workbook::display(int s, int c, int r) const
 {
-    auto v = CellBase(map_->sheet(s), c, r).value();
-    return map_->converter()->asString(v).asString();
+    auto v = NativeCell(map_->sheet(s), c, r).value();
+    return v.display();
 }
 void Workbook::recalculate()
 {
-    map_->flushDamages();
-    map_->recalcManager()->recalcMap();
-    QCoreApplication::processEvents();
+    map_->recalculate();
+
 }
 void Workbook::validate_cell(int s, int c, int r)
 {
@@ -152,11 +131,11 @@ void Workbook::validate_cell(int s, int c, int r)
     // Validate covered-cell access before mutating the engine or document.
     cell_at(row_at(tables_.at(s), r), c);
 }
-void Workbook::set(int s, int c, int r, const QString& value)
+void Workbook::set(int s, int c, int r, const Text& value)
 {
     validate_cell(s, c, r);
-    CellBase(map_->sheet(s), c, r).parseUserInput(value);
-    auto key = QString("%1:%2:%3").arg(s).arg(c).arg(r);
+    NativeCell(map_->sheet(s), c, r).parseUserInput(value);
+    auto key = Text("%1:%2:%3").arg(s).arg(c).arg(r);
     changed_[key] = value;
     if (value.startsWith('='))
         formulas_.insert(key);
@@ -164,10 +143,10 @@ void Workbook::set(int s, int c, int r, const QString& value)
         formulas_.remove(key);
     recalculate();
 }
-void Workbook::load(const QString& path)
+void Workbook::load(const Text& path)
 {
     OdfPackage candidate(Kind::Sheets);
-    bool xlsx = QFileInfo(path).suffix().compare("xlsx", Qt::CaseInsensitive) == 0;
+    bool xlsx = FileInfo(path).suffix().compare("xlsx", CaseInsensitive) == 0;
     if (xlsx)
         candidate = import_xlsx(path);
     else
@@ -185,7 +164,7 @@ void Workbook::load_package(OdfPackage candidate)
     changed_.clear();
     formulas_.clear();
     protected_ = false;
-    map_->setLoading(true);
+
     // Make all sheet names available before loading cross-sheet references.
     for (auto table : tables) {
         if (table.attributeNS(TABLE, "protected") == "true")
@@ -197,23 +176,23 @@ void Workbook::load_package(OdfPackage candidate)
     }
     int loaded = 0;
     for (int s = 0; s < tables.size(); ++s) {
-        qint64 row = 1;
+        Int64 row = 1;
         auto list = tables[s].elementsByTagNameNS(TABLE, "table-row");
         for (int i = 0; i < list.size(); ++i) {
             auto re = list.at(i).toElement();
             int nr = repeated(re, "number-rows-repeated");
-            qint64 col = 1;
+            Int64 col = 1;
             for (auto ce : children(re, TABLE)) {
                 if (ce.localName() != "table-cell" && ce.localName() != "covered-table-cell")
                     continue;
                 int nc = repeated(ce, "number-columns-repeated");
-                QString formula = ce.attributeNS(TABLE, "formula");
-                QString value;
+                Text formula = ce.attributeNS(TABLE, "formula");
+                Text value;
                 auto type = ce.attributeNS(OFFICE, "value-type");
                 if (!formula.isEmpty()) {
                     int colon = formula.indexOf(":=");
-                    QString prefix = colon >= 0 ? formula.left(colon + 1) : QString();
-                    value = Odf::decodeFormula(colon >= 0 ? formula.mid(colon + 1) : formula, nullptr, prefix);
+                    Text prefix = colon >= 0 ? formula.left(colon + 1) : Text();
+                    value = Formula::decode(formula);
                 } else if (type == "float" || type == "currency" || type == "percentage")
                     value = ce.attributeNS(OFFICE, "value");
                 else if (type == "boolean")
@@ -225,18 +204,18 @@ void Workbook::load_package(OdfPackage candidate)
                 else
                     value = text_value(ce);
                 if (!value.isEmpty()) {
-                    if (qint64(nr) * nc + loaded > 1000000 || qint64(row) + nr - 1 > KS_rowMax
-                        || qint64(col) + nc - 1 > KS_colMax)
+                    if (Int64(nr) * nc + loaded > 1000000 || Int64(row) + nr - 1 > KS_rowMax
+                        || Int64(col) + nc - 1 > KS_colMax)
                         fail("Worksheet exceeds the current import cell limit");
                     for (int rr = 0; rr < nr; ++rr)
                         for (int cc = 0; cc < nc; ++cc) {
-                            auto cell = CellBase(map_->sheet(s), col + cc, row + rr);
+                            auto cell = NativeCell(map_->sheet(s), col + cc, row + rr);
                             if (formula.isEmpty() && type == "string") {
-                                cell.setCellValue(Value(value));
+                                cell.setCellValue(NativeValue(value));
                             } else
                                 cell.parseUserInput(value);
                             if (!formula.isEmpty())
-                                formulas_.insert(QString("%1:%2:%3").arg(s).arg(col + cc).arg(row + rr));
+                                formulas_.insert(Text("%1:%2:%3").arg(s).arg(col + cc).arg(row + rr));
                             ++loaded;
                         }
                 }
@@ -250,18 +229,17 @@ void Workbook::load_package(OdfPackage candidate)
     auto ranges = candidate.body().elementsByTagNameNS(TABLE, "named-range");
     for (int i = 0; i < ranges.size(); ++i) {
         auto e = ranges.at(i).toElement();
-        auto ref = Odf::loadRegion(e.attributeNS(TABLE, "cell-range-address"));
-        map_->namedAreaManager()->insert(map_->regionFromName(ref), e.attributeNS(TABLE, "name"));
+        auto ref = Formula::load_region(e.attributeNS(TABLE, "cell-range-address"));
+        map_->addNamedRange(ref, e.attributeNS(TABLE, "name"));
     }
-    map_->setLoading(false);
-    map_->dependencyManager()->updateAllDependencies(map_.get());
+
     package_ = candidate;
     tables_ = tables;
     recalculate();
 }
-void Workbook::save(const QString& path)
+void Workbook::save(const Text& path)
 {
-    if (QFileInfo(path).suffix().compare("ods", Qt::CaseInsensitive) != 0)
+    if (FileInfo(path).suffix().compare("ods", CaseInsensitive) != 0)
         fail("Sheets saves OpenDocument spreadsheets (.ods); choose an ODS "
              "filename");
     if (read_only())
@@ -270,14 +248,14 @@ void Workbook::save(const QString& path)
     for (const auto& key : formulas_) {
         auto indexes = key.split(':');
         int s = indexes[0].toInt(), c = indexes[1].toInt(), r = indexes[2].toInt();
-        if (!CellBase(map_->sheet(s), c, r).value().isError())
+        if (!NativeCell(map_->sheet(s), c, r).value().isError())
             values[key] = input(s, c, r);
     }
     for (auto it = values.cbegin(); it != values.cend(); ++it) {
         auto indexes = it.key().split(':');
         int s = indexes[0].toInt(), c = indexes[1].toInt(), r = indexes[2].toInt();
         auto element = cell_at(row_at(tables_.at(s), r), c);
-        auto value = CellBase(map_->sheet(s), c, r).value();
+        auto value = NativeCell(map_->sheet(s), c, r).value();
         for (auto key : { "value-type", "value", "string-value", "boolean-value", "date-value", "time-value" })
             element.removeAttributeNS(OFFICE, key);
         element.removeAttributeNS(TABLE, "formula");
@@ -286,12 +264,16 @@ void Workbook::save(const QString& path)
             if (p.localName() == "p" || p.localName() == "h")
                 element.removeChild(p);
         if (it.value().startsWith('='))
-            element.setAttributeNS(TABLE, "table:formula", "of:" + Odf::encodeFormula(it.value()));
-        QString text = display(s, c, r);
-        if (value.isNumber()) {
+            element.setAttributeNS(TABLE, "table:formula", "of:" + Formula::encode(it.value()));
+        Text text = display(s, c, r);
+        if (value.isNumber() && value.format != NativeValue::General) {
+            bool date = value.format == NativeValue::Date;
+            element.setAttributeNS(OFFICE, "office:value-type", date ? "date" : "time");
+            element.setAttributeNS(OFFICE, date ? "office:date-value" : "office:time-value", value.string);
+        } else if (value.isNumber()) {
             element.setAttributeNS(OFFICE, "office:value-type", "float");
             element.setAttributeNS(
-                OFFICE, "office:value", QString::number(double(numToDouble(value.asFloat())), 'g', 17));
+                OFFICE, "office:value", Text::number(double(value.asFloat()), 'g', 17));
         } else if (value.isBoolean()) {
             element.setAttributeNS(OFFICE, "office:value-type", "boolean");
             element.setAttributeNS(OFFICE, "office:boolean-value", value.asBoolean() ? "true" : "false");

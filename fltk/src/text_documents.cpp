@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
 #include "ooxml_text_import.h"
-#include <QFileInfo>
-#include <QRegularExpression>
 #include <algorithm>
 #include <stdexcept>
 namespace DomeOffice {
 namespace {
     [[noreturn]] void fail(const char* message) { throw std::runtime_error(message); }
-    QList<QDomElement> paragraphs(const QDomElement& parent)
+    List<XmlElement> paragraphs(const XmlElement& parent)
     {
-        QList<QDomElement> result;
-        auto walk = [&](auto&& self, const QDomElement& e) -> void {
+        List<XmlElement> result;
+        auto walk = [&](auto&& self, const XmlElement& e) -> void {
             for (auto n = e.firstChild(); !n.isNull(); n = n.nextSibling())
                 if (n.isElement()) {
                     auto p = n.toElement();
@@ -24,24 +22,24 @@ namespace {
         walk(walk, parent);
         return result;
     }
-    bool inline_supported(const QDomElement& parent)
+    bool inline_supported(const XmlElement& parent)
     {
         for (auto n = parent.firstChild(); !n.isNull(); n = n.nextSibling())
             if (n.isElement()) {
                 auto e = n.toElement();
                 if (e.namespaceURI() != TEXT
-                    || !QStringList { "span", "a", "s", "tab", "line-break" }.contains(e.localName())
+                    || !TextList { "span", "a", "s", "tab", "line-break" }.contains(e.localName())
                     || !inline_supported(e))
                     return false;
             }
         return true;
     }
     // Change only the affected leaf text, retaining spans, links and their styling.
-    void replace_text(QDomElement paragraph, const QString& text)
+    void replace_text(XmlElement paragraph, const Text& text)
     {
         if (!inline_supported(paragraph))
             fail("This paragraph contains an embedded object that cannot be edited yet");
-        QString before = plain_text(paragraph);
+        Text before = plain_text(paragraph);
         if (before == text)
             return;
         int prefix = 0, suffix = 0;
@@ -51,11 +49,11 @@ namespace {
             && before[before.size() - 1 - suffix] == text[text.size() - 1 - suffix])
             ++suffix;
         struct Leaf {
-            QDomNode node;
-            QString value;
+            XmlNode node;
+            Text value;
         };
-        QList<Leaf> leaves;
-        auto collect = [&](auto&& self, const QDomElement& e) -> void {
+        List<Leaf> leaves;
+        auto collect = [&](auto&& self, const XmlElement& e) -> void {
             for (auto n = e.firstChild(); !n.isNull(); n = n.nextSibling()) {
                 if (n.isText())
                     leaves.push_back({ n, n.nodeValue() });
@@ -76,14 +74,14 @@ namespace {
             set_plain_text(paragraph, text);
             return;
         }
-        QString inserted = text.mid(prefix, text.size() - prefix - suffix);
+        Text inserted = text.mid(prefix, text.size() - prefix - suffix);
         bool used = false;
         int offset = 0;
         for (auto leaf : leaves) {
             int n = leaf.value.size();
             int keepBefore = std::clamp(prefix - offset, 0, n);
             int keepAfter = std::clamp(int(before.size()) - suffix - offset, 0, n);
-            QString value = leaf.value.left(keepBefore);
+            Text value = leaf.value.left(keepBefore);
             if (!used && offset <= prefix && offset + n >= prefix) {
                 value += inserted;
                 used = true;
@@ -100,10 +98,10 @@ namespace {
             offset += n;
         }
     }
-    void set_paragraphs(QDomElement parent, const QString& text, bool allowStructural)
+    void set_paragraphs(XmlElement parent, const Text& text, bool allowStructural)
     {
         auto existing = paragraphs(parent);
-        QStringList parts = text.split('\n');
+        TextList parts = text.split('\n');
         if (existing.size() != parts.size() && !allowStructural)
             fail("Adding or removing paragraphs in this structure is not supported yet");
         // Validate before changing any node.
@@ -120,16 +118,16 @@ namespace {
             parent.appendChild(p);
         }
     }
-    QString joined(const QDomElement& parent)
+    Text joined(const XmlElement& parent)
     {
-        QStringList parts;
+        TextList parts;
         for (auto p : paragraphs(parent))
             parts << plain_text(p);
         return parts.join('\n');
     }
-    double length(const QString& text, double fallback)
+    double length(const Text& text, double fallback)
     {
-        static QRegularExpression re("^(-?[0-9]+(?:\\.[0-9]+)?)(cm|mm|in|pt|px)$");
+        static Regex re("^(-?[0-9]+(?:\\.[0-9]+)?)(cm|mm|in|pt|px)$");
         auto m = re.match(text);
         if (!m.hasMatch())
             return fallback;
@@ -140,31 +138,31 @@ namespace {
                                              : 2.54 / 96;
         return m.captured(1).toDouble() * scale;
     }
-    QList<QDomElement> frames(const QDomElement& page) { return children(page, DRAW, "frame"); }
+    List<XmlElement> frames(const XmlElement& page) { return children(page, DRAW, "frame"); }
 }
 TextDocument::TextDocument()
 {
     auto p = package_.xml.createElementNS(TEXT, "text:p");
     package_.body().appendChild(p);
 }
-void TextDocument::load(const QString& p)
+void TextDocument::load(const Text& p)
 {
-    bool office = QFileInfo(p).suffix().compare("docx", Qt::CaseInsensitive) == 0;
+    bool office = FileInfo(p).suffix().compare("docx", CaseInsensitive) == 0;
     OdfPackage candidate(Kind::Words);
     if (office) candidate = import_docx(p);
     else candidate.load(p);
     package_ = std::move(candidate);
     imported_office_ = office;
 }
-void TextDocument::save(const QString& p)
+void TextDocument::save(const Text& p)
 {
-    if (QFileInfo(p).suffix().compare("odt", Qt::CaseInsensitive) != 0)
+    if (FileInfo(p).suffix().compare("odt", CaseInsensitive) != 0)
         fail("Words saves only ODT; choose an .odt destination");
     package_.save(p);
     imported_office_ = false;
 }
-QString TextDocument::text() const { return joined(package_.body()); }
-void TextDocument::set_text(const QString& value)
+Text TextDocument::text() const { return joined(package_.body()); }
+void TextDocument::set_text(const Text& value)
 {
     if (read_only())
         fail("This document is read-only");
@@ -182,9 +180,9 @@ void TextDocument::set_text(const QString& value)
 }
 Presentation::Presentation() { add_slide("Title"); }
 int Presentation::count() const { return children(package_.body(), DRAW, "page").size(); }
-void Presentation::load(const QString& p)
+void Presentation::load(const Text& p)
 {
-    bool office = QFileInfo(p).suffix().compare("pptx", Qt::CaseInsensitive) == 0;
+    bool office = FileInfo(p).suffix().compare("pptx", CaseInsensitive) == 0;
     OdfPackage candidate(Kind::Stage);
     if (office) candidate = import_pptx(p);
     else candidate.load(p);
@@ -193,9 +191,9 @@ void Presentation::load(const QString& p)
     package_ = std::move(candidate);
     imported_office_ = office;
 }
-void Presentation::save(const QString& p)
+void Presentation::save(const Text& p)
 {
-    if (QFileInfo(p).suffix().compare("odp", Qt::CaseInsensitive) != 0)
+    if (FileInfo(p).suffix().compare("odp", CaseInsensitive) != 0)
         fail("Stage saves only ODP; choose an .odp destination");
     package_.save(p);
     imported_office_ = false;
@@ -207,15 +205,15 @@ Slide Presentation::slide(int index) const
         fail("Invalid slide");
     auto page = pages[index];
     Slide result;
-    result.name = page.attributeNS(DRAW, "name", QString("Slide %1").arg(index + 1));
+    result.name = page.attributeNS(DRAW, "name", Text("Slide %1").arg(index + 1));
     for (auto node = page.firstChild(); !node.isNull(); node = node.nextSibling())
         if (node.isElement() && node.toElement().namespaceURI() == DRAW && node.toElement().localName() != "frame")
             ++result.unsupported;
     auto styles = package_.entry("styles.xml");
     if (!styles.isEmpty() && !styles.toUpper().contains("<!DOCTYPE")) {
-        QDomDocument doc;
-        if (doc.setContent(styles, QDomDocument::ParseOption::UseNamespaceProcessing)) {
-            const QString STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
+        XmlDocument doc;
+        if (doc.setContent(styles, XmlDocument::ParseOption::UseNamespaceProcessing)) {
+            const Text STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
                           FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
             auto properties = doc.elementsByTagNameNS(STYLE, "page-layout-properties");
             if (!properties.isEmpty()) {
@@ -239,13 +237,13 @@ Slide Presentation::slide(int index) const
     }
     return result;
 }
-void Presentation::add_slide(const QString& title)
+void Presentation::add_slide(const Text& title)
 {
     if (read_only())
         fail("This presentation is read-only");
     auto doc = package_.xml;
     auto page = doc.createElementNS(DRAW, "draw:page");
-    page.setAttributeNS(DRAW, "draw:name", QString("Slide %1").arg(count() + 1));
+    page.setAttributeNS(DRAW, "draw:name", Text("Slide %1").arg(count() + 1));
     page.setAttributeNS(DRAW, "draw:master-page-name", "Default");
     for (int i = 0; i < 2; ++i) {
         auto frame = doc.createElementNS(DRAW, "draw:frame");
@@ -255,7 +253,7 @@ void Presentation::add_slide(const QString& title)
         frame.setAttributeNS(SVG, "svg:height", i == 0 ? "3cm" : "8cm");
         auto box = doc.createElementNS(DRAW, "draw:text-box");
         auto p = doc.createElementNS(TEXT, "text:p");
-        set_plain_text(p, i == 0 ? title : QString());
+        set_plain_text(p, i == 0 ? title : Text());
         box.appendChild(p);
         frame.appendChild(box);
         page.appendChild(frame);
@@ -271,7 +269,7 @@ void Presentation::remove_slide(int index)
         fail("Keep at least one slide");
     package_.body().removeChild(pages.at(index));
 }
-void Presentation::set_box_text(int slideIndex, int boxIndex, const QString& text)
+void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text)
 {
     if (read_only())
         fail("This presentation is read-only");

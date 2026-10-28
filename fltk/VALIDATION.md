@@ -1,3 +1,23 @@
+# Native engine validation — 2026-10-28
+
+The Qt-free Release build passes the three original document CTests with their
+assertions retained, plus the native calculation regression test. Actual
+Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
+for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
+
+The historical Qt-based Release build also passed the original tests before
+porting. Native tests add range aggregation, mathematical/text/financial
+functions, lazy branches, error propagation and cycles. Unsupported functions
+remain an explicit limitation; tests do not establish the original complete
+formula catalogue. Additional installed/Wayland results are recorded in the
+local native-engine artifacts and installation receipt.
+
+The following earlier milestone results describe the old baseline and are
+retained for provenance; references there to upstream calculation reuse or
+QtCore/XML no longer describe the default build.
+
+---
+
 # Validation — 2026-10-25
 
 Upstream baseline: `edb7aee19cf4c38b55389149ea052982d7a6d41e`.

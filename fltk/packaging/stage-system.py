@@ -20,17 +20,26 @@ APPS = {'words': ('Words', 'Word processor', 'WordProcessor', 'text'),
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stage', type=Path, required=True)
+    parser.add_argument('--build', type=Path, default=ROOT/'build-native')
     args = parser.parse_args(); stage = args.stage.resolve()
     if stage.exists(): parser.error('Choose a new staging directory')
-    cache = (ROOT / 'build-fltk/CMakeCache.txt').read_text()
+    build = args.build.resolve()
+    cache = (build / 'CMakeCache.txt').read_text()
     if 'CMAKE_BUILD_TYPE:STRING=Release' not in cache: raise SystemExit('Use a Release build')
     stage.mkdir(parents=True)
-    subprocess.run(['cmake', '--install', str(ROOT / 'build-fltk')],
+    subprocess.run(['cmake', '--install', str(build)],
                    env={**os.environ, 'DESTDIR': str(stage)}, check=True)
     for app, (name, generic, category, mime) in APPS.items():
         wrapper = stage / ('usr/local/bin/calligra-' + app + '-fltk')
         wrapper.parent.mkdir(parents=True, exist_ok=True)
         wrapper.write_text('#!/bin/sh\nset -eu\n'
+            # Keep the installed system FLTK when the desktop exports its optional SDK.
+            'fltk_native_path=\"\"\nfltk_saved_ifs=$IFS\nIFS=:\n'
+            'for fltk_dir in ${LD_LIBRARY_PATH-}; do\n'
+            '  case \"$fltk_dir\" in /opt/fltk-vr/toolkit/lib*|\"$HOME/.local/lib/domed/fltk\"*) ;;\n'
+            '    *) fltk_native_path=${fltk_native_path:+$fltk_native_path:}$fltk_dir ;; esac\n'
+            'done\nIFS=$fltk_saved_ifs\n'
+            'if [ -n \"$fltk_native_path\" ]; then export LD_LIBRARY_PATH=\"$fltk_native_path\"; else unset LD_LIBRARY_PATH; fi\n'
             'export FLTK_BACKEND="${FLTK_BACKEND:-wayland}"\n'
             'export XDG_DATA_DIRS="/opt/calligra-fltk/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"\n'
             'exec /opt/calligra-fltk/bin/calligra-' + app + '-fltk "$@"\n')
@@ -50,9 +59,9 @@ def main():
         executable = stage / PREFIX / 'bin' / ('calligra-' + app + '-fltk')
         # Check installed paths using only the stage's own libraries and system backends.
         env = {**os.environ, 'LD_LIBRARY_PATH': str(stage / PREFIX / 'lib64') + ':' +
-               str(stage / PREFIX / 'lib') + ':/opt/fltk-vr/toolkit/lib'}
+               str(stage / PREFIX / 'lib')}
         links = subprocess.check_output(['ldd', str(executable)], env=env, text=True)
-        if 'not found' in links or 'libQt6Widgets' in links or 'libQt6Gui' in links:
+        if 'not found' in links or 'libQt' in links or 'libgtk-' in links:
             raise SystemExit('Unexpected runtime linkage:\n' + links)
         subprocess.run([str(executable), '--help'], env=env, check=True)
     manifest = []

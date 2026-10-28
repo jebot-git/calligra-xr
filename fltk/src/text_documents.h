@@ -5,10 +5,10 @@ namespace DomeOffice {
 class TextDocument {
 public:
     TextDocument();
-    void load(const QString&);
-    void save(const QString&);
-    QString text() const;
-    void set_text(const QString&);
+    void load(const Text&);
+    void save(const Text&);
+    Text text() const;
+    void set_text(const Text&);
     bool imported_office() const { return imported_office_; }
     bool read_only() const { return package_.read_only(); }
 
@@ -18,25 +18,25 @@ private:
 };
 struct SlideBox {
     double x = 1, y = 1, width = 24, height = 3;
-    QString text, image;
+    Text text, image;
 };
 struct Slide {
-    QString name;
-    QList<SlideBox> boxes;
+    Text name;
+    List<SlideBox> boxes;
     double width = 28, height = 15.75;
     int unsupported = 0;
 };
 class Presentation {
 public:
     Presentation();
-    void load(const QString&);
-    void save(const QString&);
+    void load(const Text&);
+    void save(const Text&);
     int count() const;
     Slide slide(int index) const;
-    void add_slide(const QString& title = "New slide");
+    void add_slide(const Text& title = "New slide");
     void remove_slide(int index);
-    void set_box_text(int slide, int box, const QString& text);
-    QByteArray image(const QString& path) const { return package_.entry(path); }
+    void set_box_text(int slide, int box, const Text& text);
+    Bytes image(const Text& path) const { return package_.entry(path); }
     bool imported_office() const { return imported_office_; }
     bool read_only() const { return package_.read_only(); }
 

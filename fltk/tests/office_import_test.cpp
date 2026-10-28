@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "ooxml_text_import.h"
 #include "text_documents.h"
-#include <QCoreApplication>
-#include <QFile>
-#include <QTemporaryDir>
 #include <cassert>
 #include <cmath>
 #include <iostream>
 #include <zip.h>
 using namespace DomeOffice;
 namespace {
-void write_zip(const QString& path, const QMap<QString, QByteArray>& entries)
+void write_zip(const Text& path, const Map<Text, Bytes>& entries)
 {
     int error;
-    auto z = zip_open(QFile::encodeName(path).constData(), ZIP_CREATE | ZIP_TRUNCATE, &error);
+    auto z = zip_open(File::encodeName(path).constData(), ZIP_CREATE | ZIP_TRUNCATE, &error);
     assert(z);
     for (auto i = entries.cbegin(); i != entries.cend(); ++i) {
         auto source = zip_source_buffer(z, i.value().data(), i.value().size(), 0);
@@ -21,10 +18,10 @@ void write_zip(const QString& path, const QMap<QString, QByteArray>& entries)
     }
     assert(zip_close(z) == 0);
 }
-QByteArray bytes(const QString& path)
+Bytes bytes(const Text& path)
 {
-    QFile file(path);
-    assert(file.open(QIODevice::ReadOnly));
+    File file(path);
+    assert(file.open(IO::ReadOnly));
     return file.readAll();
 }
 template <class F> void rejects(F f)
@@ -37,7 +34,7 @@ template <class F> void rejects(F f)
     }
     assert(rejected);
 }
-QMap<QString, QByteArray> package(const QByteArray& part, const QByteArray& type)
+Map<Text, Bytes> package(const Bytes& part, const Bytes& type)
 {
     return { { "[Content_Types].xml",
                  "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Override PartName=\"/"
@@ -49,7 +46,7 @@ QMap<QString, QByteArray> package(const QByteArray& part, const QByteArray& type
             "Target=\""
                 + part + "\"/></Relationships>" } };
 }
-QMap<QString, QByteArray> strict(QMap<QString, QByteArray> files)
+Map<Text, Bytes> strict(Map<Text, Bytes> files)
 {
     for (auto i = files.begin(); i != files.end(); ++i) {
         i.value().replace("http://schemas.openxmlformats.org/wordprocessingml/2006/main",
@@ -66,13 +63,13 @@ QMap<QString, QByteArray> strict(QMap<QString, QByteArray> files)
 }
 int main(int argc, char** argv)
 {
-    QCoreApplication app(argc, argv);
-    QTemporaryDir temp;
+
+    TempDir temp;
     assert(temp.isValid());
-    if (argc == 4 && QString::fromUtf8(argv[1]) == "--external") {
+    if (argc == 4 && Text::fromUtf8(argv[1]) == "--external") {
         TextDocument word;
-        word.load(QString::fromUtf8(argv[2]));
-        assert(word.text().contains(QString::fromUtf8("Český 日本語")));
+        word.load(Text::fromUtf8(argv[2]));
+        assert(word.text().contains(Text::fromUtf8("Český 日本語")));
         assert(word.text().contains("Table cell"));
         word.set_text(word.text().replace("Table cell", "Edited cell"));
         word.save(temp.path() + "/external.odt");
@@ -80,12 +77,12 @@ int main(int argc, char** argv)
         again.load(temp.path() + "/external.odt");
         assert(again.text().contains("Edited cell"));
         Presentation slides;
-        slides.load(QString::fromUtf8(argv[3]));
+        slides.load(Text::fromUtf8(argv[3]));
         assert(slides.count() == 2);
-        assert(slides.slide(0).boxes[0].text == QString::fromUtf8("Český 日本語"));
+        assert(slides.slide(0).boxes[0].text == Text::fromUtf8("Český 日本語"));
         assert(slides.slide(0).boxes.size() == 2);
         assert(std::abs(slides.slide(1).boxes[0].width - 21.59) < .001);
-        assert(slides.image(slides.slide(1).boxes[2].image).startsWith(QByteArray::fromHex("ffd8ff")));
+        assert(slides.image(slides.slide(1).boxes[2].image).startsWith(Bytes::fromHex("ffd8ff")));
         assert(!slides.image(slides.slide(0).boxes[1].image).isEmpty());
         assert(std::abs(slides.slide(0).width - 25.4) < .001);
         slides.set_box_text(0, 0, "Edited title");
@@ -100,7 +97,7 @@ int main(int argc, char** argv)
     auto docx = temp.path() + "/source.DOCX", pptx = temp.path() + "/source.pptx";
     auto odt = temp.path() + "/converted.odt", odp = temp.path() + "/converted.odp";
     auto wordFiles = package("word/main.xml", "wordprocessingml.document.main+xml");
-    wordFiles["word/main.xml"] = QString::fromUtf8(
+    wordFiles["word/main.xml"] = Text::fromUtf8(
         R"(<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t xml:space="preserve">Český 日本語  </w:t><w:tab/><w:t>tab</w:t><w:br/><w:t>line</w:t></w:r><w:del><w:r><w:delText>deleted</w:delText></w:r></w:del><w:ins><w:r><w:t> inserted</w:t></w:r></w:ins><w:hyperlink><w:r><w:t> link</w:t></w:r></w:hyperlink></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl><w:p/><w:sdt><w:sdtContent><w:p><w:r><w:t>Content control</w:t></w:r></w:p></w:sdtContent></w:sdt></w:body></w:document>)")
                                      .toUtf8();
     write_zip(docx, wordFiles);
@@ -108,7 +105,7 @@ int main(int argc, char** argv)
     TextDocument word;
     word.load(docx);
     assert(word.imported_office());
-    assert(word.text() == QString::fromUtf8("Český 日本語  \ttab\nline inserted link\nCell\n\nContent control"));
+    assert(word.text() == Text::fromUtf8("Český 日本語  \ttab\nline inserted link\nCell\n\nContent control"));
     // Committing an unchanged editor must retain mixed inline/paragraph breaks.
     word.set_text(word.text());
     rejects([&] { word.save(docx); });
@@ -143,12 +140,12 @@ int main(int argc, char** argv)
         = R"(<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="first" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/one.xml"/><Relationship Id="second" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="/deck/slides/two.xml"/></Relationships>)";
     slideFiles["deck/slides/one.xml"]
         = R"(<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"><p:cSld><p:spTree/></p:cSld></p:sld>)";
-    slideFiles["deck/slides/two.xml"] = QString::fromUtf8(
+    slideFiles["deck/slides/two.xml"] = Text::fromUtf8(
         R"(<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><p:cSld><p:spTree><p:sp><p:spPr><a:xfrm><a:off x="-360000" y="720000"/><a:ext cx="3600000" cy="1080000"/></a:xfrm></p:spPr><p:txBody><a:bodyPr/><a:p><a:r><a:t>Český 日本語</a:t></a:r><a:br/><a:fld><a:t>field</a:t></a:fld></a:p><a:p><a:r><a:t>Second paragraph</a:t></a:r></a:p></p:txBody></p:sp><p:pic><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="360000" cy="720000"/></a:xfrm></p:spPr><p:blipFill><a:blip r:embed="image"/></p:blipFill></p:pic><p:pic><p:blipFill><a:blip r:link="external"/></p:blipFill></p:pic></p:spTree></p:cSld></p:sld>)")
                                             .toUtf8();
     slideFiles["deck/slides/_rels/two.xml.rels"]
         = R"(<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="image" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/pic.png"/><Relationship Id="external" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="https://invalid.example/no-network" TargetMode="External"/></Relationships>)";
-    const auto png = QByteArray::fromBase64(
+    const auto png = Bytes::fromBase64(
         "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGNQaHig0PCAAUIBACcOBgEpwnGPAAAAAElFTkSuQmCC");
     slideFiles["deck/media/pic.png"] = png;
     write_zip(pptx, slideFiles);
@@ -158,7 +155,7 @@ int main(int argc, char** argv)
     assert(stage.imported_office() && stage.count() == 2);
     auto s = stage.slide(0);
     assert(s.boxes.size() == 2 && stage.slide(1).boxes.isEmpty());
-    assert(s.boxes[0].text == QString::fromUtf8("Český 日本語\nfield\nSecond paragraph"));
+    assert(s.boxes[0].text == Text::fromUtf8("Český 日本語\nfield\nSecond paragraph"));
     assert(std::abs(s.width - 25.4) < .00001 && std::abs(s.height - 14.2875) < .00001);
     assert(s.boxes[0].x == -1 && s.boxes[0].y == 2 && s.boxes[0].width == 10);
     assert(stage.image(s.boxes[1].image) == png);
@@ -177,9 +174,9 @@ int main(int argc, char** argv)
     write_zip(pptx, strict(slideFiles));
     stage.load(pptx);
     assert(stage.slide(0).boxes[0].text == s.boxes[0].text);
-    if (argc == 3 && QString::fromUtf8(argv[1]) == "--fixtures") {
-        write_zip(QString::fromUtf8(argv[2]) + "/import.docx", flat);
-        write_zip(QString::fromUtf8(argv[2]) + "/import.pptx", slideFiles);
+    if (argc == 3 && Text::fromUtf8(argv[1]) == "--fixtures") {
+        write_zip(Text::fromUtf8(argv[2]) + "/import.docx", flat);
+        write_zip(Text::fromUtf8(argv[2]) + "/import.pptx", slideFiles);
     }
     // Failures must leave the live document intact.
     auto prior = stage.slide(0).boxes[0].text;
