@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus eleven native calculation/matrix/text/scene/history regression suites. Actual
+assertions retained, plus twelve native calculation/matrix/text/scene/history/handle regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -26,6 +26,21 @@ paragraph-count edits are rejected before any affected paragraph is changed.
 The keyboard flow exercises the editor bindings, canvas-focus shortcuts,
 universal-menu slide deletion, cross-frame undo, Ctrl+Y redo and saved-state
 restoration, then independently checks the saved ODP text and geometry.
+
+The native adjustment suite covers modern and legacy Cartesian/polar handles,
+clockwise degree angles, radius limits and defaults, one-sided/coupled ranges,
+fixed coordinates, mirrors, switched directions, offset view boxes, producer
+metadata and legacy polar ordering, grouped/nontext shapes, round-trip XML,
+save/undo/redo, canceled drags preserving redo, rejected geometry updates,
+invalid parameters and signed-document protection. `handles_producer.py`
+independently produces an ODF 1.4 handle with odfpy. The keyboard/pointer flow
+drags Cartesian, mirrored polar and grouped legacy handles, tests bounds and
+Escape, mixes geometry with text undo, and independently inspects saved
+modifiers, source geometry, styles and an opaque archive entry. Semantics are
+based on [ODF 1.4 Part 3](https://docs.oasis-open.org/office/OpenDocument/part3-schema/OpenDocument-v1.4-os-part3-schema.html)
+and the retained upstream EnhancedPathHandle/KoOdfWorkaround implementation.
+The 19 upstream flowchart stencils contain 29 editable handles. Actuating them
+in both directions produces 56 bounded geometry changes with valid paths.
 
 The XLSX array-import regression now covers numeric/Boolean/Unicode/error
 results, single-cell array evaluation, dependencies, missing and stale result

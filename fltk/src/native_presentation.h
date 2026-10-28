@@ -37,8 +37,22 @@ struct SceneContour {
   bool fill = true, stroke = true;
 };
 struct ScenePath;
+struct SceneHandle {
+  ScenePoint
+      position; // Shape-local coordinates, including geometry/handle mirrors.
+  bool editable = false;
+};
 struct SceneShape {
-  enum Kind { Frame, Rectangle, Ellipse, Polygon, Polyline, Line, Path, Custom } kind = Frame;
+  enum Kind {
+    Frame,
+    Rectangle,
+    Ellipse,
+    Polygon,
+    Polyline,
+    Line,
+    Path,
+    Custom
+  } kind = Frame;
   Text name, text, image;
   SceneTransform transform;
   ScenePaint paint;
@@ -49,6 +63,8 @@ struct SceneShape {
   std::shared_ptr<const ScenePath> path;
   SceneTransform path_map;
   std::optional<SceneRect> text_area;
+  std::vector<SceneHandle> handles;
+  XmlElement source; // Own-slide source; masters cannot be edited.
   int editor_index = -1;
   bool master = false;
   SceneRect bounds() const;

@@ -32,6 +32,7 @@ struct Slide {
 };
 struct PresentationPosition {
     int slide = 0, box = 0;
+    int shape = -1;
     bool operator==(const PresentationPosition&) const = default;
 };
 class Presentation {
@@ -44,11 +45,15 @@ public:
     const SlideScene& scene(int index) const;
     uint64_t revision() const { return revision_; }
     void add_slide(const Text& title = "New slide", PresentationPosition previous = {});
-    void remove_slide(int index, int selectedBox = 0);
+    void remove_slide(int index, int selectedBox = 0, int selectedShape = -1);
     void set_box_text(int slide, int box, const Text& text, bool merge = false);
     void end_text_edit() { merge_text_ = false; }
-    bool can_undo() const { return history_index_ != 0; }
-    bool can_redo() const { return history_index_ < history_.size(); }
+    void begin_handle_drag(int slide, int shape, int handle);
+    void move_handle(int slide, int shape, int handle, ScenePoint target);
+    void finish_handle_drag(bool cancel = false);
+    bool dragging_handle() const { return bool(drag_); }
+    bool can_undo() const { return history_index_ != 0 || (drag_ && drag_->changed); }
+    bool can_redo() const { return history_index_ < history_.size() && !(drag_ && drag_->changed); }
     std::optional<PresentationPosition> undo();
     std::optional<PresentationPosition> redo();
     bool modified() const { return state_ != saved_state_; }
@@ -74,8 +79,17 @@ private:
     size_t history_index_ = 0, history_bytes_ = 0;
     uint64_t state_ = 0, next_state_ = 1, saved_state_ = 0;
     bool merge_text_ = false;
+    struct HandleDrag {
+        Bytes before;
+        PresentationPosition position;
+        int handle;
+        uint64_t state;
+        bool changed = false;
+    };
+    std::optional<HandleDrag> drag_;
     void clear_history();
     void remember(Bytes, PresentationPosition, PresentationPosition, bool merge = false);
     std::optional<PresentationPosition> travel(bool redo);
+    void restore_content(const Bytes&);
 };
 }

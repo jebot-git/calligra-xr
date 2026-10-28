@@ -67,6 +67,10 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   positions can come from a PPTX layout; full PPTX master/theme inheritance is absent.
   Native ODP scenes resolve each slide's referenced master and page layout,
   master backgrounds/objects, scoped automatic styles and basic inherited paint.
+  Selected custom shapes expose native Cartesian/polar adjustment handles.
+  Dragging updates writable modifiers with bounds and group/mirror transforms;
+  Escape cancels the drag, and one Undo restores the whole completed gesture.
+  Shapes without text can also be selected and adjusted.
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.

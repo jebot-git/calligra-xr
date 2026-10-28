@@ -319,11 +319,12 @@ ScenePath parse_enhanced_path(const Text &data, const EnhancedEvaluator &e) {
   }
   return std::move(b.path);
 }
-EnhancedGeometry read_enhanced_geometry(const XmlElement &geometry,
-                                        double width, double height,
-                                        const ScenePaint &paint) {
-  EnhancedGeometry result;
+namespace {
+EnhancedContext read_context(const XmlElement &geometry, double width,
+                             double height, const ScenePaint &paint,
+                             bool radius_first) {
   EnhancedContext context;
+  context.legacy_polar_radius_first = radius_first;
   context.width = width;
   context.height = height;
   context.has_fill = paint.fill;
@@ -369,14 +370,17 @@ EnhancedGeometry read_enhanced_geometry(const XmlElement &geometry,
       if (!in.done())
         fail("Invalid enhanced stretch point");
     }
-  EnhancedEvaluator evaluator(context);
-  auto path = geometry.attributeNS(DRAW, "enhanced-path");
-  result.path =
-      std::make_shared<ScenePath>(parse_enhanced_path(path, evaluator));
+  return context;
+}
+SceneTransform geometry_mapping(const XmlElement &geometry,
+                                const EnhancedContext &context) {
   auto v = context.viewbox;
-  result.mapping = {
-      width / v.width,         0, 0, height / v.height, -v.x * width / v.width,
-      -v.y * height / v.height};
+  SceneTransform mapping = {context.width / v.width,
+                            0,
+                            0,
+                            context.height / v.height,
+                            -v.x * context.width / v.width,
+                            -v.y * context.height / v.height};
   SceneTransform mirror;
   if (boolean(geometry, "mirror-horizontal")) {
     mirror.a = -1;
@@ -386,7 +390,170 @@ EnhancedGeometry read_enhanced_geometry(const XmlElement &geometry,
     mirror.d = -1;
     mirror.f = 2 * v.y + v.height;
   }
-  result.mapping = result.mapping * mirror;
+  return mapping * mirror;
+}
+struct Handle {
+  Text x, y, pole_x, pole_y;
+  std::optional<Text> min_x, max_x, min_y, max_y;
+  std::optional<size_t> modifier_x, modifier_y;
+  bool polar = false;
+  SceneTransform transform;
+  bool editable() const {
+    return (modifier_x || modifier_y) &&
+           !(modifier_x && modifier_y && modifier_x == modifier_y);
+  }
+};
+double parameter(const Text &value, const EnhancedEvaluator &e) {
+  Input input(value);
+  double result = input.parameter(e);
+  if (!input.done())
+    fail("Invalid adjustment handle parameter");
+  return result;
+}
+std::optional<size_t> modifier(const Text &value) {
+  auto bytes = value.trimmed().toUtf8();
+  if (bytes.empty() || bytes.front() != '$')
+    return {};
+  size_t index;
+  auto end = bytes.data() + bytes.size();
+  auto parsed = std::from_chars(bytes.data() + 1, end, index);
+  if (parsed.ec != std::errc() || parsed.ptr != end)
+    fail("Invalid handle modifier");
+  return index;
+}
+std::pair<Text, Text> pair(const Text &value) {
+  std::istringstream input(value.toStdString());
+  std::string x, y, extra;
+  if (!(input >> x >> y) || (input >> extra))
+    fail("Invalid adjustment handle pair");
+  return {Text::fromUtf8(x), Text::fromUtf8(y)};
+}
+Handle read_handle(const XmlElement &node, const EnhancedEvaluator &e,
+                   const SceneTransform &mapping) {
+  Handle h;
+  auto has = [&](const char *name) { return node.hasAttributeNS(DRAW, name); };
+  auto get = [&](const char *name) { return node.attributeNS(DRAW, name); };
+  const bool xy = has("handle-position-x") || has("handle-position-y");
+  const bool polar = has("handle-polar-pole-x") || has("handle-polar-pole-y") ||
+                     has("handle-polar-radius") || has("handle-polar-angle");
+  if (xy && polar)
+    fail("Adjustment handle mixes Cartesian and polar coordinates");
+  if (xy) {
+    if (!has("handle-position-x") || !has("handle-position-y"))
+      fail("Incomplete XY handle");
+    h.x = get("handle-position-x");
+    h.y = get("handle-position-y");
+  } else if (polar) {
+    if (!has("handle-polar-pole-x") || !has("handle-polar-pole-y"))
+      fail("Incomplete polar handle");
+    h.polar = true;
+    h.pole_x = get("handle-polar-pole-x");
+    h.pole_y = get("handle-polar-pole-y");
+    h.x = node.attributeNS(DRAW, "handle-polar-angle", "0");
+    h.y = node.attributeNS(DRAW, "handle-polar-radius", "0");
+  } else {
+    // Compatibility with pre-1.4 files: angle precedes radius, as in Calligra.
+    std::tie(h.x, h.y) = pair(get("handle-position"));
+    if (has("handle-polar")) {
+      h.polar = true;
+      std::tie(h.pole_x, h.pole_y) = pair(get("handle-polar"));
+      if (e.context().legacy_polar_radius_first)
+        std::swap(h.x, h.y);
+    }
+  }
+  parameter(h.x, e);
+  parameter(h.y, e);
+  h.modifier_x = modifier(h.x);
+  h.modifier_y = modifier(h.y);
+  if (h.polar) {
+    parameter(h.pole_x, e);
+    parameter(h.pole_y, e);
+  }
+  auto range = [&](const char *name) -> std::optional<Text> {
+    if (!has(name))
+      return {};
+    auto value = get(name);
+    parameter(value, e);
+    return value;
+  };
+  if (h.polar) {
+    h.min_y = range("handle-radius-range-minimum");
+    h.max_y = range("handle-radius-range-maximum");
+    if (h.max_y && parameter(*h.max_y, e) < 0)
+      fail("Negative polar radius bound");
+  } else {
+    h.min_x = range("handle-range-x-minimum");
+    h.max_x = range("handle-range-x-maximum");
+    h.min_y = range("handle-range-y-minimum");
+    h.max_y = range("handle-range-y-maximum");
+  }
+  SceneTransform extra;
+  if (boolean(node, "handle-switched") &&
+      e.context().height > e.context().width)
+    extra = {0, 1, 1, 0, 0, 0};
+  auto v = e.context().viewbox;
+  SceneTransform mirror;
+  // ODF names the mirror axis: horizontal changes y; vertical changes x.
+  if (boolean(node, "handle-mirror-horizontal")) {
+    mirror.d = -1;
+    mirror.f = 2 * v.y + v.height;
+  }
+  if (boolean(node, "handle-mirror-vertical")) {
+    mirror.a = -1;
+    mirror.e = 2 * v.x + v.width;
+  }
+  h.transform = mapping * mirror * extra;
+  return h;
+}
+double constrain(double value, const std::optional<Text> &min,
+                 const std::optional<Text> &max, const EnhancedEvaluator &e) {
+  double lo =
+      min ? parameter(*min, e) : -std::numeric_limits<double>::infinity();
+  double hi =
+      max ? parameter(*max, e) : std::numeric_limits<double>::infinity();
+  if (lo > hi)
+    fail("Inverted adjustment handle range");
+  return std::clamp(value, lo, hi);
+}
+SceneHandle handle_position(const Handle &h, const EnhancedEvaluator &e) {
+  ScenePoint p{parameter(h.x, e), parameter(h.y, e)};
+  constrain(p.x, h.min_x, h.max_x, e);
+  constrain(p.y, h.min_y, h.max_y, e);
+  if (h.polar) {
+    if (p.y < 0)
+      fail("Negative adjustment handle radius");
+    double angle = std::remainder(p.x, 360) * pi / 180;
+    p = {parameter(h.pole_x, e) + p.y * std::cos(angle),
+         parameter(h.pole_y, e) + p.y * std::sin(angle)};
+  }
+  p = h.transform.map(p);
+  if (!std::isfinite(p.x) || !std::isfinite(p.y) || std::abs(p.x) > 1e9 ||
+      std::abs(p.y) > 1e9)
+    fail("Adjustment handle exceeds geometry limits");
+  return {p, h.editable() && bool(h.transform.inverse())};
+}
+} // namespace
+EnhancedGeometry read_enhanced_geometry(const XmlElement &geometry,
+                                        double width, double height,
+                                        const ScenePaint &paint,
+                                        bool radius_first) {
+  EnhancedGeometry result;
+  auto context = read_context(geometry, width, height, paint, radius_first);
+  EnhancedEvaluator evaluator(context);
+  auto path = geometry.attributeNS(DRAW, "enhanced-path");
+  result.path =
+      std::make_shared<ScenePath>(parse_enhanced_path(path, evaluator));
+  result.mapping = geometry_mapping(geometry, context);
+  auto handles = children(geometry, DRAW, "handle");
+  if (handles.size() > 4096)
+    fail("Too many adjustment handles");
+  for (const auto &node : handles) {
+    auto h = read_handle(node, evaluator, result.mapping);
+    result.handles.push_back(handle_position(h, evaluator));
+    if (h.modifier_x && h.modifier_y && h.modifier_x == h.modifier_y)
+      result.unsupported.push_back(
+          "Handle aliases one modifier across two coordinates");
+  }
   auto area = geometry.attributeNS(DRAW, "text-areas");
   if (!area.empty()) {
     Input in(area);
@@ -414,13 +581,81 @@ EnhancedGeometry read_enhanced_geometry(const XmlElement &geometry,
     result.unsupported.push_back("Custom shape extrusion");
   if (boolean(geometry, "text-path"))
     result.unsupported.push_back("Text on enhanced path");
-  if (!children(geometry, DRAW, "handle").empty())
-    result.unsupported.push_back("Enhanced shape adjustment handles");
   if (geometry.hasAttributeNS(DRAW, "text-rotate-angle")) {
     auto angle = geometry.attributeNS(DRAW, "text-rotate-angle").trimmed();
     if (angle != "0" && angle != "0deg" && angle != "0rad" && angle != "0grad")
       result.unsupported.push_back("Enhanced text rotation");
   }
   return result;
+}
+std::vector<double> adjusted_enhanced_modifiers(const XmlElement &geometry,
+                                                double width, double height,
+                                                const ScenePaint &paint,
+                                                size_t index, ScenePoint target,
+                                                bool radius_first) {
+  if (!std::isfinite(target.x) || !std::isfinite(target.y))
+    fail("Non-finite adjustment target");
+  auto context = read_context(geometry, width, height, paint, radius_first);
+  EnhancedEvaluator evaluator(context);
+  auto handles = children(geometry, DRAW, "handle");
+  if (index >= handles.size())
+    fail("Invalid adjustment handle");
+  auto h = read_handle(handles[index], evaluator,
+                       geometry_mapping(geometry, context));
+  auto inverse = h.transform.inverse();
+  if (!h.editable() || !inverse)
+    fail("This adjustment handle is not editable");
+  target = inverse->map(target);
+  if (h.polar) {
+    double dx = target.x - parameter(h.pole_x, evaluator),
+           dy = target.y - parameter(h.pole_y, evaluator);
+    double radius = finite(std::hypot(dx, dy));
+    double angle = radius == 0 ? parameter(h.x, evaluator)
+                               : positive(std::atan2(dy, dx)) * 180 / pi;
+    target = {angle, radius};
+  }
+  auto values = context.modifiers;
+  // Project coupled modifier-dependent bounds to a fixed point. Undefined or
+  // nonconverging constraints fail before any document XML is changed.
+  for (int iteration = 0; iteration < 32; ++iteration) {
+    context.modifiers = values;
+    EnhancedEvaluator current(context);
+    auto next = values;
+    if (h.modifier_x)
+      next.at(*h.modifier_x) = constrain(target.x, h.min_x, h.max_x, current);
+    if (h.modifier_y)
+      next.at(*h.modifier_y) = constrain(target.y, h.min_y, h.max_y, current);
+    if (h.polar && h.modifier_y)
+      next.at(*h.modifier_y) = std::max(0., next.at(*h.modifier_y));
+    bool stable = true;
+    for (size_t i = 0; i < next.size(); ++i) {
+      finite(next[i]);
+      if (std::abs(next[i] - values[i]) >
+          1e-10 * std::max(1., std::abs(values[i])))
+        stable = false;
+    }
+    if (stable)
+      return next;
+    values = std::move(next);
+  }
+  fail("Adjustment handle constraints do not converge");
+}
+bool enhanced_legacy_polar_order(const OdfPackage &package) {
+  auto bytes = package.entry("meta.xml");
+  if (bytes.empty())
+    return false;
+  XmlDocument metadata;
+  if (!metadata.setContent(bytes))
+    return false;
+  auto nodes = metadata.elementsByTagNameNS(
+      "urn:oasis:names:tc:opendocument:xmlns:meta:1.0", "generator");
+  if (nodes.empty())
+    return false;
+  auto generator = nodes.front().text();
+  for (const auto &prefix : {"OpenOffice.org", "NeoOffice", "LibreOffice",
+                             "StarOffice", "Lotus Symphony"})
+    if (generator.startsWith(prefix))
+      return true;
+  return false;
 }
 } // namespace DomeOffice

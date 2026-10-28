@@ -8,6 +8,7 @@ struct EnhancedContext {
   bool has_fill = false, has_stroke = false;
   std::optional<double> xstretch, ystretch;
   bool modern_angles = true;
+  bool legacy_polar_radius_first = false;
   std::vector<double> modifiers;
   std::map<Text, Text> equations;
 };
@@ -31,7 +32,15 @@ struct EnhancedGeometry {
   std::optional<SceneRect> text_area;
   std::optional<SceneRect> vertical_text_area;
   std::vector<Text> unsupported;
+  std::vector<SceneHandle> handles;
 };
 EnhancedGeometry read_enhanced_geometry(const XmlElement &, double width,
-                                        double height, const ScenePaint &);
+                                        double height, const ScenePaint &,
+                                        bool legacy_polar_radius_first = false);
+bool enhanced_legacy_polar_order(const OdfPackage &);
+// Target is shape-local. Only directly referenced modifiers are writable;
+// formula/constant coordinates stay fixed. No XML is mutated by this function.
+std::vector<double> adjusted_enhanced_modifiers(
+    const XmlElement &, double width, double height, const ScenePaint &,
+    size_t handle, ScenePoint target, bool legacy_polar_radius_first = false);
 } // namespace DomeOffice

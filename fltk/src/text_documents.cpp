@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
 #include "ooxml_text_import.h"
+#include "native_enhanced_geometry.h"
 #include <algorithm>
 #include <stdexcept>
 namespace DomeOffice {
@@ -176,6 +177,7 @@ void Presentation::clear_history()
     state_ = saved_state_ = 0;
     next_state_ = 1;
     merge_text_ = false;
+    drag_.reset();
 }
 void Presentation::remember(Bytes before, PresentationPosition previous, PresentationPosition next, bool merge)
 {
@@ -213,6 +215,7 @@ void Presentation::remember(Bytes before, PresentationPosition previous, Present
 }
 std::optional<PresentationPosition> Presentation::travel(bool redo)
 {
+    finish_handle_drag();
     end_text_edit();
     if (read_only()) fail("This presentation is read-only");
     if (redo ? !can_redo() : !can_undo()) return {};
@@ -224,6 +227,13 @@ std::optional<PresentationPosition> Presentation::travel(bool redo)
         || bytes.compare(edit.offset, from.size(), from) != 0)
         fail("Presentation undo history does not match the document");
     bytes.std::string::replace(edit.offset, from.size(), to);
+    restore_content(bytes);
+    history_index_ = redo ? history_index_ + 1 : history_index_ - 1;
+    state_ = redo ? edit.after_state : edit.before_state;
+    return redo ? edit.next : edit.previous;
+}
+void Presentation::restore_content(const Bytes& bytes)
+{
     // Validate the restored document and its scenes before changing live state.
     OdfPackage candidate = package_;
     candidate.xml = read_document_xml(bytes);
@@ -233,10 +243,7 @@ std::optional<PresentationPosition> Presentation::travel(bool redo)
     package_ = std::move(candidate);
     scenes_ = std::move(scenes);
     text_reader_ = std::move(reader);
-    history_index_ = redo ? history_index_ + 1 : history_index_ - 1;
-    state_ = redo ? edit.after_state : edit.before_state;
     ++revision_;
-    return redo ? edit.next : edit.previous;
 }
 std::optional<PresentationPosition> Presentation::undo() { return travel(false); }
 std::optional<PresentationPosition> Presentation::redo() { return travel(true); }
@@ -260,6 +267,7 @@ void Presentation::load(const Text& p)
 }
 void Presentation::save(const Text& p)
 {
+    finish_handle_drag();
     if (FileInfo(p).suffix().compare("odp", CaseInsensitive) != 0)
         fail("Stage saves only ODP; choose an .odp destination");
     package_.save(p);
@@ -298,6 +306,7 @@ Slide Presentation::slide(int index) const
 }
 void Presentation::add_slide(const Text& title, PresentationPosition previous)
 {
+    finish_handle_drag();
     if (read_only())
         fail("This presentation is read-only");
     const auto before = package_.xml.toByteArray();
@@ -322,8 +331,9 @@ void Presentation::add_slide(const Text& title, PresentationPosition previous)
     scenes_.clear(); ++revision_;
     remember(before, previous, { count() - 1, 0 });
 }
-void Presentation::remove_slide(int index, int selectedBox)
+void Presentation::remove_slide(int index, int selectedBox, int selectedShape)
 {
+    finish_handle_drag();
     if (read_only())
         fail("This presentation is read-only");
     auto pages = children(package_.body(), DRAW, "page");
@@ -333,10 +343,11 @@ void Presentation::remove_slide(int index, int selectedBox)
     const auto before = package_.xml.toByteArray();
     package_.body().removeChild(pages.at(index));
     scenes_.clear(); ++revision_;
-    remember(before, { index, selectedBox }, { std::min(index, count() - 1), 0 });
+    remember(before, { index, selectedBox, selectedShape }, { std::min(index, count() - 1), 0 });
 }
 void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text, bool merge)
 {
+    finish_handle_drag();
     if (read_only())
         fail("This presentation is read-only");
     if (text.size() > 4000000) fail("Text frame exceeds native layout text limit");
@@ -362,5 +373,74 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text, 
     shape.text_flow = text_reader_->frame(box,base,shape.paragraph_style);
     ++revision_;
     remember(before, { slideIndex, boxIndex }, { slideIndex, boxIndex }, merge);
+}
+void Presentation::begin_handle_drag(int slideIndex, int shapeIndex, int handleIndex)
+{
+    finish_handle_drag();
+    end_text_edit();
+    if (read_only()) fail("This presentation is read-only");
+    const auto& shape = scene(slideIndex).shapes.at(shapeIndex);
+    if (shape.master || shape.source.isNull() || !shape.handles.at(handleIndex).editable)
+        fail("This adjustment handle is not editable");
+    drag_ = HandleDrag { package_.xml.toByteArray(),
+        { slideIndex, shape.editor_index, shapeIndex }, handleIndex, state_ };
+}
+void Presentation::finish_handle_drag(bool cancel)
+{
+    if (!drag_) return;
+    auto drag = std::move(*drag_);
+    drag_.reset();
+    if (cancel) {
+        if (drag.changed) restore_content(drag.before);
+        state_ = drag.state;
+    } else {
+        state_ = drag.state;
+        remember(std::move(drag.before), drag.position, drag.position);
+    }
+}
+void Presentation::move_handle(int slideIndex, int shapeIndex, int handleIndex, ScenePoint target)
+{
+    if (read_only()) fail("This presentation is read-only");
+    if (drag_ && (drag_->position.slide != slideIndex || drag_->position.shape != shapeIndex || drag_->handle != handleIndex))
+        fail("Another adjustment handle is being dragged");
+    const auto& shape = scene(slideIndex).shapes.at(shapeIndex);
+    if (shape.master || shape.source.isNull() || shape.kind != SceneShape::Custom)
+        fail("This shape is not adjustable");
+    auto inverse = shape.transform.inverse();
+    if (!inverse) fail("The shape transform is singular");
+    auto geometry = child(shape.source, DRAW, "enhanced-geometry");
+    auto values = adjusted_enhanced_modifiers(geometry, shape.width, shape.height, shape.paint,
+        handleIndex, inverse->map(target), enhanced_legacy_polar_order(package_));
+    TextList parts;
+    for (double value : values) parts << Text::number(value, 'g', 17);
+    auto modifiers = parts.join(' ');
+    if (geometry.attributeNS(DRAW, "modifiers") == modifiers) return;
+    const auto before = package_.xml.toByteArray();
+    // Locate the corresponding source in an isolated candidate, including XML
+    // whitespace siblings. A failed formula/geometry update leaves live state intact.
+    std::vector<size_t> path;
+    for (auto node = geometry; node != package_.xml.documentElement(); node = node.parentNode()) {
+        if (node.isNull()) fail("Adjustment source is outside the presentation");
+        size_t index = 0;
+        for (auto previous = node.previousSibling(); !previous.isNull(); previous = previous.previousSibling()) ++index;
+        path.push_back(index);
+    }
+    auto candidate = read_document_xml(before);
+    auto node = candidate.documentElement();
+    for (auto it = path.rbegin(); it != path.rend(); ++it) {
+        node = node.firstChild();
+        for (size_t i = 0; i < *it; ++i) node = node.nextSibling();
+        if (node.isNull()) fail("Invalid adjustment source path");
+    }
+    node.setAttributeNS(DRAW, "draw:modifiers", modifiers);
+    PresentationPosition position { slideIndex, shape.editor_index, shapeIndex };
+    restore_content(candidate.toByteArray());
+    if (drag_) {
+        drag_->changed = package_.xml.toByteArray() != drag_->before;
+        state_ = drag_->changed ? next_state_++ : drag_->state;
+    } else {
+        end_text_edit();
+        remember(before, position, position);
+    }
 }
 }

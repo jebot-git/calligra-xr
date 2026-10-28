@@ -345,6 +345,75 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 assert 'Mirror changed' in saved_text(xml) and 'Arrow edited' in saved_text(xml)
             assert not data()['scene']['render_error'];key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: enhanced shapes, cross-frame/slide native undo, editor/menu bindings, save checkpoints and retained geometry/equations',flush=True)
+        handles=fixtures/'handles.odp';report=art/'handles.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-handle-test'),'--fixture',str(handles)],env=env,check=True)
+        with zipfile.ZipFile(handles) as z:
+            before_handle_content=z.read('content.xml');before_handle_styles=z.read('styles.xml')
+            before_opaque=z.read('unknown/retained.bin')
+        with (art/'handles.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-stage-fltk'),str(handles),'--report',str(report),'--capture',str(art/'handles.ppm')],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists());host=wait(lambda:window('stage'))
+            def adjustment(shape):return next(h for h in data()['scene']['adjustments'] if h['shape']==shape and h['handle']==0)
+            def screen(px,py):
+                s=data()['scene'];x,y,w,h=s['viewport'];scale=min((w-32)/s['width'],(h-32)/s['height'])
+                return int(x+(w-s['width']*scale)/2+px*scale),int(y+(h-s['height']*scale)/2+py*scale)
+            def click_scene(px,py):click(host,*screen(px,py))
+            def drag(shape,target,cancel=False):
+                h=adjustment(shape);start=screen(h['x'],h['y']);end=screen(*target)
+                origin=xd.screen().root.translate_coords(host,0,0);host.set_input_focus(X.RevertToParent,X.CurrentTime)
+                xtest.fake_input(xd,X.MotionNotify,x=origin.x+start[0],y=origin.y+start[1]);xd.sync();time.sleep(.08)
+                xtest.fake_input(xd,X.ButtonPress,1);xd.sync();time.sleep(.08)
+                for step in range(1,4):
+                    xtest.fake_input(xd,X.MotionNotify,x=origin.x+round(start[0]+(end[0]-start[0])*step/3),y=origin.y+round(start[1]+(end[1]-start[1])*step/3));xd.sync();time.sleep(.09)
+                if cancel:key('Escape')
+                xtest.fake_input(xd,X.ButtonRelease,1);xd.sync();time.sleep(.15)
+            assert len(data()['scene']['adjustments'])==3 and data()['scene']['selected_shape']==0
+            drag(0,(195,10));wait(lambda:abs(adjustment(0)['x']-164)<1 and abs(adjustment(0)['y']-34.5)<1 and data()['modified'])
+            key('z',('Control_L',));wait(lambda:abs(adjustment(0)['x']-128)<1 and not data()['modified'])
+            key('y',('Control_L',));wait(lambda:abs(adjustment(0)['x']-164)<1)
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            key('z',('Control_L',));wait(lambda:abs(adjustment(0)['x']-128)<1 and data()['scene']['can_redo'])
+            drag(0,(110,80),cancel=True)
+            wait(lambda:abs(adjustment(0)['x']-128)<1 and data()['scene']['can_redo'])
+            key('y',('Control_L',));wait(lambda:abs(adjustment(0)['x']-164)<1 and not data()['modified'])
+            click_scene(295,95);wait(lambda:data()['scene']['selected_shape']==1 and data()['scene']['selected_frame']==-1)
+            assert data()['text']==''
+            drag(1,(300,125));wait(lambda:abs(adjustment(1)['x']-300)<2 and abs(adjustment(1)['y']-120)<2)
+            key('z',('Control_L',));wait(lambda:abs(adjustment(1)['x']-270)<1 and data()['scene']['selected_shape']==1)
+            key('y',('Control_L',));wait(lambda:abs(adjustment(1)['y']-120)<2)
+            h=adjustment(2);click_scene(h['x'],h['y']);wait(lambda:data()['scene']['selected_shape']==2)
+            import math
+            target=(h['x']+10*math.cos(.3),h['y']+10*math.sin(.3))
+            drag(2,target);wait(lambda:abs(adjustment(2)['x']-target[0])<2 and abs(adjustment(2)['y']-target[1])<2)
+            click_scene(50,75);wait(lambda:data()['scene']['selected_frame']==0)
+            click(host,350,565);key('a',('Control_L',));text('Geometry plus text');wait(lambda:data()['text']=='Geometry plus text')
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            key('z',('Control_L',));wait(lambda:data()['text']=='Adjustable text')
+            key('y',('Control_L',));wait(lambda:data()['text']=='Geometry plus text' and not data()['modified'])
+            with zipfile.ZipFile(handles) as z:
+                original=list(ET.fromstring(before_handle_content).iter(ns+'enhanced-geometry'))
+                updated=list(ET.fromstring(z.read('content.xml')).iter(ns+'enhanced-geometry'))
+                mods=[list(map(float,g.get(ns+'modifiers').split())) for g in updated]
+                assert mods[0]==[80,5] and abs(mods[1][0]-90)<3 and abs(mods[1][1]-40)<1e-8 and abs(mods[2][0]-50)<2,mods
+                for a,b in zip(original,updated):
+                    a.attrib.pop(ns+'modifiers');b.attrib.pop(ns+'modifiers')
+                    assert ET.tostring(a)==ET.tostring(b)
+                assert z.read('styles.xml')==before_handle_styles and z.read('unknown/retained.bin')==before_opaque
+            assert not data()['scene']['render_error']
+            key('F5');time.sleep(.25);key('Escape');key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: native XY/polar/grouped handle dragging, clamping, nontext selection, cancellation/redo, text history and retained ODP',flush=True)
+        invalid_handles=fixtures/'invalid-handles.odp';report=art/'invalid-handles.json';report.unlink(missing_ok=True)
+        subprocess.run([str(args.test_bin_dir/'calligra-native-handle-test'),'--invalid-fixture',str(invalid_handles)],env=env,check=True)
+        original_invalid=invalid_handles.read_bytes()
+        with (art/'invalid-handles.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-stage-fltk'),str(invalid_handles),'--report',str(report)],env=env,stdout=log,stderr=log)
+            wait(lambda:report.exists());host=wait(lambda:window('stage'))
+            drag(0,(195,48))
+            wait(lambda:abs(adjustment(0)['x']-128)<1 and not data()['modified'] and not data()['scene']['can_undo'])
+            assert not data()['scene']['render_error'] and invalid_handles.read_bytes()==original_invalid
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: invalid live handle geometry rolls back the whole drag and keeps the source unchanged',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

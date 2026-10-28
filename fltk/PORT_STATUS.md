@@ -120,7 +120,7 @@ native text, with stable group/z ordering and inverse frame hit testing. Rich
 text retains paragraph/inline font and color styles with continuous clipped
 flow. Full list/table/column/vertical layout, auto-growth, fit-to-size and rich
 editing controls remain incomplete. Gradient/bitmap/hatch fills, stroke dashes/caps/joins,
-custom preset lookup, adjustment handles, stretch points, extrusion, text on
+custom preset lookup, stretch points, extrusion, text on
 paths, master placeholder fields and image crop remain incomplete. Explicit
 enhanced geometry supports standard formulas/commands, modifiers, mirrors,
 independent paint sets and horizontal text areas. Vertical text remains
@@ -128,8 +128,14 @@ unsupported. SVG path commands, rounded rectangles and full/arc/chord/pie
 ellipses now use native curve geometry with analytic bounds and adaptive GPU
 contours. Compound fills support both winding rules; open stroke contours stay
 open even when their fill closes implicitly. Native editing covers text on
-supported shapes; geometry editing tools are not yet
-ported. Unrecognized shapes and animations are
+supported shapes and custom-shape adjustment handles. Cartesian/polar handles
+support modern ODF 1.4 attributes and legacy pairs, modifier constraints,
+mirrors and direction switching. Producer metadata selects the legacy polar
+parameter order used by OpenOffice-family applications. Dragging is one native
+undo command; Escape restores the document and its prior redo history. Handles
+with two coordinates aliased to one modifier remain read-only and diagnosed;
+formula/constant coordinates are not inverted into modifiers. General geometry
+editing tools remain incomplete. Unrecognized shapes and animations are
 preserved in packages, not rendered. Native undo/redo spans text edits and slide
 insertion/deletion, restores the affected selection and exact styled XML, and
 tracks the saved state across branches. The journal retains up to 100 commands

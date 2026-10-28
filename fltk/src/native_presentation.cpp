@@ -161,9 +161,11 @@ struct Catalog {
   std::vector<XmlDocument> documents;
   std::map<std::string, int> editor_ids;
   size_t nodes = 0, points = 0;
+  bool legacy_polar_order = false;
   Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader)
       : text_reader(reader ? std::move(reader)
                            : std::make_shared<OdfTextReader>(package)) {
+    legacy_polar_order = enhanced_legacy_polar_order(package);
     auto bytes = package.entry("styles.xml");
     if (!bytes.empty())
       scan(read_document_xml(bytes), styles);
@@ -485,6 +487,8 @@ struct Catalog {
       }
       SceneShape shape;
       shape.master = master;
+      if (!master)
+        shape.source = node;
       shape.name = node.attributeNS(DRAW, "name");
       shape.transform = position(node, transform);
       shape.paint = paint(source, node, slide);
@@ -519,11 +523,13 @@ struct Catalog {
           shape.path = std::make_shared<ScenePath>();
           note(slide.unsupported, "Custom shape without enhanced geometry");
         } else {
-          auto enhanced = read_enhanced_geometry(geometry, shape.width,
-                                                 shape.height, shape.paint);
+          auto enhanced =
+              read_enhanced_geometry(geometry, shape.width, shape.height,
+                                     shape.paint, legacy_polar_order);
           shape.path = std::move(enhanced.path);
           shape.path_map = enhanced.mapping;
           shape.text_area = enhanced.text_area;
+          shape.handles = std::move(enhanced.handles);
           for (const auto &feature : enhanced.unsupported)
             note(slide.unsupported, feature);
         }
@@ -878,9 +884,11 @@ bool SceneShape::hit(ScenePoint point) const {
   for (const auto &[group, state] : fills)
     if (even_odd ? state.first : state.second != 0)
       return true;
-  if(!text.empty()){
-    auto area=text_area.value_or(SceneRect{0,0,width,height});
-    if(p.x>=area.x&&p.y>=area.y&&p.x<=area.x+area.width&&p.y<=area.y+area.height)return true;
+  if (!text.empty()) {
+    auto area = text_area.value_or(SceneRect{0, 0, width, height});
+    if (p.x >= area.x && p.y >= area.y && p.x <= area.x + area.width &&
+        p.y <= area.y + area.height)
+      return true;
   }
   return false;
 }

@@ -342,9 +342,27 @@ public:
                 }
                 guard([&] {
                     commit_text();
-                    box = n;
-                    refresh_stage();
+                    refresh_stage(n);
                 });
+            };
+            canvas->adjustment = [this](SlideCanvas::Adjustment event, int shape, int handle, ScenePoint point) {
+                try {
+                    if (event == SlideCanvas::Begin) {
+                        commit_text(); stage->begin_handle_drag(slide, shape, handle);
+                    } else if (event == SlideCanvas::Move) {
+                        stage->move_handle(slide, shape, handle, point);
+                    } else {
+                        stage->finish_handle_drag(event == SlideCanvas::Cancel);
+                        refresh_stage(shape);
+                    }
+                    modified = stage->modified(); title(); canvas->redraw();
+                    return true;
+                } catch (const std::exception& e) {
+                    stage->finish_handle_drag(true);
+                    refresh_stage(shape);
+                    modified = stage->modified(); title();
+                    message(e.what()); return false;
+                }
             };
             boxes = new Fl_Choice(194, 490, 894, 30);
             boxes->callback(
@@ -610,7 +628,7 @@ public:
         text_pages->set_flow(words->flow());
         text_font_revision = dx::font_revision;
     }
-    void refresh_stage()
+    void refresh_stage(int selected_shape = -1)
     {
         auto current = stage->slide(slide);
         slides->clear();
@@ -628,11 +646,19 @@ public:
                     .c_str());
         }
         box = std::clamp(box, 0, std::max(0, int(current.boxes.size()) - 1));
+        const auto& scene = stage->scene(slide);
+        if (selected_shape >= 0 && selected_shape < int(scene.shapes.size()) && !scene.shapes[selected_shape].master)
+            box = scene.shapes[selected_shape].editor_index;
+        else
+            selected_shape = current.boxes.empty() ? -1 : int(scene.editor_shapes.at(box));
         boxes->value(box);
-        fill_buffer(current.boxes.isEmpty() ? Text() : current.boxes[box].text);
-        if (current.boxes.isEmpty() || !current.boxes[box].image.isEmpty())
+        fill_buffer(current.boxes.isEmpty() || box < 0 ? Text() : current.boxes[box].text);
+        if (box < 0 || current.boxes.isEmpty() || !current.boxes[box].image.isEmpty())
             editor->deactivate();
         canvas->box = box;
+        canvas->selected_shape = selected_shape;
+        canvas->selection_visible = !presenting;
+        canvas->adjustable = !presenting && !readonly();
         canvas->redraw();
         message("Slide " + std::to_string(slide + 1) + " of " + std::to_string(stage->count()));
     }
@@ -722,6 +748,7 @@ public:
     void command(int c)
     {
         guard([&] {
+            if (canvas && canvas->dragging()) canvas->finish_drag();
             if (c == New) {
                 if (discard())
                     reset();
@@ -770,7 +797,7 @@ public:
                     if (!position) return;
                     slide = position->slide;
                     box = position->box;
-                    refresh_stage();
+                    refresh_stage(position->shape);
                     editor->insert_position(buffer.length());
                     editor->show_insert_position();
                 } else {
@@ -796,14 +823,14 @@ public:
                     Fl::copy(text.data(), text.size(), 1);
                 }
             } else if (c == Paste) {
-                if (editor)
+                if (editor && editor->active_r())
                     Fl_Text_Editor::kf_paste(0, editor);
-                else
+                else if (!editor)
                     Fl::paste(*grid, 1);
             } else if (c == Cut) {
-                if (editor)
+                if (editor && editor->active_r())
                     Fl_Text_Editor::kf_cut(0, editor);
-                else {
+                else if (!editor) {
                     command(Copy);
                     formula->value("");
                     cell_pending = true;
@@ -823,7 +850,7 @@ public:
                 }
             } else if (c == AddSlide) {
                 commit_text();
-                stage->add_slide("New slide", { slide, box });
+                stage->add_slide("New slide", { slide, box, canvas->selected_shape });
                 slide = stage->count() - 1;
                 box = 0;
                 refresh_stage();
@@ -831,7 +858,7 @@ public:
                 title();
             } else if (c == DeleteSlide) {
                 commit_text();
-                stage->remove_slide(slide, box);
+                stage->remove_slide(slide, box, canvas->selected_shape);
                 slide = std::min(slide, stage->count() - 1);
                 box = 0;
                 refresh_stage();
@@ -840,6 +867,8 @@ public:
             } else if (c == Present) {
                 commit_text();
                 presenting = !presenting;
+                canvas->selection_visible = !presenting;
+                canvas->adjustable = !presenting && !readonly();
                 window.presentation = presenting;
                 if (presenting) {
                     canvas_x = canvas->x();
@@ -938,12 +967,23 @@ public:
             for (const auto& feature : model.unsupported)
                 unsupported.push_back(utf8(feature));
             const auto &text = canvas->text_stats();
+            Json adjustments = Json::array();
+            for (size_t i = 0; i < model.shapes.size(); ++i) {
+                const auto& shape = model.shapes[i];
+                if (shape.master) continue;
+                for (size_t j = 0; j < shape.handles.size(); ++j) {
+                    const auto& handle = shape.handles[j];
+                    auto point = shape.transform.map(handle.position);
+                    adjustments.push_back({ { "shape", i }, { "handle", j }, { "x", point.x }, { "y", point.y }, { "editable", handle.editable } });
+                }
+            }
             for (const auto& feature : text.unsupported)
                 unsupported.push_back(utf8(feature));
             data["scene"] = { { "page", slide + 1 }, { "width", model.width },
                 { "height", model.height }, { "shapes", model.shapes.size() },
                 { "master_shapes", masters }, { "editable_frames", model.editable_sources.size() },
                 { "selected_frame", box }, { "can_undo", stage->can_undo() }, { "can_redo", stage->can_redo() },
+                { "selected_shape", canvas->selected_shape }, { "adjustments", adjustments },
                 { "revision", stage->revision() }, { "slides", stage->count() },
                 { "rendered_shapes", canvas->rendered_shapes() },
                 { "geometry_points", canvas->geometry_points() },

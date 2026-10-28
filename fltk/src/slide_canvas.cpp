@@ -456,7 +456,8 @@ struct SlideCanvas::Impl {
           }
         glPopAttrib();
       }
-      if (shape.editor_index == canvas.box && !shape.master) {
+      if (canvas.selection_visible && int(i) == canvas.selected_shape &&
+          !shape.master) {
         unsigned char r, g, b;
         Fl::get_color(FL_SELECTION_COLOR, r, g, b);
         glColor4ub(r, g, b, 255);
@@ -470,12 +471,42 @@ struct SlideCanvas::Impl {
       }
       ++rendered;
     }
+    if (canvas.selection_visible && canvas.adjustable &&
+        canvas.selected_shape >= 0 &&
+        size_t(canvas.selected_shape) < model.shapes.size()) {
+      const auto &shape = model.shapes[canvas.selected_shape];
+      unsigned char r, g, b;
+      Fl::get_color(FL_SELECTION_COLOR, r, g, b);
+      for (const auto &handle : shape.handles)
+        if (handle.editable) {
+          auto p = (screen * shape.transform).map(handle.position);
+          glColor4ub(r, g, b, 255);
+          glBegin(GL_QUADS);
+          vertex({p.x, p.y - 5});
+          vertex({p.x + 5, p.y});
+          vertex({p.x, p.y + 5});
+          vertex({p.x - 5, p.y});
+          glEnd();
+          Fl::get_color(FL_FOREGROUND_COLOR, r, g, b);
+          glColor4ub(r, g, b, 255);
+          glLineWidth(1);
+          glBegin(GL_LINE_LOOP);
+          vertex({p.x, p.y - 5});
+          vertex({p.x + 5, p.y});
+          vertex({p.x, p.y + 5});
+          vertex({p.x - 5, p.y});
+          glEnd();
+          Fl::get_color(FL_SELECTION_COLOR, r, g, b);
+        }
+    }
   }
 };
 SlideCanvas::SlideCanvas(int x, int y, int w, int h)
     : Fl_Widget(x, y, w, h), impl_(std::make_unique<Impl>()) {}
 SlideCanvas::~SlideCanvas() = default;
 void SlideCanvas::reset() {
+  finish_drag();
+  selected_shape = -1;
   impl_->current = nullptr;
   impl_->clear_images();
   redraw();
@@ -518,17 +549,80 @@ void SlideCanvas::draw() {
   fl_pop_clip();
 }
 int SlideCanvas::handle(int event) {
+  if (event == FL_UNFOCUS && dragging())
+    finish_drag(true);
+  if (event == FL_FOCUS || event == FL_UNFOCUS)
+    return 1;
+  if (event == FL_KEYDOWN && dragging() && Fl::event_key() == FL_Escape) {
+    finish_drag(true);
+    return 1;
+  }
+  if (event == FL_DRAG && dragging()) {
+    if (adjustment &&
+        !adjustment(Move, drag_shape_, drag_handle_,
+                    drag_screen_inverse_.map(
+                        {double(Fl::event_x()), double(Fl::event_y())})))
+      drag_shape_ = drag_handle_ = -1;
+    redraw();
+    return 1;
+  }
+  if (event == FL_RELEASE && dragging()) {
+    if (adjustment &&
+        !adjustment(Move, drag_shape_, drag_handle_,
+                    drag_screen_inverse_.map(
+                        {double(Fl::event_x()), double(Fl::event_y())})))
+      drag_shape_ = drag_handle_ = -1;
+    else
+      finish_drag();
+    return 1;
+  }
   if (event == FL_PUSH) {
+    if (Fl::event_button() != FL_LEFT_MOUSE)
+      return 0;
+    take_focus();
+    if (!selection_visible) {
+      if (selected)
+        selected(-1);
+      return 1;
+    }
     const auto &model = scene();
     auto inverse = screen_transform(model).inverse();
     if (inverse) {
+      if (adjustable && adjustment && selected_shape >= 0 &&
+          size_t(selected_shape) < model.shapes.size()) {
+        const auto &shape = model.shapes[selected_shape];
+        auto transform = screen_transform(model) * shape.transform;
+        for (size_t index = 0; index < shape.handles.size(); ++index)
+          if (shape.handles[index].editable) {
+            auto p = transform.map(shape.handles[index].position);
+            if (std::hypot(p.x - Fl::event_x(), p.y - Fl::event_y()) <= 8) {
+              drag_shape_ = selected_shape;
+              drag_handle_ = int(index);
+              drag_screen_inverse_ = *inverse;
+              if (!adjustment(Begin, drag_shape_, drag_handle_,
+                              inverse->map({double(Fl::event_x()),
+                                            double(Fl::event_y())})))
+                drag_shape_ = drag_handle_ = -1;
+              return 1;
+            }
+          }
+      }
       int i = model.hit_test(
           inverse->map({double(Fl::event_x()), double(Fl::event_y())}));
-      if (i >= 0 && model.shapes[i].editor_index >= 0 && selected)
-        selected(model.shapes[i].editor_index);
+      if (i >= 0 && selected)
+        selected(i);
     }
     return 1;
   }
   return Fl_Widget::handle(event);
+}
+void SlideCanvas::finish_drag(bool cancel) {
+  if (!dragging())
+    return;
+  int shape = drag_shape_, handle = drag_handle_;
+  drag_shape_ = drag_handle_ = -1;
+  if (adjustment)
+    adjustment(cancel ? Cancel : End, shape, handle, {});
+  redraw();
 }
 } // namespace DomeOffice
