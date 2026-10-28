@@ -1,13 +1,18 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus the native calculation regression test. Actual
+assertions retained, plus four native calculation/matrix regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
 The historical Qt-based Release build also passed the original tests before
 porting. Native tests add range aggregation, mathematical/text/financial
-functions, lazy branches, error propagation and cycles. Unsupported functions
+functions, typed arrays, scalar intersection, lazy branches, error propagation,
+cycles, matrix-block cached results and failed-load rollback. The upstream FODS
+matrix corpus contributes 85 checked result cells from four fixtures. This
+caught and corrected logical-array coercion in SUMPRODUCT. The keyboard flow
+also enters SUMPRODUCT with an array constant, checks undo/redo, and independently
+reads its saved OpenFormula and numeric cache. Unsupported functions
 remain an explicit limitation; tests do not establish the original complete
 formula catalogue. Additional installed/Wayland results are recorded in the
 local native-engine artifacts and installation receipt.

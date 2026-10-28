@@ -112,11 +112,8 @@ void Workbook::add_sheet(const Text& name)
 int Workbook::rows(int s) const { return map_->sheet(s)->cellStorage()->rows(false); }
 int Workbook::columns(int s) const { return map_->sheet(s)->cellStorage()->columns(false); }
 Text Workbook::input(int s, int c, int r) const { return NativeCell(map_->sheet(s), c, r).userInput(); }
-Text Workbook::display(int s, int c, int r) const
-{
-    auto v = NativeCell(map_->sheet(s), c, r).value();
-    return v.display();
-}
+Text Workbook::display(int s, int c, int r) const { return value(s, c, r).display(); }
+NativeValue Workbook::value(int s, int c, int r) const { return NativeCell(map_->sheet(s), c, r).value(); }
 void Workbook::recalculate()
 {
     map_->recalculate();
@@ -128,6 +125,8 @@ void Workbook::validate_cell(int s, int c, int r)
         fail("This document is read-only");
     if (s < 0 || s >= sheet_count() || c < 1 || c > KS_colMax || r < 1 || r > KS_rowMax)
         fail("Cell is outside the worksheet");
+    if (map_->matrix_child(s, c, r))
+        fail("Edit the top-left cell of the matrix formula");
     // Validate covered-cell access before mutating the engine or document.
     cell_at(row_at(tables_.at(s), r), c);
 }
@@ -151,8 +150,10 @@ void Workbook::load(const Text& path)
         candidate = import_xlsx(path);
     else
         candidate.load(path);
-    load_package(candidate);
-    imported_xlsx_ = xlsx;
+    Workbook next;
+    next.load_package(candidate);
+    next.imported_xlsx_ = xlsx;
+    *this = std::move(next);
 }
 void Workbook::load_package(OdfPackage candidate)
 {
@@ -175,6 +176,7 @@ void Workbook::load_package(OdfPackage candidate)
         map_->addNewSheet(name);
     }
     int loaded = 0;
+    std::vector<MatrixBlock> matrices;
     for (int s = 0; s < tables.size(); ++s) {
         Int64 row = 1;
         auto list = tables[s].elementsByTagNameNS(TABLE, "table-row");
@@ -187,23 +189,43 @@ void Workbook::load_package(OdfPackage candidate)
                     continue;
                 int nc = repeated(ce, "number-columns-repeated");
                 Text formula = ce.attributeNS(TABLE, "formula");
+                if (ce.hasAttributeNS(TABLE, "number-matrix-columns-spanned") || ce.hasAttributeNS(TABLE, "number-matrix-rows-spanned")) {
+                    bool valid = false;
+                    int columns = ce.attributeNS(TABLE, "number-matrix-columns-spanned", "1").toInt(&valid);
+                    if (!valid || columns < 1)
+                        fail("Invalid matrix columns");
+                    int rows = ce.attributeNS(TABLE, "number-matrix-rows-spanned", "1").toInt(&valid);
+                    if (!valid || rows < 1)
+                        fail("Invalid matrix rows");
+                    if (formula.isEmpty() || Int64(nr) * nc + matrices.size() > 1'000'000)
+                        fail("Invalid matrix formula masters");
+                    for (int rr = 0; rr < nr; ++rr)
+                        for (int cc = 0; cc < nc; ++cc) {
+                            if (row + rr > KS_rowMax || col + cc > KS_colMax)
+                                fail("Matrix master outside worksheet");
+                            matrices.push_back({ s, int(col + cc), int(row + rr), columns, rows });
+                        }
+                }
                 Text value;
                 auto type = ce.attributeNS(OFFICE, "value-type");
                 if (!formula.isEmpty()) {
-                    int colon = formula.indexOf(":=");
-                    Text prefix = colon >= 0 ? formula.left(colon + 1) : Text();
                     value = Formula::decode(formula);
                 } else if (type == "float" || type == "currency" || type == "percentage")
                     value = ce.attributeNS(OFFICE, "value");
-                else if (type == "boolean")
-                    value = ce.attributeNS(OFFICE, "boolean-value") == "true" ? "TRUE" : "FALSE";
-                else if (type == "date")
+                else if (type == "boolean") {
+                    auto boolean = ce.attributeNS(OFFICE, "boolean-value");
+                    if (boolean != "true" && boolean != "false" && boolean != "1" && boolean != "0")
+                        fail("Invalid Boolean cell value");
+                    value = (boolean == "true" || boolean == "1") ? "TRUE" : "FALSE";
+                } else if (type == "date")
                     value = ce.attributeNS(OFFICE, "date-value");
                 else if (type == "time")
                     value = ce.attributeNS(OFFICE, "time-value");
+                else if (type == "string" && ce.hasAttributeNS(OFFICE, "string-value"))
+                    value = ce.attributeNS(OFFICE, "string-value");
                 else
                     value = text_value(ce);
-                if (!value.isEmpty()) {
+                if (!value.isEmpty() || type == "string") {
                     if (Int64(nr) * nc + loaded > 1000000 || Int64(row) + nr - 1 > KS_rowMax
                         || Int64(col) + nc - 1 > KS_colMax)
                         fail("Worksheet exceeds the current import cell limit");
@@ -232,6 +254,8 @@ void Workbook::load_package(OdfPackage candidate)
         auto ref = Formula::load_region(e.attributeNS(TABLE, "cell-range-address"));
         map_->addNamedRange(ref, e.attributeNS(TABLE, "name"));
     }
+    for (const auto& matrix : matrices)
+        map_->define_matrix(matrix.sheet, matrix.column, matrix.row, matrix.columns, matrix.rows);
 
     package_ = candidate;
     tables_ = tables;
@@ -248,17 +272,31 @@ void Workbook::save(const Text& path)
     for (const auto& key : formulas_) {
         auto indexes = key.split(':');
         int s = indexes[0].toInt(), c = indexes[1].toInt(), r = indexes[2].toInt();
-        if (!NativeCell(map_->sheet(s), c, r).value().isError())
+        if (!NativeCell(map_->sheet(s), c, r).value().incomplete)
             values[key] = input(s, c, r);
+    }
+    // Recompute every cached cell in an existing fixed matrix block. Dependent
+    // formulas read those calculated cells, never the imported stale caches.
+    for (const auto& matrix : map_->matrix_blocks()) {
+        auto key = Text("%1:%2:%3").arg(matrix.sheet).arg(matrix.column).arg(matrix.row);
+        if (!values.contains(key))
+            continue;
+        for (int r = 0; r < matrix.rows; ++r)
+            for (int c = 0; c < matrix.columns; ++c)
+                if (r || c)
+                    values[Text("%1:%2:%3").arg(matrix.sheet).arg(matrix.column + c).arg(matrix.row + r)] = { };
     }
     for (auto it = values.cbegin(); it != values.cend(); ++it) {
         auto indexes = it.key().split(':');
         int s = indexes[0].toInt(), c = indexes[1].toInt(), r = indexes[2].toInt();
         auto element = cell_at(row_at(tables_.at(s), r), c);
-        auto value = NativeCell(map_->sheet(s), c, r).value();
+        auto value = NativeCell(map_->sheet(s), c, r).value().scalar();
         for (auto key : { "value-type", "value", "string-value", "boolean-value", "date-value", "time-value" })
             element.removeAttributeNS(OFFICE, key);
         element.removeAttributeNS(TABLE, "formula");
+        // LibreOffice's extension mirrors the cached type; drop the old mirror
+        // when replacing the authoritative standard ODF value attributes.
+        element.removeAttributeNS("urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0", "value-type");
         // Preserve style and extension attributes and any non-text children.
         for (auto p : children(element, TEXT))
             if (p.localName() == "p" || p.localName() == "h")

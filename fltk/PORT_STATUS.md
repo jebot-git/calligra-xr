@@ -8,7 +8,10 @@ explicit opt-in. No fake Qt shared library or static Qt copy is used.
 The original Words paginated layout and Stage shape/animation stacks remain
 unported; the native paragraph/slide engines retain the existing basic editing
 scope. Sheets now uses a native parser/evaluator rather than the full upstream
-engine. Its smaller function catalogue is listed in README.md. Unknown
+engine. It now has typed arrays, 19 additional reference/lookup/matrix functions,
+fixed ODF matrix-block recalculation and cached-result saving. Calculation status
+separates unsupported operations from ordinary errors, including through error
+handlers and dependencies. The smaller catalogue is listed in README.md. Unknown
 functions return errors and their existing package caches remain intact.
 Passing the retained document and GUI tests does not establish full function
 or office-suite parity. This limitation supersedes the previous engine-reuse

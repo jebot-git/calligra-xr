@@ -12,6 +12,7 @@ public:
     void save(const Text& path);
     Text input(int sheet, int col, int row) const;
     Text display(int sheet, int col, int row) const;
+    NativeValue value(int sheet, int col, int row) const;
     void validate_cell(int sheet, int col, int row);
     void set(int sheet, int col, int row, const Text& value);
     int sheet_count() const;

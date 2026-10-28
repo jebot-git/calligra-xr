@@ -64,7 +64,7 @@ Office imports support Transitional and Strict namespaces and are content/data
 conversions, not full visual fidelity. DOCX formatting, headers/footers,
 numbering and drawings are omitted. PPTX themes, master content, rotations,
 crops, charts, media and animations are omitted. XLSX visual formatting, charts,
-pivots, macros, array/data-table formulas and local named expressions are not
+pivots, macros, XLSX array/data-table formulas and local named expressions are not
 supported. Ctrl+S proposes an ODF copy; imported Office files cannot be
 accidentally overwritten by an ODF save. Legacy binary formats are unsupported.
 
@@ -74,7 +74,7 @@ uncompressed. Signatures make ODF documents read-only; signed/macro-enabled
 Office packages and encrypted documents are rejected. XML entities/DTDs,
 excessive depth, escaping paths and external media fetches are rejected.
 Limits remain 10,000 entries, 64 MiB per entry, 256 MiB total, one million
-nonempty spreadsheet cells, 100,000 imported text/shape nodes and 4,096 slides.
+imported spreadsheet value cells, 100,000 imported text/shape nodes and 4,096 slides.
 
 ## Native spreadsheet calculation
 
@@ -85,14 +85,39 @@ operations; no external calculation engine or Python process is required.
 Formula input is limited to 8,192 Unicode characters and expression nesting to
 256 levels. Excessive input reports a limit/depth error.
 
+Typed, two-dimensional arrays preserve numbers, Booleans, Unicode strings,
+blanks and errors. Array constants use `{1,2;3,4}` in the editor and the correct
+OpenFormula column/row separators in saved ODF. Scalar functions and arithmetic
+map arrays element by element. Ordinary range expressions use scalar
+intersection; range-consuming functions and fixed matrix formulas evaluate
+complete arrays, including nested scalar functions.
+
+Reference and lookup functions include CHOOSE, INDEX, MATCH, LOOKUP,
+VLOOKUP/HLOOKUP, OFFSET, INDIRECT, ROW/COLUMN, ROWS/COLUMNS and SHEET/SHEETS.
+Lookups provide case-insensitive literal matching and sorted approximate
+matching. INDIRECT supports A1 references and absolute R1C1 references.
+SUMPRODUCT, TRANSPOSE, MMULT, MDETERM and MINVERSE operate on typed arrays.
+Materialized arrays are limited to one million cells; inversion/determinant
+matrices to 512 by 512, and matrix multiplication to 100 million products.
+Sparse range aggregates and dimension queries do not materialize huge ranges.
+
+Existing ODF fixed matrix blocks recalculate all their result cells, including
+dependent formulas and missing/stale imported caches. Save updates each result
+cache while preserving the block's extent. Edit the master formula in its
+top-left cell; individual result cells are protected. The UI does not yet
+provide matrix-block creation/deletion or dynamic spill ranges. An array result
+in a normal cell displays and caches its top-left element.
+
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,
 logical and type tests, rounding, powers/logarithms/trigonometry, basic text
 functions, PMT/PV/FV/NPV and basic date/time functions. This is a smaller
 catalogue than the original Calligra engine. Unknown functions produce `#NAME?`,
 not a fabricated numeric result. Dependent formulas propagate errors. Existing
-source caches for formulas that cannot be evaluated are preserved on ODF save;
-such caches are not proof that the native engine recalculated those functions.
+source caches for unsupported computations are preserved on ODF save, including
+dependencies and errors handled by IFERROR. Ordinary runtime errors update the
+saved caches. An unavailable calculation is tracked independently of its value;
+preserved caches do not prove that those functions were recalculated.
 Always keep originals for workbooks outside this implemented subset.
 
 ## Desktop behavior and validation
@@ -106,7 +131,12 @@ The existing three document CTests were ported without deleting assertions and
 pass against the Qt-free engines. They exercise ODF round trips, repeated rows,
 styles, names/shared formulas, Unicode, embedded media and invalid packages.
 The additional native-engine test checks range aggregation, financial math,
-lazy branches, error propagation and circular references. Independent Office
+lazy branches, error propagation and circular references. Array and matrix
+document tests cover the new calculations, cache handling, edit protection and
+failed-load rollback. Four upstream FODS fixtures check 85 matrix result cells
+against their stored expected values. The keyboard test edits an array formula,
+exercises undo/redo and inspects the saved OpenFormula and numeric cache.
+Independent Office
 producer fixtures and real keyboard/menu/save tests are described in
 [VALIDATION.md](VALIDATION.md). Full suite fidelity and all spreadsheet functions
 are explicitly outside the current milestone.

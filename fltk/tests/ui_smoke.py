@@ -127,6 +127,10 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                     click(host,410,74);key('a',('Control_L',));text('40');key('Return');key('Right')
                     wait(lambda:data()['cell']['value']=='70');key('z',('Control_L',));wait(lambda:data()['cell']['value']=='52');key('z',('Control_L','Shift_L'));wait(lambda:data()['cell']['value']=='70')
                     key('c',('Control_L',));key('Right');key('v',('Control_L',));wait(lambda:data()['cell']['value']=='70')
+                    click(host,410,74);key('a',('Control_L',));text('=SUMPRODUCT(A1:A2,{2;3})');key('Return')
+                    wait(lambda:data()['cell']['value']=='170')
+                    key('z',('Control_L',));wait(lambda:data()['cell']['value']=='70')
+                    key('z',('Control_L','Shift_L'));wait(lambda:data()['cell']['value']=='170')
                 else:
                     click(host,350,100 if app=='words' else 565);key('a',('Control_L',));text('DomeD '+app)
                     wait(lambda:data()['text']=='DomeD '+app)
@@ -143,6 +147,10 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                             if e.tag==ns+'line-break':return '\n'
                             return (e.text or '')+''.join(odf_text(c)+(c.tail or '') for c in e)
                         assert 'DomeD '+app in odf_text(xml)
+                    else:
+                        table='{urn:oasis:names:tc:opendocument:xmlns:table:1.0}'
+                        office='{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+                        assert any(e.get(table+'formula')=='of:=SUMPRODUCT([.A1:.A2];{2|3})' and e.get(office+'value')=='170' for e in xml.iter())
                 wait(lambda:(art/f'{app}.ppm').exists())
                 if app=='stage':
                     key('m',('Control_L',));wait(lambda:data()['modified']);key('s',('Control_L',));wait(lambda:not data()['modified'])
