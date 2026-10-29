@@ -565,19 +565,22 @@ public:
 class TempFile {
   Text p;
   int fd = -1;
+  bool created = false;
 
 public:
   TempFile(const Text &s) : p(s) {}
   ~TempFile() {
     close();
-    if (!p.empty())
+    if (created && !p.empty())
       ::unlink(p.toUtf8().c_str());
   }
   bool open() {
     auto b = p.toUtf8();
     fd = mkstemp(b.data());
-    if (fd >= 0)
+    if (fd >= 0) {
       p = Text::fromUtf8(b);
+      created = true;
+    }
     return fd >= 0;
   }
   void close() {

@@ -1032,3 +1032,70 @@ uv run --with odfpy --with openpyxl --with Pillow --with python-xlib python3 flt
 ```
 
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-date-context-20261029/`.
+
+
+## OpenDocument export and CUPS print baseline — 2026-10-29
+
+The user's acceptance baseline is OpenDocument export and CUPS printing; full
+upstream editing/layout/calculation/filter parity is optional future work.
+The new native print backend uses Cairo PDF, retained native glyph positions
+and FreeType faces (including font-instance lifetimes/variations), existing page
+and frame/table layouts, slide geometry and the shared bounded image decoder.
+Scalable text remains vector output; bitmap fonts retain the native alpha-mask
+behavior. Sheets paginates a calculated-value grid across all/current worksheets.
+This is the existing native model's supported content, not full upstream print
+style/filter fidelity.
+
+File/Print and Ctrl+P use an FLTK printer dialog. Printer selection, copies,
+validated page ranges, all/current worksheets, cancellation, unsupported-feature
+confirmation and submission errors are handled without a GTK print dialog or
+Qt. CUPS client commands receive separate argv elements without a shell. Print
+PDFs are completed/synchronized before atomic replacement and before submission.
+The shared temporary-file owner now removes only files it actually created;
+a rejected PDF filename cannot delete an unopened template path.
+
+The 32 Release and ASan/UBSan core suites pass with core leak detection enabled.
+Independent odfpy fixtures produce two Words pages with Unicode/table paint,
+five worksheet tiles including a second sheet, and two slides with vector/text/
+transparent PNG content. Exported ODT/ODS/ODP packages reopen and print again;
+the source files remain unchanged. All nine PDF pages are rasterized with
+Poppler and inspected visually. The PDF engine's image surfaces own their data
+through Cairo's complete recording lifetime. Real CUPS schedulers, running as
+the regular user on private loopback ports, accept and complete jobs through a
+capture backend. These tests do not add/change system queues or print to a
+physical printer. The real keyboard workflow opens the FLTK dialog and submits
+from each application. GUI sanitizer runs disable third-party leak checking;
+headless/core sanitizer checks keep it enabled.
+
+OpenDocument ZIP checks verify the first, uncompressed mimetype entry with no
+local/central extra data. odflint's Python 3 comparison of `zi.comment` (bytes)
+against an empty string produces a false header warning. The artifact copy of
+the linter corrects only that comparison to `b""`; the exported files pass its
+remaining checks unchanged. No export packaging defect was found or patched.
+
+References: [CUPS printing/options](https://www.cups.org/doc/options.html),
+[Cairo PDF surfaces](https://www.cairographics.org/manual/cairo-PDF-Surfaces.html)
+and [FreeType font ownership](https://www.cairographics.org/manual/cairo-FreeType-Fonts.html).
+Reproduce the print/export and private CUPS tests with:
+
+```sh
+uv run --with odfpy --with openpyxl --with Pillow --with pypdf python3 fltk/tests/print_producer.py /tmp/calligra-print --cups
+uv run --with odfpy --with openpyxl --with Pillow --with pypdf --with python-xlib python3 fltk/tests/print_ui.py --artifacts /tmp/calligra-print-ui
+uv run --with odfpy --with openpyxl --with Pillow --with pypdf --with python-xlib python3 fltk/tests/print_wayland.py /tmp/calligra-print-wayland
+```
+
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-print-baseline-20261029/`.
+
+The final print controls are a modal FLTK panel in the existing GPU window.
+A separate transient toplevel exposed a DomeD visual-position/hit-test mismatch;
+the in-window panel avoids that mismatch and keeps the document's GPU driver.
+Final native Wayland tests use actual pointer clicks on Print in all three
+applications and complete CUPS jobs. X11 Release/sanitizer tests also check
+Escape cancellation and CUPS job attributes for copies/page ranges. Shared
+editing/save/menu, Office-to-ODF conversion, native image and tab/leader GUI
+regressions pass. Physical printer output has not been exercised because no
+system printer is configured.
+
+Printing does not commit edits into read-only documents. The GUI path skips
+model mutation for protected/signed input; const print rendering remains
+available while OpenDocument saving continues to preserve read-only protection.

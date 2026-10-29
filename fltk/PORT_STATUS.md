@@ -1,4 +1,14 @@
-# Native engine milestone — 2026-10-28
+# Native engine milestone — 2026-10-29
+
+The user-defined acceptance baseline is now **OpenDocument export and CUPS
+printing** for the Qt-free system-FLTK applications. Full upstream functional
+parity is optional future work. Save/Save as and batch export write ODT/ODS/ODP;
+a native PDF print backend and FLTK CUPS dialog cover all three applications.
+Words prints native pages, Stage prints slide scenes, and Sheets prints a
+paginated calculated-value grid with all/current worksheet selection. Copies,
+page ranges, cancellation and CUPS submission errors have explicit handling.
+The remaining-work inventory below describes optional fidelity/features beyond
+that baseline, rather than additional baseline acceptance gates.
 
 The default Words/Sheets/Stage document, XML/package and spreadsheet calculation
 paths now use native C++20, libxml2, libzip and the installed system FLTK. They
@@ -80,7 +90,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
-| Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts | Full IME/preedit validation, accessibility, session recovery, printing/export UI, broad XR workflow tests |
+| Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Full IME/preedit validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
 | Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
@@ -114,7 +124,7 @@ and vertical alignment position continuous text within each frame. Unknown
 objects and extension data remain in the saved package, but preservation does
 not imply correct display or editing support.
 
-## Next source-port milestones
+## Optional source-port milestones beyond the accepted baseline
 
 1. Continue porting the original calculation behaviors, settings, model/style
    handling and document filters to native C++, using upstream corpora to check

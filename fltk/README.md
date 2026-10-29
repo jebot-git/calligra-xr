@@ -47,6 +47,43 @@ The upstream Qt/KDE applications still require explicit configuration:
 cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=ON
 ```
 
+## Export and printing baseline
+
+The accepted baseline is OpenDocument export and CUPS printing in Words, Sheets
+and Stage. Full upstream editing/layout/function/filter parity remains optional
+future work, documented in PORT_STATUS.md.
+
+Save or Save as writes ODT, ODS or ODP through the native package/model paths.
+Imported DOCX/XLSX/PPTX content can be saved in the corresponding OpenDocument
+format. Existing unsupported package content and calculation caches retain the
+preservation limits described below.
+
+File → Print (Ctrl+P) opens an FLTK dialog with CUPS printer selection, copies,
+page ranges and all/current worksheet selection. Words uses native pagination;
+Stage prints all slide scenes; Sheets prints calculated cell values in a
+paginated A4 grid. Print pages retain native glyph positioning, supported table
+paint, slide geometry and decoded images. CUPS receives a complete PDF job,
+using the selected printer's media with fit-to-page. Missing glyphs/unsupported
+features are reported before interactive submission. A configured CUPS queue
+and the `cups-client` commands `lp`/`lpstat` are required at runtime. No GTK print
+dialog or Qt library is used. Cairo PDF/FreeType development files are required
+at build time. The system FLTK/libdecor decoration path can still load GTK3.
+
+Batch export/printing does not require a display:
+
+```sh
+calligra-words-fltk input.docx --export-odf output.odt
+calligra-sheets-fltk input.ods --print-to PRINTER
+calligra-stage-fltk input.odp --print-pdf preview.pdf
+```
+
+The print preview PDF is generated from the document model, not a screenshot.
+Scalable fonts remain vector glyphs; bitmap fonts and supported images use the
+bounded native raster path. Source documents are not changed by printing.
+Advanced spreadsheet print styles/areas and full upstream office fidelity remain
+optional. No physical printer is configured on this system; validation uses real
+CUPS test queues.
+
 ## Document support
 
 - Words loads ODT and imports DOCX body text, paragraphs and basic tables. It

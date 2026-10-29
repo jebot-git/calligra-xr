@@ -591,6 +591,11 @@ std::shared_ptr<ShapedText> ShapingParagraph::line(size_t begin,
                                                    size_t end) const {
   return impl_->shape_line(begin, end);
 }
+FT_Face NativeTextShaper::print_face(const NativeTypeface &font) {
+  if (!font.implementation)
+    fail("Missing native print font");
+  return font.implementation->raster;
+}
 GlyphBitmap NativeTextShaper::rasterize(const NativeTypeface &font,
                                         uint32_t glyph, unsigned pixels) {
   if (!font.implementation || pixels < 1 || pixels > 4096)

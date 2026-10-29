@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_text_layout.h"
+#include <ft2build.h>
+#include FT_FREETYPE_H
 
 namespace DomeOffice {
 struct NativeTypeface {
@@ -55,6 +57,9 @@ public:
   ShapedText shape(const Text &, const TextFont &, bool rtl = false) const;
   static GlyphBitmap rasterize(const NativeTypeface &, uint32_t glyph,
                                unsigned pixels);
+  // Borrowed font for native print surfaces. Retain font.implementation for
+  // the complete consumer lifetime; this context is single-threaded.
+  static FT_Face print_face(const NativeTypeface &);
   struct Impl;
 
 private:

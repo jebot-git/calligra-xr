@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_limits.h"
+#include "native_print.h"
+#include "print_dialog.h"
 #include "suite/desktop-menu.h"
 #include "suite/gpu-window.h"
 #include "text_documents.h"
@@ -39,7 +41,7 @@ std::string column_name(int column)
     return s;
 }
 struct Options {
-    std::string file, report, capture;
+    std::string file, report, capture, export_odf, print_pdf, printer;
     int duration = 0;
     bool present = false, pages = false;
 };
@@ -56,6 +58,7 @@ enum Command {
     Open,
     Save,
     SaveAs,
+    Print,
     Quit,
     Undo,
     Redo,
@@ -224,6 +227,7 @@ public:
     bool modified = false, updating = false, presenting = false;
     int sheet = 0, slide = 0, box = 0, edit_row = 0, edit_col = 0;
     bool cell_pending = false;
+    bool printing = false;
     Options options;
     std::vector<Fl_Widget*> presentation_hidden;
     int canvas_x = 0, canvas_y = 0, canvas_w = 0, canvas_h = 0;
@@ -256,6 +260,7 @@ public:
         add("&File/&Open…", FL_CTRL + 'o', Open);
         add("&File/&Save", FL_CTRL + 's', Save);
         add("&File/Save &as…", FL_CTRL + FL_SHIFT + 's', SaveAs);
+        add("&File/&Print…", FL_CTRL + 'p', Print);
         add("&File/&Quit", FL_CTRL + 'q', Quit);
         add("&Edit/&Undo", FL_CTRL + 'z', Undo);
         add("&Edit/&Redo", FL_CTRL + FL_SHIFT + 'z', Redo);
@@ -783,6 +788,7 @@ public:
     }
     void command(int c)
     {
+        if (printing && c != Quit) return;
         guard([&] {
             if (canvas && canvas->dragging()) canvas->finish_drag();
             if (c == New) {
@@ -814,7 +820,32 @@ public:
                 window.redraw();
             } else if (c == Save || c == SaveAs)
                 save(c == SaveAs);
-            else if (c == Quit) {
+            else if (c == Print) {
+                if (!readonly()) {
+                    commit_cell();
+                    commit_text();
+                }
+                struct PrintingScope {
+                    bool& active;
+                    explicit PrintingScope(bool& value) : active(value) { active = true; }
+                    ~PrintingScope() { active = false; }
+                } printing_scope(printing);
+                if (auto request = print_dialog(window, kind == Kind::Sheets, sheet)) {
+                    TempDir directory;
+                    auto path = directory.path() + "/print.pdf";
+                    PrintResult result;
+                    if (kind == Kind::Words)
+                        result = DomeOffice::print_pdf(*words, path, request->settings);
+                    else if (kind == Kind::Sheets)
+                        result = DomeOffice::print_pdf(*workbook, path, request->settings);
+                    else
+                        result = DomeOffice::print_pdf(*stage, path, request->settings);
+                    if ((result.missing_glyphs || !result.unsupported.empty()) && fl_choice("Some document features cannot be rendered by this build. Print the supported content?", "Cancel", "Print", nullptr) != 1)
+                        return;
+                    auto job = cups_submit(path, request->destination, file.empty() ? "Calligra document" : qs(file.c_str()), request->copies, request->pages, result.pages);
+                    message(utf8(job));
+                }
+            } else if (c == Quit) {
                 if (discard())
                     window.hide();
             } else if (c == Undo || c == Redo) {
@@ -973,6 +1004,8 @@ public:
             { "desktop_menu",
                 { { "service", desktop_menu->serviceName() }, { "path", desktop_menu->objectPath() },
                     { "attached", desktop_menu->attached() } } } };
+        data["print_dialog"] = printing;
+        data["window_size"] = { window.w(), window.h() };
         if (kind == Kind::Sheets) {
             data["cell"] = { { "sheet", sheet }, { "row", grid->selected_row + 1 },
                 { "column", grid->selected_col + 1 }, { "input", formula->value() },
@@ -1191,6 +1224,7 @@ int Window::handle(int event)
             int c = key == 'n' ? New
                 : key == 'o'   ? Open
                 : key == 's'   ? ((state & FL_SHIFT) ? SaveAs : Save)
+                : key == 'p'   ? Print
                 : key == 'q'   ? Quit
                 : key == 'z'   ? ((state & FL_SHIFT) ? Redo : Undo)
                 : key == 'y'   ? Redo
@@ -1223,16 +1257,54 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
                 options.duration = std::stoi(value());
             else if (arg == "--capture")
                 options.capture = value();
+            else if (arg == "--export-odf")
+                options.export_odf = value();
+            else if (arg == "--print-pdf")
+                options.print_pdf = value();
+            else if (arg == "--print-to")
+                options.printer = value();
             else if (arg == "--report")
                 options.report = value();
             else if (arg == "--help") {
                 std::cout << "Calligra FLTK [FILE] [--report JSON] [--capture PPM] "
-                             "[--quit-after-ms N] [--page-layout (Words)]\n";
+                             "[--quit-after-ms N] [--page-layout (Words)]\n"
+                             "Batch: FILE [--export-odf OUTPUT] [--print-pdf OUTPUT.pdf] [--print-to CUPS_PRINTER]\n";
                 return 0;
             } else if (arg.starts_with("--"))
                 throw std::runtime_error("Unknown argument " + arg);
             else
                 options.file = arg;
+        }
+
+        if (!options.export_odf.empty() || !options.print_pdf.empty() || !options.printer.empty()) {
+            if (options.file.empty())
+                throw std::runtime_error("Batch export/printing requires an input document");
+            TempDir directory;
+            auto pdf = options.print_pdf.empty() ? directory.path() + "/print.pdf" : qs(options.print_pdf.c_str());
+            auto run = [&](auto& document) {
+                document.load(qs(options.file.c_str()));
+                if (!options.export_odf.empty())
+                    document.save(qs(options.export_odf.c_str()));
+                if (!options.print_pdf.empty() || !options.printer.empty()) {
+                    auto result = DomeOffice::print_pdf(document, pdf);
+                    std::cout << "Prepared " << result.pages << " print pages\n";
+                    if (result.missing_glyphs || !result.unsupported.empty())
+                        std::cerr << "Print rendering: " << result.missing_glyphs << " missing glyphs, " << result.unsupported.size() << " unsupported features\n";
+                    if (!options.printer.empty())
+                        std::cout << utf8(cups_submit(pdf, qs(options.printer.c_str()), qs(options.file.c_str()))) << '\n';
+                }
+            };
+            if (kind == Kind::Words) {
+                TextDocument document;
+                run(document);
+            } else if (kind == Kind::Sheets) {
+                Workbook document;
+                run(document);
+            } else {
+                Presentation document;
+                run(document);
+            }
+            return 0;
         }
 
         if (!getenv("FLTK_BACKEND"))
