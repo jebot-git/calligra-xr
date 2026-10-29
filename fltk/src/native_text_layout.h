@@ -273,6 +273,9 @@ TextBoxLayout layout_text_box(const TextFlow &, double width,
 TextBoxLayout layout_text_box(const TextFlow &, double width,
                               class NativeTextShaper &);
 TextFlow read_text_flow(const OdfPackage &);
+// Returns the original source paragraph, including repeated header instances.
+// Empty cells without a source paragraph do not invent an editing position.
+std::optional<size_t> text_paragraph_at(const TextPage &, double x, double y);
 TextPagination paginate_text(const TextFlow &, const MeasureText &);
 TextPagination paginate_text(const TextFlow &, class NativeTextShaper &);
 } // namespace DomeOffice

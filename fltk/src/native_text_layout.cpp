@@ -3,12 +3,14 @@
 #include "native_list_number.h"
 #include "native_table_layout.h"
 #include "native_table_model.h"
+#include "native_table_pagination.h"
 #include "native_tabs.h"
 #include "native_text_shaper.h"
 #include <charconv>
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <set>
 #include <span>
 #include <unicode/ubrk.h>
 #include <unicode/utext.h>
@@ -2373,8 +2375,14 @@ static TextPagination paginate_impl(const TextFlow &flow,
     fail("Native text measurement is required");
   TextPagination result;
   result.unsupported = flow.unsupported;
-  if (!flow.tables.empty())
-    note(result.unsupported, "Native table pagination is not implemented");
+  auto blocks = flow.blocks;
+  if (blocks.empty())
+    for (size_t i = 0; i < flow.paragraphs.size(); ++i)
+      blocks.push_back({TextBlock::Paragraph, i});
+  std::set<size_t> roots;
+  for (const auto &block : blocks)
+    if (block.kind == TextBlock::Paragraph)
+      roots.insert(block.index);
   Breaks breaks;
   std::vector<std::vector<Cluster>> clusters;
   std::vector<std::shared_ptr<ShapingParagraph>> shaping;
@@ -2386,13 +2394,17 @@ static TextPagination paginate_impl(const TextFlow &flow,
         flow.paragraphs.size() > 100'000)
       fail("Document exceeds native layout limits");
     check_paragraph(p);
+    bool root = roots.contains(shaping.size());
     shaping.push_back(
-        shaper ? std::make_shared<ShapingParagraph>(shaper->prepare(p))
-               : nullptr);
+        shaper && root ? std::make_shared<ShapingParagraph>(shaper->prepare(p))
+                       : nullptr);
     if (shaping.back() && shaping.back()->whole().missing_glyphs)
       note(result.unsupported, "Missing font glyphs");
-    clusters.push_back(breaks.clusters(
-        p, measure, shaping.back() ? &shaping.back()->whole() : nullptr));
+    clusters.push_back(root ? breaks.clusters(p, measure,
+                                              shaping.back()
+                                                  ? &shaping.back()->whole()
+                                                  : nullptr)
+                            : std::vector<Cluster>{});
   }
   Text master = flow.first_master;
   auto style = [&]() {
@@ -2416,18 +2428,92 @@ static TextPagination paginate_impl(const TextFlow &flow,
     y = result.pages.back().style.top;
     previous_after = 0;
   };
-  for (size_t paragraph = 0; paragraph < flow.paragraphs.size(); ++paragraph) {
-    const auto &p = flow.paragraphs[paragraph];
+  auto page_empty = [&] {
+    const auto &page = result.pages.back();
+    return page.lines.empty() && page.cells.empty() && page.paints.empty() &&
+           y <= page.style.top + 1e-7;
+  };
+  ParagraphBoxes cell_paragraphs(flow, measure, shaper);
+  NativeBlockLayouter table_layout(flow, [&](const TextBlock &block, double w) {
+    return cell_paragraphs(block, w);
+  });
+  size_t emitted_lines = 0, emitted_cells = 0, emitted_paints = 0;
+  for (size_t root = 0; root < blocks.size(); ++root) {
+    const auto &block = blocks[root];
+    if (block.kind == TextBlock::Table) {
+      const auto &table = block_table(flow, block);
+      if (!table.visible)
+        continue;
+      bool changed_master = !table.master.empty() && table.master != master;
+      if (changed_master) {
+        master = table.master;
+        if (page_empty())
+          result.pages.back().style = style();
+        else
+          advance(false);
+        y = result.pages.back().style.top;
+      } else if ((table.break_before || pending_break) && !page_empty())
+        advance(table.master.empty());
+      pending_break = false;
+      if (table.keep_next)
+        note(result.unsupported, "Table keep-with-next is not implemented");
+      NativeTablePaginator paginator(flow, block, table_layout);
+      bool first = true;
+      while (true) {
+        const auto &page = result.pages.back().style;
+        double gap =
+            first ? std::max(previous_after, std::max(0., table.before)) : 0;
+        double bottom = page.height - page.bottom;
+        auto fragment = paginator.next(
+            page.width - page.left - page.right, bottom - y - gap,
+            std::max(.01, bottom - page.top - gap), page_empty());
+        if (fragment.advance) {
+          advance(true);
+          continue;
+        }
+        for (const auto &warning : fragment.display.unsupported)
+          note(result.unsupported, warning);
+        offset_text_layout(fragment.display, page.left, y + gap);
+        emitted_lines += fragment.display.lines.size();
+        emitted_cells += fragment.display.cells.size();
+        emitted_paints += fragment.display.paints.size();
+        if (emitted_lines > 1000000 || emitted_cells > 1000000 ||
+            emitted_paints > 4000000)
+          fail("Paginated document display exceeds native limit");
+        auto &target = result.pages.back();
+        target.lines.insert(
+            target.lines.end(),
+            std::make_move_iterator(fragment.display.lines.begin()),
+            std::make_move_iterator(fragment.display.lines.end()));
+        target.paints.insert(
+            target.paints.end(),
+            std::make_move_iterator(fragment.display.paints.begin()),
+            std::make_move_iterator(fragment.display.paints.end()));
+        target.cells.insert(
+            target.cells.end(),
+            std::make_move_iterator(fragment.display.cells.begin()),
+            std::make_move_iterator(fragment.display.cells.end()));
+        y += gap + fragment.display.height;
+        if (fragment.finished)
+          break;
+        first = false;
+        advance(true);
+      }
+      previous_after = std::max(0., table.after);
+      pending_break = table.break_after;
+      continue;
+    }
+    const size_t paragraph = block.index;
+    const auto &p = flow.paragraphs.at(paragraph);
     bool changed_master = !p.master.empty() && p.master != master;
     if (changed_master) {
       master = p.master;
-      if (result.pages.back().lines.empty())
+      if (page_empty())
         result.pages.back().style = style();
       else
         advance(false);
       y = result.pages.back().style.top;
-    } else if ((p.break_before || pending_break) &&
-               !result.pages.back().lines.empty())
+    } else if ((p.break_before || pending_break) && !page_empty())
       advance(p.master.empty());
     pending_break = false;
     size_t start = 0;
@@ -2456,24 +2542,32 @@ static TextPagination paginate_impl(const TextFlow &flow,
       // Keep chains together when their complete content fits a fresh page.
       double group_height = height;
       if (first && p.keep_next) {
-        size_t next = paragraph;
-        while (next + 1 < flow.paragraphs.size() &&
-               flow.paragraphs[next].keep_next &&
-               group_height <= bottom - page.top && next - paragraph < 1000) {
-          const auto &following = flow.paragraphs[next + 1];
-          if (flow.paragraphs[next].break_after || following.break_before ||
+        size_t next = root;
+        while (next + 1 < blocks.size() &&
+               blocks[next].kind == TextBlock::Paragraph &&
+               flow.paragraphs[blocks[next].index].keep_next &&
+               group_height <= bottom - page.top && next - root < 1000) {
+          if (blocks[next + 1].kind == TextBlock::Table) {
+            note(result.unsupported,
+                 "Paragraph keep-with-next across a table is not implemented");
+            break;
+          }
+          size_t index = blocks[next + 1].index;
+          const auto &following = flow.paragraphs[index];
+          const auto &previous = flow.paragraphs[blocks[next].index];
+          if (previous.break_after || following.break_before ||
               !following.master.empty())
             break;
-          group_height += std::max(std::max(0., flow.paragraphs[next].after),
+          group_height += std::max(std::max(0., previous.after),
                                    std::max(0., following.before));
-          auto next_lines = wrap(following, clusters[next + 1], page, 0,
-                                 measure, shaping[next + 1].get(), shaper);
+          auto next_lines = wrap(following, clusters[index], page, 0, measure,
+                                 shaping[index].get(), shaper);
           for (const auto &line : next_lines)
             group_height += line.line.height;
           ++next;
         }
       }
-      if (first && !result.pages.back().lines.empty() &&
+      if (first && !page_empty() &&
           ((p.keep_together && height <= bottom - page.top &&
             y + gap + height > bottom) ||
            (p.keep_next && group_height <= bottom - page.top &&
@@ -2489,8 +2583,7 @@ static TextPagination paginate_impl(const TextFlow &flow,
       if (fit < lines.size()) {
         if (fit && lines.size() - fit < size_t(p.widows))
           fit = lines.size() > size_t(p.widows) ? lines.size() - p.widows : 0;
-        if ((!fit || (first && fit < size_t(p.orphans))) &&
-            !result.pages.back().lines.empty()) {
+        if ((!fit || (first && fit < size_t(p.orphans))) && !page_empty()) {
           advance(true);
           continue;
         }
@@ -2519,6 +2612,8 @@ static TextPagination paginate_impl(const TextFlow &flow,
         line.y = y;
         line.baseline += y;
         y += line.height;
+        if (++emitted_lines > 1000000)
+          fail("Paginated document display exceeds native limit");
         result.pages.back().lines.push_back(std::move(line));
       }
       if (fit == lines.size())

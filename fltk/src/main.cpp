@@ -376,6 +376,11 @@ public:
                 this);
             editor = new Fl_Text_Editor(194, 530, 894, 206);
             editor->buffer(&buffer);
+            editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
+            content->resizable(canvas);
+        }
+        content->end();
+        if (editor) {
             editor->user_data(this);
             auto undo_key = [](int key, Fl_Text_Editor* widget) -> int {
                 auto* office = static_cast<Office*>(widget->user_data());
@@ -385,10 +390,7 @@ public:
             editor->add_key_binding('z', FL_CTRL, undo_key);
             editor->add_key_binding('z', FL_CTRL | FL_SHIFT, undo_key);
             editor->add_key_binding('y', FL_CTRL, undo_key);
-            editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
-            content->resizable(canvas);
         }
-        content->end();
         if (kind == Kind::Stage) {
             auto* present = new Fl_Button(568, 10, 130, 32, "Present");
             present->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(Present); }, this);

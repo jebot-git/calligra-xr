@@ -176,9 +176,14 @@ font synthesis, arbitrary variable axes, color glyph painting, advanced
 justification/hyphenation and vertical text remain incomplete. Rich formatting
 controls, paginated table/section layout, structural list editing, columns, notes,
 headers/footers, anchored shapes and page-style details remain to be ported.
-Words retains native table grids but still flattens their paragraphs in the page
-view and reports table pagination as unsupported. The continuous Stage frame
-path paints native cells; this does not establish page-aware table support. DOCX
+Words paints native table grids in ordered page flow, moving rows joined by
+vertical spans together and repeating complete header groups. Remaining rows
+reflow when a following master changes page width. Double-click selection
+resolves the source cell, including nested cells and repeated headers. Oversized
+row groups still need cell-by-cell splitting and currently retain their geometry
+with an explicit overflow diagnostic. Keep-with-next across tables is also
+reported as unsupported. The continuous Stage frame path shares cell geometry
+and GPU paint. DOCX
 import still omits styles/page geometry. No PDF/printing parity is claimed.
 
 Layout limits are one million Unicode scalars per paragraph, four million per

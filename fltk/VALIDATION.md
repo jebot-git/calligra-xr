@@ -341,7 +341,7 @@ are checked, together with a 40,000-cell repeated grid that reads one source
 paragraph once. `table_model_producer.py` creates an independent odfpy ODT with
 headers, merged/repeated/nested cells and checks its model without modifying the
 package. These checks establish the source model. The subsequent continuous frame
-renderer is covered below; Words table pagination remains unsupported.
+renderer and initial Words table pagination are covered below.
 
 
 ## Continuous native table layout — 2026-10-29
@@ -373,6 +373,37 @@ Tests use isolated sessions and do not restart the active desktop. The current
 native Wayland proof covers all three applications, system FLTK mapping without
 Qt, rendered Stage table pixels and keyboard undo/redo. GTK3 can still load
 through system FLTK's libdecor decoration plugin. This is continuous frame
-layout validation; Words row splitting, repeated page headers, merged-cell
-continuations, page-width reflow and cell-aware page editing remain unfinished.
+layout validation; the initial Words pagination stage below adds repeating
+headers, master-width reflow and source cell selection. Split rows, merged-cell
+continuations and rich structural editing remain unfinished.
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-table-layout-20261029/`.
+
+
+## Initial paginated native table flow — 2026-10-29
+
+The `native-table-pagination` suite exercises ordered root/cell source identities,
+repeated headers, width changes between masters, merged row groups, whole-table
+keep mode, explicit table breaks, empty-cell tables, bounded oversized-group
+diagnostics and source-aware selection across columns/nested cells. A distinct
+odfpy document contains 18 two-column body rows and header rows on three pages.
+`table_pagination_ui.py` checks actual header/background/text pixels, source cell
+selection, text edit/undo/redo, package-preserving save, page navigation and
+reopen. The GUI test exposed Words' focused editor bypassing application Undo;
+the shared editor bindings now route Undo/Redo through the native journal.
+
+Oversized row splitting, merged continuations and keep-with-next across tables
+are not implemented by this stage. The next page-layout work requires per-cell
+source cursors rather than slicing glyphs across arbitrary horizontal bands.
+
+The current 22 Release suites and 22 ASan/UBSan suites pass with core leak
+checking. The full shared GUI regression and the three-page table GUI fixture
+pass in both builds; a fresh private
+native Wayland run verifies rendered Words table/header pixels and all three
+applications using system FLTK without Qt mapped. GTK3 remains dynamically loaded
+by system decorations. Reproduce the focused GUI check with:
+
+```sh
+uv run --with odfpy --with Pillow --with python-xlib python3 fltk/tests/table_pagination_ui.py
+```
+
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-table-pagination-20261029/`.
