@@ -167,5 +167,55 @@ void GpuTextCache::draw(const ShapedText &text, const SceneTransform &transform,
                         SceneColor color, Fl_Gl_Window &window) {
   impl_->draw(text, transform, color, window);
 }
+void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,
+                             const SceneTransform &transform,
+                             SceneColor fallback, Fl_Gl_Window &host) {
+  DrawingState state(host.w(), host.h());
+  glDisable(GL_TEXTURE_2D);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_LIGHTING);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  for (const auto &tab : tabs) {
+    auto color = tab.color.value_or(fallback);
+    glColor4d(color.red / 255., color.green / 255., color.blue / 255.,
+              color.alpha);
+    glBegin(GL_QUADS);
+    for (const auto &stroke : tab.strokes) {
+      double dx = stroke.x2 - stroke.x1, dy = stroke.y2 - stroke.y1,
+             n = std::hypot(dx, dy);
+      if (n <= 0)
+        continue;
+      double nx = -dy / n, ny = dx / n;
+      double dpi_x = double(host.pixel_w()) / host.w(),
+             dpi_y = double(host.pixel_h()) / host.h();
+      double tx = (transform.a * dx / n + transform.c * dy / n) * dpi_x,
+             ty = (transform.b * dx / n + transform.d * dy / n) * dpi_y;
+      double ax = (transform.a * nx + transform.c * ny) * dpi_x,
+             ay = (transform.b * nx + transform.d * ny) * dpi_y;
+      double density = std::abs(tx * ay - ty * ax) / std::hypot(tx, ty);
+      if (!std::isfinite(density) || density <= 0)
+        continue;
+      double thickness = std::max(stroke.width, 1 / density);
+      glColor4d(color.red / 255., color.green / 255., color.blue / 255.,
+                color.alpha * std::min(1., stroke.width * density));
+      double x = nx * thickness / 2, y = ny * thickness / 2;
+      for (auto p : {ScenePoint{stroke.x1 + x, stroke.y1 + y},
+                     ScenePoint{stroke.x2 + x, stroke.y2 + y},
+                     ScenePoint{stroke.x2 - x, stroke.y2 - y},
+                     ScenePoint{stroke.x1 - x, stroke.y1 - y}}) {
+        auto screen = transform.map(p);
+        glVertex2d(screen.x, screen.y);
+      }
+    }
+    glEnd();
+    if (tab.leader) {
+      if (tab.stop.leader_font.color_set && !tab.stop.leader_font.color)
+        color = fallback;
+      impl_->draw(*tab.leader, transform, color, host);
+      glDisable(GL_TEXTURE_2D);
+    }
+  }
+}
 uint64_t GpuTextCache::rasterizations() const { return impl_->rasterizations; }
 } // namespace DomeOffice

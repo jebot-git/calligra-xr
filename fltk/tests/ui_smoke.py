@@ -521,6 +521,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 restored=json.loads(reopen.read_text())['page_layout' if app=='words' else 'scene']
                 assert restored['image_uploads']==6 and restored['image_decodes']==7,restored
                 print('PASS:',app,'PNG/JPEG/SVG/GIF/BMP and inline image lists, alpha pixels, shared GPU cache, placeholders and edit/save/reopen',flush=True)
+        subprocess.run([sys.executable,str(ROOT/'fltk/tests/tabs_ui.py'),'--bin-dir',str(args.bin_dir.resolve()),'--test-bin-dir',str(args.test_bin_dir.resolve()),'--artifacts',str(art/'tabs')],env=env,check=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

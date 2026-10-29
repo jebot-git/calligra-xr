@@ -10,6 +10,8 @@ public:
   ~GpuTextCache();
   void draw(const ShapedText &, const SceneTransform &, SceneColor,
             Fl_Gl_Window &);
+  void draw_tabs(const std::vector<TextTabPlacement> &, const SceneTransform &,
+                 SceneColor, Fl_Gl_Window &);
   uint64_t rasterizations() const;
 
 private:

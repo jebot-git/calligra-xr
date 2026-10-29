@@ -125,8 +125,21 @@ GIFs use their first frame. Other image formats and full SVG fidelity remain
 unported. Named ODF 1.4 number
 formats, extended locale/spell-out numbering and outline/field numbering still
 need work. Missing continuation targets are diagnosed and restarted. Full
-paragraph tab layout and structural list editing remain incomplete; existing
+structural list editing remains incomplete; existing
 list XML and styles are retained during supported text edits.
+
+Paragraph tabs now have a native style/model/display path shared by Words and
+Stage. Stop collections replace inherited lists, including explicit empty lists.
+Default spacing and ODF 1.4 relative origins come from paragraph defaults.
+Left/right/center and arbitrary Unicode delimiter alignment support RTL text,
+indents, wrapping and source offsets. Overfull aligned fields can consume a
+zero-width tab instead of overlapping preceding text. Justification preserves
+established columns and uses available space in the final field where its
+alignment permits. Solid/dotted/dash/long-dash/dot-dash/dot-dot-dash/wave,
+single/double and styled textual leaders render through native display lists.
+Thin preview strokes retain a pixel footprint with coverage-scaled opacity.
+Direct tab-stop formatting controls remain part of the unported rich editor.
+
 
 Sheets currently uses the calculation layer's textual display, not the original
 style-aware formatter. Do not expect date/currency styles, images, merged

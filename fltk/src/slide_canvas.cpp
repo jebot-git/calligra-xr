@@ -255,6 +255,13 @@ struct SlideCanvas::Impl {
           if(line.label)line.label->x+=p.text_area.x+shape.paint.padding_left;
           line.y += y;
           line.baseline += y;
+          for (const auto &tab : line.tabs)
+            text_stats.tabs.push_back(
+                {tab.source,
+                 shape.transform.map({line.x + tab.x1, line.baseline}),
+                 shape.transform.map({line.x + tab.x2, line.baseline}),
+                 tab.position, tab.strokes.size(),
+                 tab.leader ? tab.leader->glyphs.size() : 0});
         }
       }
       prepared.push_back(std::move(p));
@@ -346,6 +353,8 @@ struct SlideCanvas::Impl {
             baseline.e = line.x;
             baseline.f = line.baseline;
             glyphs.draw(*line.shaped, transform * baseline, {r, g, b}, *window);
+            glyphs.draw_tabs(line.tabs, transform * baseline, {r, g, b},
+                             *window);
             if(line.label&&line.label->shaped) {
               baseline.e=line.label->x;
               glyphs.draw(*line.label->shaped,transform*baseline,{r,g,b},*window);

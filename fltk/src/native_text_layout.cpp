@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_layout.h"
 #include "native_list_number.h"
+#include "native_tabs.h"
 #include "native_text_shaper.h"
 #include <charconv>
 #include <cmath>
@@ -81,7 +82,7 @@ struct Reader {
   std::map<Text, Text> fonts, master_fonts;
   std::map<Text, XmlElement> layouts;
   std::vector<XmlDocument> documents;
-  size_t text_size = 0;
+  size_t text_size = 0, tab_records = 0;
   bool styles_source = false;
   XmlElement styles_root;
   std::optional<TextParagraph> frame_base;
@@ -293,8 +294,147 @@ struct Reader {
     if (p.attributeNS(STYLE, "use-window-font-color") == "true")
       color.reset();
   }
+  void font_patch(TextFontPatch &patch, const XmlElement &style) {
+    auto props = child(style, STYLE, "text-properties");
+    TextFont resolved;
+    font(resolved, style);
+    if (props.hasAttributeNS(FO, "font-size")) {
+      auto value = props.attributeNS(FO, "font-size");
+      if (value.endsWith('%'))
+        patch.scale *= proportion(value, 1);
+      else {
+        patch.size = length(value);
+        patch.scale = 1;
+      }
+    }
+    if (props.hasAttributeNS(FO, "font-family") ||
+        props.hasAttributeNS(STYLE, "font-name"))
+      patch.family = resolved.family;
+    if (props.hasAttributeNS(FO, "language"))
+      patch.language = resolved.language;
+    if (props.hasAttributeNS(FO, "font-weight"))
+      patch.weight = resolved.weight;
+    if (props.hasAttributeNS(FO, "font-style"))
+      patch.italic = resolved.italic;
+    if (props.hasAttributeNS(FO, "color")) {
+      patch.color_set = true;
+      patch.color = text_color(props.attributeNS(FO, "color"));
+    }
+    if (props.attributeNS(STYLE, "use-window-font-color") == "true") {
+      patch.color_set = true;
+      patch.color.reset();
+    }
+  }
+  void tab_properties(TextParagraph &paragraph, const XmlElement &style) {
+    auto props = child(style, STYLE, "paragraph-properties");
+    if (style.localName() == "default-style") {
+      if (props.hasAttributeNS(STYLE, "tab-stop-distance")) {
+        double distance = length(props.attributeNS(STYLE, "tab-stop-distance"));
+        if (distance < 0)
+          fail("Invalid default tab distance");
+        paragraph.default_tab = distance > 0 ? distance : 72 * 1.25 / 2.54;
+      }
+      if (props.hasAttributeNS(TEXT, "relative-tab-stop-position"))
+        paragraph.relative_tabs =
+            boolean(props, TEXT, "relative-tab-stop-position", true);
+    }
+    auto container = child(props, STYLE, "tab-stops");
+    if (container.isNull())
+      return;
+    paragraph.tabs.clear();
+    for (auto node : children(container, STYLE, "tab-stop")) {
+      if (paragraph.tabs.size() >= 4096)
+        fail("Too many paragraph tab stops");
+      TextTabStop tab;
+      tab.position = length(node.attributeNS(STYLE, "position"));
+      auto type = node.attributeNS(STYLE, "type", "left");
+      if (type == "right")
+        tab.type = TextTabStop::Right;
+      else if (type == "center")
+        tab.type = TextTabStop::Center;
+      else if (type == "char") {
+        tab.type = TextTabStop::Character;
+        auto delimiter = node.attributeNS(STYLE, "char");
+        if (delimiter.size() != 1)
+          fail("Invalid tab delimiter");
+        tab.delimiter = delimiter[0];
+      } else if (type != "left")
+        note(flow.unsupported, "Unsupported paragraph tab type; left used");
+      auto line_type = node.attributeNS(STYLE, "leader-type");
+      tab.double_line = line_type == "double";
+      if (line_type == "single" || line_type == "double")
+        tab.line_style = TextTabStop::Solid;
+      else if (!line_type.empty() && line_type != "none")
+        fail("Invalid tab leader type");
+      auto line = node.attributeNS(STYLE, "leader-style");
+      if (line == "none")
+        tab.line_style = TextTabStop::None;
+      else if (line == "solid")
+        tab.line_style = TextTabStop::Solid;
+      else if (line == "dotted")
+        tab.line_style = TextTabStop::Dotted;
+      else if (line == "dash")
+        tab.line_style = TextTabStop::Dash;
+      else if (line == "long-dash")
+        tab.line_style = TextTabStop::LongDash;
+      else if (line == "dot-dash")
+        tab.line_style = TextTabStop::DotDash;
+      else if (line == "dot-dot-dash")
+        tab.line_style = TextTabStop::DotDotDash;
+      else if (line == "wave")
+        tab.line_style = TextTabStop::Wave;
+      else if (!line.empty())
+        fail("Invalid tab leader style");
+      if (line_type == "none")
+        tab.line_style = TextTabStop::None;
+      auto width = node.attributeNS(STYLE, "leader-width", "auto");
+      if (width == "bold" || width == "thick")
+        tab.width_scale = .09;
+      else if (width == "thin")
+        tab.width_scale = .042;
+      else if (width != "auto" && width != "normal" && width != "medium") {
+        bool number = false;
+        double n = width.toDouble(&number);
+        if (number)
+          tab.width_scale = n;
+        else if (width.endsWith('%'))
+          tab.width_scale = proportion(width, 1);
+        else
+          tab.width = length(width);
+      }
+      if (tab.width_scale <= 0 || tab.width_scale > 1000 ||
+          (tab.width && (*tab.width <= 0 || *tab.width > 1000)))
+        fail("Invalid tab leader width");
+      auto ink = node.attributeNS(STYLE, "leader-color");
+      if (!ink.empty() && ink != "font-color")
+        tab.color = text_color(ink);
+      tab.leader = node.attributeNS(STYLE, "leader-text");
+      if (tab.leader.size() > 1)
+        fail("Invalid textual tab leader");
+      auto leader_style = node.attributeNS(STYLE, "leader-text-style");
+      bool master = !styles_root.isNull() &&
+                    style.ownerDocument().documentElement() == styles_root;
+      bool common = style.parentNode().toElement().localName() == "styles" ||
+                    style.localName() == "default-style";
+      chain(
+          true, leader_style,
+          [&](const XmlElement &e) { font_patch(tab.leader_font, e); }, master,
+          common);
+      paragraph.tabs.push_back(std::move(tab));
+    }
+    std::stable_sort(
+        paragraph.tabs.begin(), paragraph.tabs.end(),
+        [](const auto &a, const auto &b) { return a.position < b.position; });
+    for (size_t i = 1; i < paragraph.tabs.size();) {
+      if (paragraph.tabs[i - 1].position == paragraph.tabs[i].position)
+        paragraph.tabs.erase(paragraph.tabs.begin() + i - 1);
+      else
+        ++i;
+    }
+  }
   void properties(TextParagraph &p, const XmlElement &style) {
     character(p.font, p.color, style);
+    tab_properties(p, style);
     if (style.hasAttributeNS(STYLE, "master-page-name"))
       p.master = style.attributeNS(STYLE, "master-page-name");
     auto e = child(style, STYLE, "paragraph-properties");
@@ -368,12 +508,14 @@ struct Reader {
   }
   template <class Apply>
   std::vector<XmlElement> chain(bool text, const Text &name, Apply apply,
-                                std::optional<bool> source = {}) {
+                                std::optional<bool> source = {},
+                                bool common_only = false) {
     const bool from_styles = source.value_or(styles_source);
-    const auto &styles =
-        text ? (from_styles ? master_text_styles : text_styles)
-             : (from_styles ? master_paragraph_styles : paragraph_styles);
     const auto &common = text ? common_text_styles : common_paragraph_styles;
+    const auto &styles =
+        common_only ? common
+        : text      ? (from_styles ? master_text_styles : text_styles)
+               : (from_styles ? master_paragraph_styles : paragraph_styles);
     std::vector<XmlElement> stack;
     XmlElement current;
     if (auto found = styles.find(name); found != styles.end())
@@ -734,23 +876,11 @@ struct Reader {
       left_set = left_set || props.hasAttributeNS(FO, "margin-left") ||
                  props.hasAttributeNS(FO, "margin");
       indent_set = indent_set || props.hasAttributeNS(FO, "text-indent");
-      if (props.hasAttributeNS(STYLE, "tab-stop-distance"))
-        label.default_tab =
-            length(props.attributeNS(STYLE, "tab-stop-distance"));
-      if (props.hasAttributeNS(TEXT, "relative-tab-stop-position"))
-        label.relative_tabs =
-            boolean(props, TEXT, "relative-tab-stop-position", true);
-      auto tabs = child(props, STYLE, "tab-stops");
-      if (!tabs.isNull()) {
-        label.paragraph_tabs.clear();
-        for (auto tab : children(tabs, STYLE, "tab-stop"))
-          label.paragraph_tabs.push_back(
-              length(tab.attributeNS(STYLE, "position")));
-      }
     }
-    std::sort(label.paragraph_tabs.begin(), label.paragraph_tabs.end());
-    if (label.paragraph_tabs.size() > 4096 || label.default_tab <= 0)
-      fail("Invalid list label tab stops");
+    label.default_tab = p.default_tab;
+    label.relative_tabs = p.relative_tabs;
+    for (const auto &tab : p.tabs)
+      label.paragraph_tabs.push_back(tab.position);
     if (label.alignment_mode) {
       if (!left_set)
         p.left = level.margin;
@@ -793,6 +923,9 @@ struct Reader {
     inlines(p, e, p.font, p.color);
     if (item)
       decorate_list(p, *item, applied);
+    tab_records += p.tabs.size();
+    if (tab_records > 262144)
+      fail("Document exceeds native tab style limit");
     flow.paragraphs.push_back(std::move(p));
   }
   void list(const XmlElement &node, int depth, ListItem *parent,
@@ -1094,18 +1227,195 @@ struct Breaks {
       auto value = p.text.mid(begin, end - begin);
       bool hard = value.contains('\n') || value.contains('\r') ||
                   value.contains(Char(0x2028));
-      auto metrics = measure(hard            ? Text(" ")
-                             : value == "\t" ? Text("    ")
-                                             : value,
-                             font);
+      auto metrics = measure(hard || value == "\t" ? Text(" ") : value, font);
       check_metrics(metrics);
-      if (hard)
+      if (hard || value == "\t")
         metrics.width = 0;
       result.push_back({begin, end, font, metrics,
                         std::binary_search(legal.begin(), legal.end(), end),
                         hard, p.spans.empty() ? p.color : p.spans[span].color});
     }
     return result;
+  }
+};
+struct TabLayout {
+  double width = 0;
+  std::shared_ptr<ShapedText> shape;
+  std::vector<TextTabPlacement> tabs;
+  std::map<size_t, double> positions;
+};
+struct TabFormatter {
+  const TextParagraph &paragraph;
+  const std::vector<Cluster> &clusters;
+  const ShapingParagraph *shaping;
+  bool rtl;
+  std::vector<double> prefix{0};
+  std::vector<size_t> tabs, hard;
+  TabFormatter(const TextParagraph &p, const std::vector<Cluster> &c,
+               const ShapingParagraph *s, bool r)
+      : paragraph(p), clusters(c), shaping(s), rtl(r) {
+    for (size_t i = 0; i < c.size(); ++i) {
+      bool tab = p.text.mid(c[i].begin, c[i].end - c[i].begin) == "\t";
+      if (tab)
+        tabs.push_back(i);
+      if (c[i].hard)
+        hard.push_back(i);
+      prefix.push_back(prefix.back() + (tab ? 0 : c[i].metrics.width));
+    }
+  }
+  size_t hard_end(size_t begin) const {
+    auto it = std::lower_bound(hard.begin(), hard.end(), begin);
+    return it == hard.end() ? clusters.size() : *it + 1;
+  }
+  TabLayout layout(size_t begin, size_t end, double start, double origin,
+                   bool exact) const {
+    TabLayout out;
+    while (end > begin && clusters[end - 1].hard)
+      --end;
+    struct Field {
+      size_t begin, end;
+      double x, width;
+      std::shared_ptr<ShapedText> shape;
+    };
+    std::vector<Field> fields;
+    size_t at = begin, previous = clusters.size();
+    auto next = std::lower_bound(tabs.begin(), tabs.end(), begin);
+    double width = 0;
+    while (at <= end) {
+      size_t last = next == tabs.end() ? end : std::min(end, *next);
+      size_t a =
+          at < clusters.size() ? clusters[at].begin : paragraph.text.size();
+      size_t b = last > at ? clusters[last - 1].end : a;
+      std::shared_ptr<ShapedText> shape;
+      if (exact && shaping)
+        shape = shaping->line(a, b);
+      double field_width =
+          shape ? shape->metrics.width : prefix[last] - prefix[at];
+      if (previous < clusters.size()) {
+        auto selected =
+            next_tab(paragraph, start + width, origin, field_width, 0, rtl);
+        double delimiter = field_width;
+        if (selected.stop.type == TextTabStop::Character) {
+          size_t source = a;
+          while (source < b &&
+                 paragraph.text[source] != selected.stop.delimiter)
+            ++source;
+          if (source < b) {
+            double physical = 0;
+            if (shape) {
+              double pen = 0;
+              bool found = false;
+              double left = 0, right = 0;
+              for (const auto &glyph : shape->glyphs) {
+                if (glyph.begin <= source && source < glyph.end) {
+                  if (!found)
+                    left = pen;
+                  right = pen + glyph.advance;
+                  found = true;
+                }
+                pen += glyph.advance;
+              }
+              physical = found ? (left + right) / 2 : field_width;
+            } else {
+              auto c = std::lower_bound(
+                  clusters.begin() + at, clusters.begin() + last, source,
+                  [](const Cluster &c, size_t pos) { return c.end <= pos; });
+              size_t i = size_t(c - clusters.begin());
+              physical = prefix[i] - prefix[at] + c->metrics.width / 2;
+              if (rtl)
+                physical = field_width - physical;
+            }
+            delimiter = rtl ? field_width - physical : physical;
+          } else
+            delimiter = rtl ? 0 : field_width;
+        }
+        selected = next_tab(paragraph, start + width, origin, field_width,
+                            delimiter, rtl);
+        if (exact) {
+          const auto &c = clusters[previous];
+          TextTabPlacement tab;
+          tab.source = c.begin;
+          tab.x1 = width;
+          tab.x2 = width + selected.advance;
+          tab.position = selected.position;
+          tab.field_width = field_width;
+          tab.anchor = selected.offset;
+          tab.font = c.font;
+          tab.color = selected.stop.color ? selected.stop.color : c.color;
+          tab.aligned = !selected.clamped;
+          tab.stop = std::move(selected.stop);
+          out.tabs.push_back(std::move(tab));
+        }
+        width += selected.advance;
+      }
+      if (exact)
+        fields.push_back({at, last, width, field_width, std::move(shape)});
+      width += field_width;
+      if (last == end)
+        break;
+      previous = last;
+      at = last + 1;
+      ++next;
+    }
+    out.width = width;
+    if (exact) {
+      if (shaping) {
+        out.shape = std::make_shared<ShapedText>();
+        out.shape->rtl = rtl;
+        out.shape->metrics.width = width;
+      }
+      for (auto &field : fields) {
+        double x = rtl ? width - field.x - field.width : field.x;
+        if (field.shape) {
+          out.shape->metrics.ascent =
+              std::max(out.shape->metrics.ascent, field.shape->metrics.ascent);
+          out.shape->metrics.descent = std::max(out.shape->metrics.descent,
+                                                field.shape->metrics.descent);
+          out.shape->missing_glyphs += field.shape->missing_glyphs;
+          for (auto glyph : field.shape->glyphs) {
+            glyph.x += x;
+            out.shape->glyphs.push_back(std::move(glyph));
+          }
+          out.shape->clusters.insert(out.shape->clusters.end(),
+                                     field.shape->clusters.begin(),
+                                     field.shape->clusters.end());
+        }
+        for (size_t i = field.begin; i < field.end; ++i)
+          out.positions[i] =
+              rtl ? width - field.x - (prefix[i + 1] - prefix[field.begin])
+                  : field.x + prefix[i] - prefix[field.begin];
+      }
+      for (auto &tab : out.tabs) {
+        double advance = tab.x2 - tab.x1;
+        if (rtl) {
+          double x = width - tab.x2;
+          tab.x2 = width - tab.x1;
+          tab.x1 = x;
+        }
+        if (out.shape) {
+          auto c = std::lower_bound(
+              clusters.begin() + begin, clusters.begin() + end, tab.source,
+              [](const Cluster &c, size_t pos) { return c.begin < pos; });
+          out.shape->clusters.push_back(
+              {c->begin,
+               c->end,
+               {advance, c->metrics.ascent, c->metrics.descent}});
+          out.shape->metrics.ascent =
+              std::max(out.shape->metrics.ascent, c->metrics.ascent);
+          out.shape->metrics.descent =
+              std::max(out.shape->metrics.descent, c->metrics.descent);
+        }
+      }
+      if (out.shape) {
+        std::sort(
+            out.shape->clusters.begin(), out.shape->clusters.end(),
+            [](const auto &a, const auto &b) { return a.begin < b.begin; });
+        std::stable_sort(
+            out.shape->glyphs.begin(), out.shape->glyphs.end(),
+            [](const auto &a, const auto &b) { return a.x < b.x; });
+      }
+    }
+    return out;
   }
 };
 struct WrappedLine {
@@ -1210,11 +1520,14 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
   if (!std::isfinite(available) || available < 1)
     fail("Paragraph margins leave no text area");
   std::vector<WrappedLine> lines;
+  size_t leader_pieces = 0;
   size_t i = std::lower_bound(
                  clusters.begin(), clusters.end(), start,
                  [](const Cluster &c, size_t pos) { return c.begin < pos; }) -
              clusters.begin();
   bool trailing = !clusters.empty() && clusters.back().hard;
+  TabFormatter tab_formatter(p, clusters, shaping, rtl);
+  const bool has_tabs = !tab_formatter.tabs.empty();
   do {
     size_t begin = i, end = i, allowed = i;
     double width = 0, max_ascent = 0, max_descent = 0;
@@ -1236,9 +1549,42 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
         break;
       }
     }
-    if (!hard && end < clusters.size() && allowed > begin)
+    if (has_tabs && begin < clusters.size()) {
+      size_t cap = tab_formatter.hard_end(begin), lo = begin + 1, hi = lo;
+      auto fits = [&](size_t stop) {
+        return tab_formatter
+                   .layout(begin, stop, body_start + indent,
+                           p.relative_tabs ? body_start : 0, false)
+                   .width <= limit + 1e-7;
+      };
+      size_t step = 1;
+      while (hi < cap && fits(hi)) {
+        lo = hi;
+        step *= 2;
+        hi = std::min(cap, begin + step);
+      }
+      if (fits(hi))
+        lo = hi;
+      else
+        while (lo + 1 < hi) {
+          size_t mid = lo + (hi - lo) / 2;
+          if (fits(mid))
+            lo = mid;
+          else
+            hi = mid;
+        }
+      end = lo;
+      hard = end > begin && clusters[end - 1].hard;
+      if (!hard && end < clusters.size())
+        for (size_t at = end; at > begin; --at)
+          if (clusters[at - 1].allowed) {
+            end = at;
+            break;
+          }
+    } else if (!hard && end < clusters.size() && allowed > begin)
       end = allowed;
     std::shared_ptr<ShapedText> shape;
+    TabLayout tab_candidate;
     auto shaped_line = [&](size_t stop) {
       size_t a =
           begin < clusters.size() ? clusters[begin].begin : p.text.size();
@@ -1246,6 +1592,12 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       while (b > a && (p.text[b - 1] == '\n' || p.text[b - 1] == '\r' ||
                        p.text[b - 1] == 0x2028 || p.text[b - 1] == 0x2029))
         --b;
+      if (has_tabs) {
+        tab_candidate =
+            tab_formatter.layout(begin, stop, body_start + indent,
+                                 p.relative_tabs ? body_start : 0, true);
+        return tab_candidate.shape;
+      }
       return shaping->line(a, b);
     };
     if (shaping) {
@@ -1272,6 +1624,16 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       }
     }
     TextLine line;
+    TabLayout tab_layout;
+    if (has_tabs) {
+      tab_layout =
+          shaping
+              ? std::move(tab_candidate)
+              : tab_formatter.layout(begin, end, body_start + indent,
+                                     p.relative_tabs ? body_start : 0, true);
+      shape = tab_layout.shape;
+      line.tabs = std::move(tab_layout.tabs);
+    }
     line.begin =
         begin < clusters.size() ? clusters[begin].begin : p.text.size();
     line.end = end ? clusters[end - 1].end : line.begin;
@@ -1283,18 +1645,28 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       if (c.hard)
         continue;
       auto text = p.text.mid(c.begin, c.end - c.begin);
-      if (text == "\t")
-        text = "    ";
+      if (text == "\t") {
+        double advance = 0;
+        for (const auto &tab : line.tabs)
+          if (tab.source == c.begin)
+            advance = tab.x2 - tab.x1;
+        line.fragments.push_back(
+            {text, c.font, rtl ? tab_layout.width - width - advance : width,
+             advance, c.color});
+        width += advance;
+        continue;
+      }
+      double fragment_x = has_tabs ? tab_layout.positions.at(at) : width;
       // Separate whitespace fragments so justification can expand their
       // advance.
       if (!line.fragments.empty() && line.fragments.back().font == c.font &&
           line.fragments.back().color == c.color && text != " " &&
-          !line.fragments.back().text.endsWith(' ')) {
+          !line.fragments.back().text.endsWith(' ') && !has_tabs) {
         line.fragments.back().text += text;
         line.fragments.back().width += c.metrics.width;
       } else
         line.fragments.push_back(
-            {text, c.font, width, c.metrics.width, c.color});
+            {text, c.font, fragment_x, c.metrics.width, c.color});
       width += c.metrics.width;
     }
     if (begin == end) {
@@ -1303,6 +1675,8 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       max_ascent = m.ascent;
       max_descent = m.descent;
     }
+    if (has_tabs)
+      width = tab_layout.width;
     if (shape) {
       max_ascent = shape->metrics.ascent;
       max_descent = shape->metrics.descent;
@@ -1354,24 +1728,130 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
     for (size_t at = end; at > begin && !clusters[at - 1].hard; --at) {
       const auto &c = clusters[at - 1];
       auto t = p.text.mid(c.begin, c.end - c.begin);
-      if (t != " " && t != "\t")
+      if (t != " " && (has_tabs || t != "\t"))
         break;
       visible -= c.metrics.width;
     }
     line.width = std::max(0., visible);
     line.x = page.left + (rtl ? p.right : body_start) + (rtl ? 0 : indent);
-    if (shape && rtl)
+    if (rtl && has_tabs)
+      for (auto &fragment : line.fragments)
+        fragment.x -= width - line.width;
+    if (shape && rtl) {
       for (auto &glyph : shape->glyphs)
         glyph.x -= width - line.width;
-    if (p.alignment == TextParagraph::Right ||
-        (p.alignment == TextParagraph::Start && rtl) ||
-        (p.alignment == TextParagraph::End && !rtl))
-      line.x += std::max(0., limit - line.width);
-    if (p.alignment == TextParagraph::Center)
-      line.x += std::max(0., (limit - line.width) / 2);
+      for (auto &tab : line.tabs) {
+        tab.x1 -= width - line.width;
+        tab.x2 -= width - line.width;
+      }
+    }
     if (p.alignment == TextParagraph::Justify && end < clusters.size() &&
         !hard) {
-      if (shape) {
+      if (has_tabs && !line.tabs.empty()) {
+        auto &last_tab = line.tabs.back();
+        const size_t source = last_tab.source;
+        const bool centered = last_tab.stop.type == TextTabStop::Center;
+        const bool character = last_tab.stop.type == TextTabStop::Character;
+        const bool at_end =
+            ((last_tab.stop.type == TextTabStop::Right) != rtl) && !character &&
+            !centered;
+        double growth = at_end ? 0 : std::max(0., limit - line.width);
+        if (centered)
+          growth = std::min(growth, last_tab.x2 - last_tab.x1);
+        double internal = centered ? 2 * growth : growth;
+        double field_left =
+            rtl ? last_tab.x1 - last_tab.field_width : last_tab.x2;
+        auto eligible = [&](double x, double width) {
+          double position =
+              rtl ? field_left + last_tab.field_width - x - width / 2
+                  : x + width / 2 - field_left;
+          return !character || position >= last_tab.anchor - 1e-7;
+        };
+        bool expanded = false;
+        if (shape && growth > 0) {
+          size_t trim = line.end;
+          while (trim > line.begin && p.text[trim - 1] == ' ')
+            --trim;
+          std::set<size_t> spaces;
+          for (const auto &glyph : shape->glyphs)
+            if (glyph.begin > source && glyph.begin < trim &&
+                p.text.mid(glyph.begin, glyph.end - glyph.begin) == " " &&
+                eligible(glyph.x, glyph.advance))
+              spaces.insert(glyph.begin);
+          if (!spaces.empty()) {
+            double extra = internal / spaces.size(), offset = 0;
+            for (size_t n = 0; n < shape->glyphs.size(); ++n) {
+              auto &glyph = shape->glyphs[n];
+              if (glyph.begin <= source) {
+                if (rtl)
+                  glyph.x += growth;
+                continue;
+              }
+              glyph.x += offset + (centered && !rtl ? -growth : 0);
+              if (spaces.contains(glyph.begin) &&
+                  (n + 1 == shape->glyphs.size() ||
+                   shape->glyphs[n + 1].begin != glyph.begin)) {
+                glyph.advance += extra;
+                offset += extra;
+              }
+            }
+            for (auto &cluster : shape->clusters)
+              if (spaces.contains(cluster.begin))
+                cluster.metrics.width += extra;
+            shape->metrics.width += growth;
+            expanded = true;
+          }
+        } else if (!shape && growth > 0) {
+          size_t last = 0, trim = line.fragments.size();
+          for (size_t i = 0; i < line.fragments.size(); ++i)
+            if (line.fragments[i].text == "\t")
+              last = i;
+          while (trim > last + 1 && line.fragments[trim - 1].text == " ")
+            --trim;
+          std::set<size_t> spaces;
+          std::vector<size_t> visual;
+          for (size_t i = last + 1; i < line.fragments.size(); ++i) {
+            visual.push_back(i);
+            const auto &f = line.fragments[i];
+            if (i < trim && f.text == " " && eligible(f.x, f.width))
+              spaces.insert(i);
+          }
+          if (!spaces.empty()) {
+            std::sort(visual.begin(), visual.end(), [&](size_t a, size_t b) {
+              return line.fragments[a].x < line.fragments[b].x;
+            });
+            double extra = internal / spaces.size(), offset = 0;
+            for (auto i : visual) {
+              auto &f = line.fragments[i];
+              f.x += offset + (centered && !rtl ? -growth : 0);
+              if (spaces.contains(i)) {
+                f.width += extra;
+                offset += extra;
+              }
+            }
+            if (rtl)
+              for (size_t i = 0; i <= last; ++i)
+                line.fragments[i].x += growth;
+            expanded = true;
+          }
+        }
+        if (expanded) {
+          if (rtl)
+            for (auto &tab : line.tabs) {
+              tab.x1 += growth;
+              tab.x2 += growth;
+            }
+          if (centered) {
+            if (rtl)
+              last_tab.x1 += growth;
+            else
+              last_tab.x2 -= growth;
+            last_tab.anchor += growth;
+          }
+          last_tab.field_width += internal;
+          line.width += growth;
+        }
+      } else if (shape) {
         size_t trim = end;
         while (trim > begin &&
                (p.text.mid(clusters[trim - 1].begin,
@@ -1423,6 +1903,28 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
           line.width = limit;
       }
     }
+    if (p.alignment == TextParagraph::Right ||
+        (p.alignment == TextParagraph::Start && rtl) ||
+        (p.alignment == TextParagraph::End && !rtl) ||
+        (p.alignment == TextParagraph::Justify && rtl))
+      line.x += std::max(0., limit - line.width);
+    if (p.alignment == TextParagraph::Center)
+      line.x += std::max(0., (limit - line.width) / 2);
+    if (has_tabs) {
+      size_t i = 0;
+      for (auto &fragment : line.fragments)
+        if (fragment.text == "\t") {
+          const auto &tab = line.tabs.at(i++);
+          fragment.x = tab.x1;
+          fragment.width = tab.x2 - tab.x1;
+        }
+    }
+    prepare_tab_leaders(line.tabs, shaper);
+    for (const auto &tab : line.tabs)
+      leader_pieces +=
+          tab.strokes.size() + (tab.leader ? tab.leader->glyphs.size() : 0);
+    if (leader_pieces > 2000000)
+      fail("Paragraph tab leaders exceed native limit");
     line.shaped = std::move(shape);
     lines.push_back({std::move(line), hard});
     i = end;
@@ -1456,6 +1958,7 @@ TextFlow OdfTextReader::frame(const XmlElement &container,
   auto &reader = impl_->reader;
   reader.flow = {};
   reader.text_size = 0;
+  reader.tab_records = 0;
   reader.reset_lists();
   reader.styles_source = styles_source;
   reader.frame_base = base;
@@ -1502,6 +2005,24 @@ static void check_paragraph(const TextParagraph &p) {
     return !color || (std::isfinite(color->alpha) && color->alpha >= 0 &&
                       color->alpha <= 1);
   };
+  if (!std::isfinite(p.default_tab) || p.default_tab <= 0 ||
+      p.default_tab > 100000 || p.tabs.size() > 4096)
+    fail("Invalid paragraph tab settings");
+  double previous_tab = -std::numeric_limits<double>::infinity();
+  for (const auto &tab : p.tabs) {
+    if (!std::isfinite(tab.position) || std::abs(tab.position) > 100000 ||
+        tab.position <= previous_tab || !std::isfinite(tab.width_scale) ||
+        tab.width_scale <= 0 || tab.width_scale > 1000 ||
+        (tab.width && (!std::isfinite(*tab.width) || *tab.width <= 0 ||
+                       *tab.width > 1000)) ||
+        tab.delimiter > 0x10ffff ||
+        (tab.delimiter >= 0xd800 && tab.delimiter <= 0xdfff) ||
+        tab.leader.size() > 1 || !color_valid(tab.color) ||
+        !color_valid(tab.leader_font.color))
+      fail("Invalid paragraph tab stop");
+    tab.leader_font.apply(p.font);
+    previous_tab = tab.position;
+  }
   if (!font_valid(p.font) || !color_valid(p.color))
     fail("Invalid paragraph text style");
   if (p.list) {

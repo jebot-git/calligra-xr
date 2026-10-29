@@ -76,6 +76,7 @@ void TextPageCanvas::draw() {
           if(!line.shaped||!host)throw std::runtime_error("Native page glyph positions are missing");
           SceneTransform transform{zoom,0,0,zoom,left+line.x*zoom,top+line.baseline*zoom};
           glyphs_->draw(*line.shaped,transform,{r,g,b},*host);
+          glyphs_->draw_tabs(line.tabs, transform, {r, g, b}, *host);
           if(line.label&&line.label->shaped) {
             transform.e=left+line.label->x*zoom;
             glyphs_->draw(*line.label->shaped,transform,{r,g,b},*host);

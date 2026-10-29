@@ -948,7 +948,7 @@ public:
             data["text"] = buffer_text();
         if (kind == Kind::Words) {
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
-            Json labels = Json::array(), image_labels = Json::array();
+            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array();
             size_t page_index = 0;
             for (const auto& page : text_pages->pagination.pages) {
                 for (const auto& line : page.lines)
@@ -956,6 +956,18 @@ public:
                         ++shaped_lines;
                         glyphs += line.shaped->glyphs.size();
                         missing += line.shaped->missing_glyphs;
+                        for (const auto &tab : line.tabs)
+                            tabs.push_back({{"source", tab.source},
+                                            {"page", page_index},
+                                            {"paragraph", line.paragraph},
+                                            {"x1", line.x + tab.x1},
+                                            {"x2", line.x + tab.x2},
+                                            {"baseline", line.baseline},
+                                            {"position", tab.position},
+                                            {"strokes", tab.strokes.size()},
+                                            {"glyphs", tab.leader ? tab.leader->glyphs.size() : 0},
+                                            {"page_width", page.style.width},
+                                            {"page_height", page.style.height}});
                         if (line.label && line.label->image)
                             image_labels.push_back({{"source", utf8(line.label->image->source)},
                                                     {"available", bool(line.label->image->asset)},
@@ -987,6 +999,7 @@ public:
                                    {"missing_glyphs", missing},
                                    {"list_labels", labels},
                                    {"image_labels", image_labels},
+                                   {"tabs", tabs},
                                    {"image_decodes", text_pages->images.decodes()},
                                    {"image_uploads", text_pages->images.uploads()},
                                    {"image_errors", text_pages->images.errors()},
@@ -1001,7 +1014,16 @@ public:
             for (const auto& feature : model.unsupported)
                 unsupported.push_back(utf8(feature));
             const auto &text = canvas->text_stats();
-            Json adjustments = Json::array();
+            Json adjustments = Json::array(), tabs = Json::array();
+            for (const auto &tab : text.tabs)
+                tabs.push_back({{"source", tab.source},
+                                {"x1", tab.start.x},
+                                {"y1", tab.start.y},
+                                {"x2", tab.end.x},
+                                {"y2", tab.end.y},
+                                {"position", tab.position},
+                                {"strokes", tab.strokes},
+                                {"glyphs", tab.glyphs}});
             for (size_t i = 0; i < model.shapes.size(); ++i) {
                 const auto& shape = model.shapes[i];
                 if (shape.master) continue;
@@ -1037,6 +1059,7 @@ public:
                              {"image_decodes", canvas->images().decodes()},
                              {"image_uploads", canvas->images().uploads()},
                              {"image_errors", canvas->images().errors()},
+                             {"tabs", tabs},
                              {"missing_glyphs", text.missing_glyphs},
                              {"overflow_frames", text.overflow_frames},
                              {"viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()}}};

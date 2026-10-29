@@ -60,6 +60,11 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   Image bullets retain packaged or inline PNG/JPEG/SVG/GIF/BMP assets, with
   declared size and vertical alignment. Missing/invalid images show a placeholder;
   external image URLs are diagnosed without fetching files or network data.
+  Paragraph tabs use inherited/custom stops and default intervals, with
+  left/right/center/Unicode delimiter alignment, margin origins, hanging indents,
+  RTL fields and native wrapping. Line leaders support solid/dotted/dashed/wave
+  and double patterns; text leaders retain scoped font/color styles. Their
+  geometry and cached glyphs stay outside the editable source text.
 - Sheets loads ODS and imports XLSX cell data, shared/inline Unicode strings,
   numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell

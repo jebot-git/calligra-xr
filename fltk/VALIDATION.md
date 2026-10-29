@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus fourteen native calculation/matrix/text/scene/history/handle/list regression suites. Actual
+assertions retained, plus fifteen native calculation/matrix/text/scene/history/handle/list regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -35,6 +35,19 @@ coverage. Outline/field numbering and the other remaining list
 features are listed in PORT_STATUS.md. List semantics follow
 [ODF 1.4 Part 3](https://docs.oasis-open.org/office/OpenDocument/part3-schema/OpenDocument-v1.4-os-part3-schema.html)
 and the retained KoListLevelProperties/KoOdfNumberDefinition/KoTextLoader code.
+
+The native paragraph-tab suite checks fixed/delimiter anchors, explicit/default
+stops, relative/absolute origins, hanging indents, RTL mixed text, Unicode decimal
+separators, stop-preserving justification, hard/soft wrapping, long paragraphs,
+leader patterns/font metrics and invalid settings. Independent odfpy fixtures
+exercise inherited/cleared stop lists, default-only settings and common versus
+automatic leader-style scopes. Keyboard tests check actual leader pixels in
+Words and Stage, repeated glyph-cache reuse, unchanged tab/style XML through
+edit/save/reopen and native Stage undo/redo. Shaped tab controls have source
+clusters without four rendered spaces; generated leaders have separate display
+lists. References include retained KoParagraphStyle/KoTextLayoutArea code,
+ODF 1.4 tab properties and
+[QTextOption tab semantics](https://doc.qt.io/qt-6/qtextoption-tab.html).
 
 The native image suite checks immutable archive sharing, asset replacement and
 retained lifetime, package-only URI resolution, folded inline base64, image-label

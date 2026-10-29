@@ -25,6 +25,52 @@ struct TextSpan {
   TextFont font;
   std::optional<TextColor> color;
 };
+struct TextFontPatch {
+  std::optional<Text> family, language;
+  std::optional<int> weight;
+  std::optional<bool> italic;
+  std::optional<double> size;
+  double scale = 1;
+  bool color_set = false;
+  std::optional<TextColor> color;
+  TextFont apply(TextFont value) const;
+};
+struct TextTabStop {
+  double position = 0;
+  enum Type { Left, Right, Center, Character } type = Left;
+  char32_t delimiter = U'.';
+  enum LineStyle {
+    None,
+    Solid,
+    Dotted,
+    Dash,
+    LongDash,
+    DotDash,
+    DotDotDash,
+    Wave
+  } line_style = None;
+  bool double_line = false;
+  // A font-relative thickness unless an absolute width is specified.
+  double width_scale = .06;
+  std::optional<double> width;
+  Text leader;
+  TextFontPatch leader_font;
+  std::optional<TextColor> color;
+};
+struct TextLeaderStroke {
+  double x1 = 0, y1 = 0, x2 = 0, y2 = 0, width = 0;
+};
+struct TextTabPlacement {
+  size_t source = 0;
+  double x1 = 0, x2 = 0, position = 0, field_width = 0, anchor = 0;
+  TextFont font;
+  std::optional<TextColor> color;
+  bool aligned = true;
+  TextTabStop stop;
+  std::vector<TextLeaderStroke> strokes;
+  std::shared_ptr<const struct ShapedText> leader;
+  std::vector<double> leader_positions;
+};
 struct ListImage {
   Text source;
   std::shared_ptr<const ImageAsset> asset;
@@ -52,6 +98,9 @@ struct TextParagraph {
   TextFont font;
   std::optional<TextColor> color;
   std::vector<TextSpan> spans;
+  std::vector<TextTabStop> tabs;
+  double default_tab = 72 * 1.25 / 2.54;
+  bool relative_tabs = true;
   double left = 0, right = 0, indent = 0, before = 0, after = 0;
   double line_factor = 1.2, line_height = 0;
   enum Alignment { Left, Center, Right, Justify, Start, End } alignment = Start;
@@ -100,6 +149,7 @@ struct TextLine {
     double y = 0, height = 0; // Image top relative to this line's baseline.
   };
   std::optional<Label> label;
+  std::vector<TextTabPlacement> tabs; // Relative to line.x and its baseline.
 };
 struct TextPage {
   TextPageStyle style;

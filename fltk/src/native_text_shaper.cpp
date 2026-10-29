@@ -520,13 +520,13 @@ struct ShapingParagraph::Impl {
           hb_buffer_set_language(
               buffer.get(), hb_language_from_string(
                                 segment->font.language.toUtf8().c_str(), -1));
-        bool tab = scalars[lo] == '\t';
-        const uint32_t spaces[4] = {' ', ' ', ' ', ' '};
-        if (tab)
-          hb_buffer_add_utf32(buffer.get(), spaces, 4, 0, 4);
-        else
-          hb_buffer_add_utf32(buffer.get(), scalars.data() + begin, end - begin,
-                              lo - begin, hi - lo);
+        if (scalars[lo] == '\t') {
+          logical[lo] = {lo, hi, {0, ascent, descent}};
+          continue; // Position-dependent tab expansion belongs to native
+                    // layout.
+        }
+        hb_buffer_add_utf32(buffer.get(), scalars.data() + begin, end - begin,
+                            lo - begin, hi - lo);
         hb_shape(native.hb, buffer.get(), nullptr, 0);
         unsigned length;
         auto *info = hb_buffer_get_glyph_infos(buffer.get(), &length);
@@ -535,12 +535,12 @@ struct ShapingParagraph::Impl {
           fail("Native shaping glyph limit exceeded");
         std::set<size_t> boundaries{lo, hi};
         for (unsigned i = 0; i < length; ++i)
-          boundaries.insert(tab ? lo : begin + info[i].cluster);
+          boundaries.insert(begin + info[i].cluster);
         for (auto it = boundaries.begin(); std::next(it) != boundaries.end();
              ++it)
           logical[*it] = {*it, *std::next(it), {0, ascent, descent}};
         for (unsigned i = 0; i < length; ++i) {
-          size_t source = tab ? lo : begin + info[i].cluster;
+          size_t source = begin + info[i].cluster;
           auto next = boundaries.upper_bound(source);
           if (source < lo || source >= hi || next == boundaries.end())
             fail("Invalid native shaping cluster");
