@@ -8,6 +8,7 @@
 #include <cairo-pdf.h>
 #include <gio/gio.h>
 #include <numbers>
+#include <set>
 namespace DomeOffice {
 namespace {
 void check(cairo_status_t status) {
@@ -161,7 +162,9 @@ public:
   }
   void glyphs(const ShapedText &text, TextColor fallback = {}) {
     result.missing_glyphs += text.missing_glyphs;
-    for (const auto &g : text.glyphs) {
+    std::set<std::pair<size_t, size_t>> drawn;
+    for (size_t at = 0; at < text.glyphs.size(); ++at) {
+      const auto &g = text.glyphs[at];
       if (!g.face)
         throw std::runtime_error("Missing native print typeface");
       color(cr_, g.color.value_or(fallback));
@@ -186,8 +189,44 @@ public:
         }
         cairo_set_font_face(cr_, it->second);
         cairo_set_font_size(cr_, g.size);
-        cairo_glyph_t glyph{g.glyph, g.x, g.y};
-        cairo_show_glyphs(cr_, &glyph, 1);
+        if (text.source) {
+          if (g.begin >= g.end || g.end > text.source->size() ||
+              !drawn.emplace(g.begin, g.end).second)
+            throw std::runtime_error("Invalid native print source cluster");
+          size_t last = at + 1;
+          while (last < text.glyphs.size() &&
+                 text.glyphs[last].begin == g.begin &&
+                 text.glyphs[last].end == g.end) {
+            const auto &next = text.glyphs[last];
+            if (next.face != g.face || next.size != g.size ||
+                next.color != g.color)
+              throw std::runtime_error("Mixed native print cluster styles");
+            ++last;
+          }
+          std::vector<cairo_glyph_t> glyphs;
+          glyphs.reserve(last - at);
+          for (size_t i = at; i < last; ++i)
+            glyphs.push_back(
+                {text.glyphs[i].glyph, text.glyphs[i].x, text.glyphs[i].y});
+          auto source = text.source->mid(g.begin, g.end - g.begin).toUtf8();
+          cairo_text_cluster_t mapping{int(source.size()), int(glyphs.size())};
+          auto cluster = std::lower_bound(
+              text.clusters.begin(), text.clusters.end(), g.begin,
+              [](const ShapedCluster &c, size_t begin) {
+                return c.begin < begin;
+              });
+          auto flags = cluster != text.clusters.end() &&
+                               cluster->begin == g.begin && cluster->rtl
+                           ? CAIRO_TEXT_CLUSTER_FLAG_BACKWARD
+                           : cairo_text_cluster_flags_t(0);
+          cairo_show_text_glyphs(cr_, source.data(), source.size(),
+                                 glyphs.data(), glyphs.size(), &mapping, 1,
+                                 flags);
+          at = last - 1;
+        } else {
+          cairo_glyph_t glyph{g.glyph, g.x, g.y};
+          cairo_show_glyphs(cr_, &glyph, 1);
+        }
       } else {
         auto bitmap = NativeTextShaper::rasterize(
             *g.face, g.glyph,

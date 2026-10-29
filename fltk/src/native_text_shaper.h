@@ -38,6 +38,9 @@ struct ShapedText {
   std::vector<ShapedGlyph> glyphs;
   std::vector<ShapedCluster> clusters; // Logical order, full source coverage.
   size_t empty_offset = 0;
+  // Original scalar source shared by all wrapped lines, also used for PDF
+  // text/cluster mapping. Decorative repeated leaders intentionally omit it.
+  std::shared_ptr<const Text> source;
 };
 struct GlyphBitmap {
   int width = 0, height = 0, left = 0, top = 0;

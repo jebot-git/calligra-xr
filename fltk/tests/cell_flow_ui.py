@@ -112,7 +112,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('Home');wait(lambda:state()['page']==1)
             target=next(c for c in cells if c['page']==0 and c['table']==outer and c['rows']==2)
             left=x+(w-widths[0]*zoom)/2;px=left+(target['x']+4)*zoom;py=y+12+(target['y']+10)*zoom
-            click(host,int(px),int(py));click(host,int(px),int(py));wait(lambda:not state()['visible'])
+            click(host,int(px),int(py));wait(lambda:state()['editing']);assert state()['visible']
             text('Edited ');wait(lambda:'Edited LEFT_00' in data()['text'])
             key('z',('Control_L',));wait(lambda:'Edited LEFT_00' not in data()['text'])
             key('y',('Control_L',));wait(lambda:'Edited LEFT_00' in data()['text'])

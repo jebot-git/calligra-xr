@@ -130,6 +130,14 @@ int main(int argc, char **argv) {
     NativeTextShaper::rasterize(*before.glyphs[0].face, before.glyphs[0].glyph, pixels);
   auto after = engine.shape("office", latin);
   assert(before.metrics.width == after.metrics.width);
+  assert(before.source && *before.source == Text("office"));
+  auto paragraph_source =
+      engine.prepare(TextParagraph{.text = "one two three", .font = latin});
+  auto first_source_line = paragraph_source.line(0, 4);
+  auto next_source_line = paragraph_source.line(4, 13);
+  assert(first_source_line->source == next_source_line->source &&
+         first_source_line->source == paragraph_source.whole().source &&
+         *first_source_line->source == Text("one two three"));
   ShapedText retained;
   {
     NativeTextShaper temporary;
@@ -137,6 +145,7 @@ int main(int argc, char **argv) {
   }
   assert(NativeTextShaper::rasterize(*retained.glyphs[0].face, retained.glyphs[0].glyph, 24).width >
          0);
+  assert(retained.source && *retained.source == Text("A"));
   std::cout << "PASS native ligatures, kerning, combining clusters, styled faces and glyph "
                "rasterization\n";
 

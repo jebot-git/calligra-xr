@@ -14,6 +14,7 @@
 #include <set>
 #include <span>
 #include <unicode/ubrk.h>
+#include <unordered_map>
 #include <unicode/utext.h>
 
 namespace DomeOffice {
@@ -1527,6 +1528,7 @@ struct TabFormatter {
       for (auto &field : fields) {
         double x = rtl ? width - field.x - field.width : field.x;
         if (field.shape) {
+          out.shape->source = field.shape->source;
           out.shape->metrics.ascent =
               std::max(out.shape->metrics.ascent, field.shape->metrics.ascent);
           out.shape->metrics.descent = std::max(out.shape->metrics.descent,
@@ -1574,9 +1576,16 @@ struct TabFormatter {
         std::sort(
             out.shape->clusters.begin(), out.shape->clusters.end(),
             [](const auto &a, const auto &b) { return a.begin < b.begin; });
-        std::stable_sort(
-            out.shape->glyphs.begin(), out.shape->glyphs.end(),
-            [](const auto &a, const auto &b) { return a.x < b.x; });
+        // Keep the original glyph order inside each HarfBuzz cluster. Ink
+        // offsets can overlap an adjacent cluster; visual order follows pens.
+        std::unordered_map<size_t, double> origins;
+        origins.reserve(out.shape->clusters.size());
+        for (const auto &cluster : out.shape->clusters)
+          origins.emplace(cluster.begin, cluster.x);
+        std::stable_sort(out.shape->glyphs.begin(), out.shape->glyphs.end(),
+                         [&](const auto &a, const auto &b) {
+                           return origins.at(a.begin) < origins.at(b.begin);
+                         });
       }
     }
     return out;

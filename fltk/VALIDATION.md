@@ -1367,3 +1367,55 @@ captures, and the original nine baseline PNGs remain byte-identical. Saved
 packages are validated offline against their actual ODF version's schema.
 The page canvas still does not accept text or paint an editing selection;
 these caret/source APIs are the foundation for that next Words increment.
+
+
+## Direct native Words page editing — 2026-10-30
+
+Pages now retains native caret and range selection while typing, editing,
+formatting and using the clipboard. Mouse hit testing, dragging, word/paragraph
+selection, visual bidi arrows, vertical preferred position, word/paragraph
+movement and grapheme deletion use the native shaped source positions. Page
+reflow retains scroll and reveals the caret; Ctrl+Home exposes the first page.
+Paragraph splits/joins, soft breaks, lists, XML history, saved state and signed-
+package read-only protection share the existing native transaction model.
+Escape is consumed in the editor so cancelling composition/selection cannot
+invoke FLTK's default window-close behavior. Read-only Pages still forwards
+global window shortcuts.
+
+A real Fcitx/Anthy test runs on a private DomeD Wayland connection and D-Bus
+session. It verifies acknowledged preedit, Japanese conversion, candidate
+anchoring, commit as one undo step, redo, cancellation restoring exact XML and
+saved state, repeated Escape leaving Words open, and ODF saving. This does not
+establish every IME or input protocol. Full keyboard regressions run on X11;
+the focused native page flow runs on Wayland with IME and on ASan/UBSan X11.
+Real pointer drags and signed-package editing refusal are included. Split,
+merged and nested cell continuations, repeated headers, and Words/Stage tab
+leader regressions also pass with system FLTK.
+
+All 39 core suites pass in optimized Release and ASan/UBSan, with core leak
+checking enabled. GUI leak checking remains disabled for third-party libraries.
+The native selection suite covers source scalar/grapheme/word maps, GDEF
+ligature interiors, disjoint bidi ranges, tabs, explicit and paragraph breaks,
+clipping, and strong RTL line ends after a numeric run. Wrapped shaped lines
+retain shared source text after their shaper is destroyed.
+
+The IME print check exposed glyph-to-Unicode ambiguity: the font's 日 glyph
+was reverse-mapped to radical ⽇, and decomposed accents were collapsed. Native
+printing now passes exact source UTF-8 and HarfBuzz cluster mappings through
+[Cairo's text/glyph API](https://www.cairographics.org/manual/cairo-text.html#cairo-show-text-glyphs)
+for scalable-font text. Cluster order is kept intact even when mark ink overlaps
+its neighbor. A separate odfpy fixture checks Poppler extraction and independently inspects
+encoded PDF ActualText for ligatures, NFC/NFD accents and Japanese/radical
+characters. The current pypdf extractor ignores ActualText and still returns
+font aliases; its raw extraction is retained as a diagnostic limitation. Decorative tab
+leaders remain glyph-only. No Pango or toolkit dependency was added.
+
+Eleven actual private CUPS jobs pass, including native page-edit and IME
+snapshots and the Unicode-source fixture. Every formatted PDF raster matches
+its reopened ODF and captured CUPS job; all nine accepted suite baseline pages
+remain byte-identical. Saved documents pass version-matched OASIS schemas,
+with no normalization or attribute stripping. No system printer is changed.
+
+Further work includes native default-view integration, drag-scroll repetition,
+typing/reflow performance and more complete layout/formatting fidelity. Words
+remains the priority, followed by Sheets functions; Stage stays last.

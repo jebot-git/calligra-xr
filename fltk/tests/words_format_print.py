@@ -49,9 +49,26 @@ def soft_lines(path, paragraph_size):
         archive.writestr('Extras/opaque.bin', b'\0keep\xff')
 
 
+def unicode_source(path):
+    # Several of these scalars share a font glyph. PDF text must retain source
+    # codepoints rather than reverse-map the glyph to its first cmap alias.
+    doc = OpenDocumentText()
+    body = Style(name='UnicodeBody', family='paragraph')
+    body.addElement(TextProperties(fontfamily='DejaVu Sans', fontsize='18pt'))
+    doc.styles.addElement(body)
+    for line in ('Latin office affine', 'NFD a\u0301', 'NFC á',
+                 'CJK 日本語', 'Radical ⽇本語'):
+        doc.text.addElement(P(stylename=body, text=line))
+    doc.save(str(path))
+    with zipfile.ZipFile(path, 'a') as archive:
+        archive.writestr('Extras/opaque.bin', b'\0keep\xff')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ui-artifacts', type=Path, required=True)
+    parser.add_argument('--page-artifacts', type=Path,
+                        help='Also print native page editing and optional IME snapshots')
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'build-native/fltk')
     args = parser.parse_args()
@@ -66,8 +83,19 @@ def main():
         env.pop('DISPLAY', None)
         env.pop('WAYLAND_DISPLAY', None)
         binary = args.bin_dir.resolve() / 'calligra-words-fltk'
-        for name in ('font', 'paragraph', 'typed', 'quoted-family', 'soft-lines'):
-            source = args.ui_artifacts.resolve() / ('format-' + name + '.odt')
+        cases = [(name, args.ui_artifacts.resolve() / ('format-' + name + '.odt'))
+                 for name in ('font', 'paragraph', 'typed', 'quoted-family', 'soft-lines')]
+        if args.page_artifacts:
+            page_source = args.page_artifacts.resolve() / 'page-edited-final.odt'
+            assert page_source.is_file(), page_source
+            cases.append(('page-edit', page_source))
+            ime_source = args.page_artifacts.resolve() / 'page-ime-committed.odt'
+            if ime_source.is_file():
+                cases.append(('page-ime', ime_source))
+        cases.append(('unicode-source', art / 'unicode-source.odt'))
+        for name, source in cases:
+            if name == 'unicode-source':
+                unicode_source(source)
             if name == 'soft-lines':
                 source = art / 'soft-lines-source.odt'
                 soft_lines(source, 24)
@@ -86,10 +114,29 @@ def main():
                 for entry in ('styles.xml', 'Extras/opaque.bin'):
                     assert old.read(entry) == new.read(entry), (name, entry)
             reader = PdfReader(output)
-            assert len(reader.pages) == 1
-            assert ('A' if name == 'soft-lines' else 'Český') in (reader.pages[0].extract_text() or '')
+            native_page = name in ('page-edit', 'page-ime')
+            assert len(reader.pages) == (5 if native_page else 1)
+            text = '\n'.join(page.extract_text() or '' for page in reader.pages)
+            if name == 'unicode-source':
+                extracted = subprocess.check_output(['pdftotext', str(output), '-'], text=True)
+                for expected in ('office affine', 'NFD a\u0301', 'NFC á', 'CJK 日本語', 'Radical ⽇本語'):
+                    assert expected in extracted, (expected, repr(extracted))
+                # Cairo emits ActualText when a glyph has a different/multiple
+                # Unicode source mapping. pypdf's current extractor ignores it;
+                # inspect the encoded values as well as Poppler's extraction.
+                actual = [str(operands[1]['/ActualText'])
+                          for operands, op in reader.pages[0].get_contents().operations
+                          if op == b'BDC' and '/ActualText' in operands[1]]
+                assert actual.count('ffi') == 2 and 'a\u0301' in actual and '⽇' in actual, actual
+                (art / 'unicode-extracted.txt').write_text(extracted)
+                (art / 'unicode-pypdf-extracted.txt').write_text(text)
+                (art / 'unicode-actual-text.json').write_text(json.dumps(actual, ensure_ascii=False) + '\n')
+            else:
+                assert ('Česxký' if native_page else 'A' if name == 'soft-lines' else 'Český') in text
+            if name == 'page-ime':
+                assert '日本語' in text
             pages = render(output, art / ('formatted-' + name + '-page'))
-            assert len(pages) == 1
+            assert len(pages) == len(reader.pages)
             if name == 'font':
                 faces = subprocess.check_output(['pdffonts', str(output)], text=True)
                 (art / 'formatted-font-faces.txt').write_text(faces)
@@ -135,13 +182,13 @@ def main():
             captured = next(iter(new_jobs))
             printed = render(captured, art / ('cups-' + name + '-page'))
             assert [p.read_bytes() for p in pages] == [p.read_bytes() for p in printed]
-            results[name] = {'source_unchanged': True, 'pages': 1,
+            results[name] = {'source_unchanged': True, 'pages': len(reader.pages),
                              'exported_odf': str(exported), 'pdf': str(output),
                              'reopened_pixels_identical': True,
                              'cups_pixels_identical': True, 'captured': str(captured)}
             print('PASS formatted', name, 'ODF, native PDF, reopen and CUPS raster', flush=True)
-        assert len(cups.completed(8)) == 8
-    results['completed_cups_jobs'] = 8
+        assert len(cups.completed(completed_jobs)) == completed_jobs
+    results['completed_cups_jobs'] = completed_jobs
     results['system_printers_changed'] = False
     (art / 'format-results.json').write_text(json.dumps(results, indent=2) + '\n')
 

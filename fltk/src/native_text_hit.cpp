@@ -18,6 +18,17 @@ std::vector<TextCaret> text_line_carets(const TextLine &line) {
     caret.rtl = rtl;
     caret.rect = {line.x + x, line.baseline - metrics.ascent, 0,
                   metrics.ascent + metrics.descent};
+    if (line.clip) {
+      if (caret.rect.x < line.clip->x - 1e-7 ||
+          caret.rect.x > line.clip->x + line.clip->width + 1e-7)
+        return;
+      double bottom = std::min(caret.rect.y + caret.rect.height,
+                               line.clip->y + line.clip->height);
+      caret.rect.y = std::max(caret.rect.y, line.clip->y);
+      caret.rect.height = bottom - caret.rect.y;
+      if (caret.rect.height <= 0)
+        return;
+    }
     result.push_back(caret);
   };
   if (shape.clusters.empty())
@@ -30,6 +41,25 @@ std::vector<TextCaret> text_line_carets(const TextLine &line) {
       if (stop.offset > cluster.begin)
         add(stop.offset, TextCaret::Preceding, cluster.rtl, x, cluster.metrics);
     }
+  if (!shape.clusters.empty()) {
+    double left = INFINITY, right = -INFINITY;
+    for (const auto &c : shape.clusters) {
+      left = std::min(left, c.x);
+      right = std::max(right, c.x + c.metrics.width);
+    }
+    // The paragraph/line boundaries have the base direction, even when the
+    // adjacent glyph run has the opposite direction (e.g. RTL ending in 123).
+    auto boundary = [&](size_t offset, TextCaret::Affinity affinity, double x) {
+      if (std::none_of(result.begin(), result.end(), [&](const TextCaret &c) {
+            return c.offset == offset && std::abs(c.rect.x - line.x - x) < 1e-7;
+          }))
+        add(offset, affinity, shape.rtl, x, shape.metrics);
+    };
+    boundary(shape.clusters.front().begin, TextCaret::Preceding,
+             shape.rtl ? right : left);
+    boundary(shape.clusters.back().end, TextCaret::Following,
+             shape.rtl ? left : right);
+  }
   std::stable_sort(result.begin(), result.end(),
                    [](const TextCaret &a, const TextCaret &b) {
                      return a.rect.x < b.rect.x;

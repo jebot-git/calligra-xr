@@ -93,8 +93,9 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             # rather than the left-hand cell that shares the same line height.
             target=next(c for c in cells if c['page']==0 and c['row']==1 and c['column']==1)
             px=left+(target['x']+10)*zoom;py=top+(target['y']+10)*zoom
-            click(host,int(px),int(py));click(host,int(px),int(py))
-            wait(lambda:not state()['visible'])
+            click(host,int(px),int(py))
+            wait(lambda:state()['editing'])
+            assert state()['visible']
             assert data()['editing']['cursor'] == len(data()['text'].split('R01')[0]) + 1
             text('Marked ')
             wait(lambda:'L01\nRMarked 01' in data()['text'])
@@ -109,10 +110,11 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 assert ''.join(rowcells[1].itertext()).startswith('RMarked')
                 for name,value in original.items():
                     if name!='content.xml':assert saved.read(name)==value,name
-            click(host,610,25);wait(lambda:state()['visible'] and state()['pages']==3)
+            assert state()['visible'] and state()['pages']==3
             # Every rendered page remains reachable through native page controls.
-            click(host,350,100);key('End');wait(lambda:state()['page']==3)
-            key('Home');wait(lambda:state()['page']==1)
+            key('End',('Control_L',));wait(lambda:state()['caret_page']==3)
+            caret=state()['caret_rect'];assert y<=caret[1] and caret[1]+caret[3]<=y+h
+            key('Home',('Control_L',));wait(lambda:state()['page']==1)
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             reopen=art/'table-pages-reopen.json'
             subprocess.run([str(args.bin_dir.resolve()/'calligra-words-fltk'),str(doc),'--page-layout','--report',str(reopen),'--quit-after-ms','1800'],env=env,stdout=log,stderr=log,check=True)

@@ -268,6 +268,7 @@ struct NativeTextShaper::Impl {
 struct ShapingParagraph::Impl {
   std::shared_ptr<NativeTextShaper::Impl> engine;
   TextParagraph paragraph;
+  std::shared_ptr<const Text> source;
   std::vector<uint32_t> scalars;
   std::vector<UChar> utf16;
   std::vector<UChar> direction_text;
@@ -422,6 +423,8 @@ struct ShapingParagraph::Impl {
       }
       first = last;
     }
+    source = std::make_shared<const Text>(std::move(paragraph.text));
+    whole.source = source;
     // Shape separately at explicit line/paragraph boundaries.
     size_t begin = 0;
     for (size_t i = 0; i <= scalars.size(); ++i)
@@ -456,6 +459,7 @@ struct ShapingParagraph::Impl {
     if (begin > end || end > scalars.size())
       fail("Invalid native shaping line extent");
     auto output = std::make_shared<ShapedText>();
+    output->source = source;
     output->rtl = ubidi_getParaLevel(bidi.get()) & 1;
     output->empty_offset = begin;
     if (begin == end) {

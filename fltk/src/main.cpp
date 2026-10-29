@@ -214,6 +214,7 @@ class WordsEditor : public Fl_Text_Editor {
 public:
     using Fl_Text_Editor::Fl_Text_Editor;
     unsigned handling = 0;
+    bool composing = false, cancel_marked = false;
     std::function<TextSelection()> selection;
     std::optional<TextSelection> before_event;
     std::function<void()> finish_event;
@@ -227,8 +228,23 @@ public:
                 before_event = selection();
         }
         ++handling;
+        bool was_composing = composing;
+        if (event == FL_UNFOCUS && composing) {
+            composing = false;
+            cancel_marked = true;
+            Fl::compose_reset();
+            fl_reset_spot();
+        }
         int result;
-        if (event == FL_PUSH && Fl::event_button() == FL_RIGHT_MOUSE) {
+        if (event == FL_KEYDOWN && Fl::event_key() == FL_Escape) {
+            cancel_marked = composing;
+            composing = false;
+            Fl::compose_reset();
+            fl_reset_spot();
+            if (!cancel_marked)
+                buffer()->unselect();
+            result = 1;
+        } else if (event == FL_PUSH && Fl::event_button() == FL_RIGHT_MOUSE) {
             Fl::focus(this);
             // Keep the standard FLTK context menu, but defer paste deletion
             // until clipboard delivery so it belongs to the insertion event.
@@ -250,8 +266,13 @@ public:
             result = Fl_Text_Editor::handle(event);
         }
         if (!--handling) {
+            if (event == FL_KEYDOWN) {
+                composing = Fl::compose_state != 0;
+                cancel_marked = cancel_marked || (was_composing && !composing && !Fl::event_length());
+            }
             if (finish_event)
                 finish_event();
+            cancel_marked = false;
             before_event.reset();
         }
         return result;
@@ -271,7 +292,7 @@ public:
     TextPageCanvas* text_pages = nullptr;
     Fl_Button* page_button = nullptr;
     bool page_view = false;
-    uint64_t text_font_revision = 0;
+    uint64_t text_font_revision = 0, page_revision = 0;
     Grid* grid = nullptr;
     Fl_Input* formula = nullptr;
     Fl_Choice* sheets = nullptr;
@@ -413,21 +434,14 @@ public:
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
             text_pages = new TextPageCanvas(28, 66, 1044, 668);
             text_pages->hide();
-            text_pages->edit_position = [this](size_t paragraph, size_t scalar) {
-                guard([&] {
-                    auto flow = words->flow();
-                    size_t offset = 0;
-                    for (size_t i = 0; i < paragraph; ++i)
-                        offset += flow.paragraphs.at(i).text.toUtf8().size() + 1;
-                    offset += flow.paragraphs.at(paragraph).text.left(scalar).toUtf8().size();
-                    command(PageLayout);
-                    buffer.unselect();
-                    words->clear_typing_format();
-                    editor->insert_position(int(offset));
-                    editor->show_insert_position();
-                    editor->take_focus();
-                });
+            text_pages->selection = [this] { return word_selection(); };
+            text_pages->select = [this](TextSelection range) {
+                words->clear_typing_format();
+                restore_word_selection(range);
             };
+            text_pages->input = [this](int event) { return page_input(event); };
+            text_pages->erase = [this](size_t begin, size_t end) { erase_words(begin, end); };
+            text_pages->cancel_composition = [this] { cancel_word_composition(); };
             content->resizable(editor);
         } else {
             slides = new Fl_Hold_Browser(12, 62, 170, 674);
@@ -523,7 +537,8 @@ public:
                     });
                 }
                 auto paste_key = [](int, Fl_Text_Editor* widget) -> int {
-                    Fl::paste(*widget, 1);
+                    auto* office = static_cast<Office*>(widget->user_data());
+                    Fl::paste(office->page_view ? static_cast<Fl_Widget&>(*office->text_pages) : static_cast<Fl_Widget&>(*widget), 1);
                     return 1;
                 };
                 editor->add_key_binding('a', FL_CTRL, [](int, Fl_Text_Editor* widget) -> int {
@@ -647,8 +662,24 @@ public:
         Fl::remove_timeout(tick, this);
         Fl::remove_timeout(format_timeout, this);
         desktop_menu.reset();
-        if (editor)
+        if (text_pages) {
+            // Unfocus callbacks must not access an editor already destroyed
+            // while the window clears its children.
+            text_pages->cancel_composition = {};
+            text_pages->selection = {};
+            text_pages->select = {};
+            text_pages->input = {};
+            text_pages->erase = {};
+        }
+        if (editor) {
+            if (kind == Kind::Words) {
+                auto* widget = static_cast<WordsEditor*>(editor);
+                widget->selection = {};
+                widget->start_event = {};
+                widget->finish_event = {};
+            }
             editor->buffer(nullptr);
+        }
         window.remove(menu);
         window.clear();
     }
@@ -698,6 +729,21 @@ public:
     {
         if (!words || !words->editing())
             return;
+        auto* widget = static_cast<WordsEditor*>(editor);
+        if (widget->cancel_marked)
+            words->cancel_edit();
+        if (widget->composing && !words->edit_cancelled()) {
+            modified = words->modified();
+            title();
+            sync_pages();
+            return;
+        }
+        if (words->edit_cancelled() && widget->composing) {
+            widget->composing = false;
+            Fl::compose_reset();
+            fl_reset_spot();
+        }
+        widget->cancel_marked = false;
         std::optional<TextSelection> cancelled;
         try {
             cancelled = words->end_edit(words->edit_cancelled() ? std::nullopt : std::optional(word_selection()));
@@ -713,6 +759,80 @@ public:
         words_edit_previous.reset();
         modified = words->modified();
         title();
+        sync_pages();
+    }
+    bool cancel_word_composition()
+    {
+        if (!words || !editor)
+            return false;
+        auto* widget = static_cast<WordsEditor*>(editor);
+        if (!widget->composing)
+            return false;
+        widget->composing = false;
+        widget->cancel_marked = true;
+        Fl::compose_reset();
+        fl_reset_spot();
+        finish_word_edit();
+        widget->cancel_marked = false;
+        return true;
+    }
+    int page_input(int event)
+    {
+        if (event == FL_PUSH) {
+            Fl_Menu_Item items[4] { };
+            const char* labels[] = { "Cut", "Copy", "Paste" };
+            const int actions[] = { Cut, Copy, Paste };
+            for (int i = 0; i < 3; ++i) {
+                items[i].label(labels[i]);
+                items[i].user_data(reinterpret_cast<void*>(intptr_t(actions[i])));
+                items[i].labelfont(dx::font);
+                items[i].labelsize(dx::size);
+                if (readonly() && actions[i] != Copy)
+                    items[i].flags = FL_MENU_INACTIVE;
+            }
+            if (auto* item = items->popup(Fl::event_x_root(), Fl::event_y_root()))
+                command(int(reinterpret_cast<intptr_t>(item->user_data())));
+            return 1;
+        }
+        if (readonly()) {
+            if (event == FL_KEYDOWN && (Fl::event_state() & FL_CTRL)) {
+                if (Fl::event_key() == 'c' || Fl::event_key() == FL_Insert)
+                    command(Copy);
+                if (Fl::event_key() == 'a')
+                    command(SelectAll);
+                if (Fl::event_key() == 'n' || Fl::event_key() == 'o' || Fl::event_key() == 's' || Fl::event_key() == 'p' || Fl::event_key() == 'q' || Fl::event_key() == 'z' || Fl::event_key() == 'y')
+                    return 0;
+            }
+            return 1;
+        }
+        int result = 1;
+        guard([&] { result = editor->handle(event); sync_pages(); });
+        return result;
+    }
+    void erase_words(size_t begin, size_t end)
+    {
+        if (readonly() || begin == end)
+            return;
+        auto previous = word_selection();
+        try {
+            words->begin_edit(previous);
+            try {
+                words->replace(begin, end - begin, { }, true, previous, TextSelection { begin, begin });
+                words->end_edit(TextSelection { begin, begin });
+            } catch (...) {
+                words->cancel_edit();
+                words->end_edit();
+                throw;
+            }
+            fill_buffer(words->text());
+            restore_word_selection({ begin, begin });
+        } catch (const std::exception& e) {
+            restore_word_selection(previous);
+            message(e.what());
+        }
+        modified = words->modified();
+        title();
+        sync_pages();
     }
     static void format_timeout(void* p)
     {
@@ -726,10 +846,6 @@ public:
     {
         if (kind != Kind::Words || !words)
             return;
-        if (page_view) {
-            message("Switch to Edit to choose text or a paragraph to format");
-            return;
-        }
         auto selection = word_selection();
         auto info = words->format_info(selection);
         WordsCharacterFormat character;
@@ -767,6 +883,7 @@ public:
         restore_word_selection(selection);
         modified = words->modified();
         title();
+        sync_pages();
         if (!character.empty() || !paragraph.empty())
             message(selection.anchor == selection.cursor && !character.empty() ? "Typing format updated; Pages shows document formatting" : "Formatting updated; Pages shows document formatting");
     }
@@ -774,10 +891,6 @@ public:
     {
         if (kind != Kind::Words)
             return false;
-        if (page_view) {
-            message("Switch to Edit to change list levels");
-            return true;
-        }
         auto selection = word_selection();
         try {
             if (!words->list_action(selection, action, key))
@@ -786,6 +899,7 @@ public:
             modified = words->modified();
             restore_word_selection(selection);
             title();
+            sync_pages();
         } catch (const std::exception& e) {
             restore_word_selection(selection);
             message(e.what());
@@ -836,6 +950,7 @@ public:
             refresh_sheets();
         } else if (kind == Kind::Words) {
             text_pages->images.clear();
+            text_pages->reset_editing();
             words = std::make_unique<TextDocument>();
             fill_buffer(words->text());
             if (page_view)
@@ -941,9 +1056,17 @@ public:
     }
     void refresh_pages()
     {
-        commit_text();
         text_pages->set_flow(words->flow());
         text_font_revision = dx::font_revision;
+        page_revision = words->revision();
+    }
+    void sync_pages()
+    {
+        if (!page_view || !words)
+            return;
+        if (page_revision != words->revision() || text_font_revision != dx::font_revision)
+            refresh_pages();
+        text_pages->selection_changed();
     }
     void refresh_stage(int selected_shape = -1)
     {
@@ -992,6 +1115,7 @@ public:
             auto fresh = std::make_unique<TextDocument>();
             fresh->load(qs(path.c_str()));
             text_pages->images.clear();
+            text_pages->reset_editing();
             words = std::move(fresh);
             fill_buffer(words->text());
             if (page_view)
@@ -1067,7 +1191,10 @@ public:
     {
         if ((printing || formatting_dialog || queued_format) && c != Quit) return;
         guard([&] {
-            if (canvas && canvas->dragging()) canvas->finish_drag();
+            if (kind == Kind::Words && cancel_word_composition() && (c == Undo || c == Redo))
+                return;
+            if (canvas && canvas->dragging())
+                canvas->finish_drag();
             if (c == New) {
                 if (discard())
                     reset();
@@ -1104,7 +1231,11 @@ public:
                 }
                 struct PrintingScope {
                     bool& active;
-                    explicit PrintingScope(bool& value) : active(value) { active = true; }
+                    explicit PrintingScope(bool& value)
+                        : active(value)
+                    {
+                        active = true;
+                    }
                     ~PrintingScope() { active = false; }
                 } printing_scope(printing);
                 if (auto request = print_dialog(window, kind == Kind::Sheets, sheet)) {
@@ -1147,7 +1278,8 @@ public:
                 } else if (kind == Kind::Stage) {
                     commit_text();
                     auto position = c == Undo ? stage->undo() : stage->redo();
-                    if (!position) return;
+                    if (!position)
+                        return;
                     slide = position->slide;
                     box = position->box;
                     refresh_stage(position->shape);
@@ -1175,7 +1307,7 @@ public:
             } else if (c == Paste) {
                 if (editor && editor->active_r()) {
                     if (kind == Kind::Words)
-                        Fl::paste(*editor, 1);
+                        Fl::paste(page_view ? static_cast<Fl_Widget&>(*text_pages) : static_cast<Fl_Widget&>(*editor), 1);
                     else
                         Fl_Text_Editor::kf_paste(0, editor);
                 } else if (!editor)
@@ -1280,6 +1412,8 @@ public:
                     kind == Kind::Words        ? "Words"
                         : kind == Kind::Sheets ? "Sheets"
                                                : "Stage");
+            if (kind == Kind::Words)
+                sync_pages();
         });
     }
     void report()
@@ -1359,6 +1493,9 @@ public:
                 ++page_index;
             }
             data["page_layout"] = { { "visible", page_view },
+                { "editing", text_pages->editing() }, { "scroll", text_pages->scroll_position() },
+                { "preedit", static_cast<WordsEditor*>(editor)->composing },
+                { "caret_page", text_pages->caret_page() ? *text_pages->caret_page() + 1 : 0 },
                 { "pages", text_pages->pagination.pages.size() },
                 { "page", text_pages->current_page() + 1 },
                 { "render_error", text_pages->render_error() },
@@ -1376,6 +1513,13 @@ public:
                 { "image_uploads", text_pages->images.uploads() },
                 { "image_errors", text_pages->images.errors() },
                 { "viewport", { text_pages->x(), text_pages->y(), text_pages->w(), text_pages->h() } } };
+        }
+        if (kind == Kind::Words) {
+            auto caret = text_pages->caret_rect();
+            if (caret)
+                data["page_layout"]["caret_rect"] = { caret->x, caret->y, caret->width, caret->height };
+            else
+                data["page_layout"]["caret_rect"] = nullptr;
         }
         if (kind == Kind::Stage) {
             const auto& model = stage->scene(slide);

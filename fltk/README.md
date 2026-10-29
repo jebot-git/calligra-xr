@@ -65,7 +65,7 @@ preservation limits described below.
 File → Print (Ctrl+P) opens an FLTK dialog with CUPS printer selection, copies,
 page ranges and all/current worksheet selection. Words uses native pagination;
 Stage prints all slide scenes; Sheets prints calculated cell values in a
-paginated A4 grid. Print pages retain native glyph positioning, supported table
+paginated A4 grid. Print pages retain source Unicode for scalable-font text extraction, native glyph positioning, supported table
 paint, slide geometry and decoded images. CUPS receives a complete PDF job,
 using the selected printer's media with fit-to-page. Missing glyphs/unsupported
 features are reported before interactive submission. A configured CUPS queue
@@ -115,11 +115,17 @@ CUPS test queues.
   the same quote/comma parser as rendering; invalid or empty names cannot be
   committed. Select All ends a transient typing format.
   The edit buffer stays plain text; Pages and print output display formatting.
-  Underline/strike/highlight, named styles and direct paginated editing remain
-  unfinished.
-  Pages switches to the native page-flow view;
-  Edit returns to text editing, and double-clicking a rendered line opens its
-  paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.
+  Underline/strike/highlight and named styles remain unfinished.
+  Pages switches to native paginated editing. Click for a caret, drag or use
+  Shift+movement for a range, double-click a word or triple-click a paragraph.
+  Visual arrows follow grapheme/ligature and bidi positions; Ctrl+arrows move
+  by word/paragraph, Ctrl+Home/End reach document boundaries. Typing, clipboard,
+  formatting and list commands share the native undo history. Wayland IME
+  composition has one undo step, cancellation and a native candidate anchor.
+  Escape cancels preedit/selection. Edit returns to the legacy text buffer.
+  Before the first native editing action, page keys retain preview scrolling;
+  the wheel always scrolls. Native default-view and further editing polish
+  remain pending.
   Native textual lists support nested numbering/bullets, continuation, restarts,
   headers, label styling and both ODF spacing modes. Generated labels stay out
   of the editable source text. The same engine renders lists in Stage frames.
