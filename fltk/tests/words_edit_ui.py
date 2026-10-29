@@ -22,8 +22,8 @@ import zipfile
 
 from odf.opendocument import OpenDocumentText
 from odf.style import (MasterPage, PageLayout, PageLayoutProperties,
-                       ParagraphProperties, Style, TextProperties)
-from odf.table import Table, TableCell, TableRow
+                       ParagraphProperties, Style, TextProperties, ListLevelProperties)
+from odf.table import Table, TableCell, TableColumn, TableRow
 from odf.text import (A, LineBreak, List, ListHeader, ListItem, ListLevelStyleNumber,
                       ListStyle, P, S, Section, Span, Tab)
 from PIL import Image
@@ -58,7 +58,6 @@ def produce(path):
     p = P(stylename=first, text='Start ')
     p.setAttrNS(XML[1:-1], 'id', 'first')
     span = Span(stylename=bold, text='Český 日本語')
-    span.setAttrNS(XML[1:-1], 'id', 'rich')
     p.addElement(span)
     p.addText(' tail')
     doc.text.addElement(p)
@@ -67,12 +66,12 @@ def produce(path):
     section.addElement(P(stylename=body, text='Section beta'))
     doc.text.addElement(section)
     table = Table(name='Cells')
+    table.addElement(TableColumn(numbercolumnsrepeated=2))
     row = TableRow()
     table.addElement(row)
     cell = TableCell(valuetype='string')
     p = P(stylename=body, text='Cell ')
     link = A(href='https://example.invalid/document', text='link')
-    link.setAttrNS(XML[1:-1], 'id', 'link')
     p.addElement(link)
     p.addElement(S(c=3))
     p.addElement(Tab())
@@ -86,11 +85,17 @@ def produce(path):
     row.addElement(cell)
     doc.text.addElement(table)
     numbers = ListStyle(name='Numbers')
-    numbers.addElement(ListLevelStyleNumber(level=1, numformat='1', numsuffix='.'))
-    numbers.addElement(ListLevelStyleNumber(level=2, numformat='a', numsuffix=')', displaylevels=2))
+    number = ListLevelStyleNumber(level=1, numformat='1', numsuffix='.')
+    number.addElement(ListLevelProperties(spacebefore='0pt', minlabelwidth='24pt', minlabeldistance='6pt'))
+    numbers.addElement(number)
+    number = ListLevelStyleNumber(level=2, numformat='a', numsuffix=')', displaylevels=2)
+    number.addElement(ListLevelProperties(spacebefore='24pt', minlabelwidth='36pt', minlabeldistance='6pt'))
+    numbers.addElement(number)
     doc.styles.addElement(numbers)
     roman = ListStyle(name='Roman')
-    roman.addElement(ListLevelStyleNumber(level=1, numformat='I', numsuffix='.'))
+    number = ListLevelStyleNumber(level=1, numformat='I', numsuffix='.')
+    number.addElement(ListLevelProperties(spacebefore='0pt', minlabelwidth='24pt', minlabeldistance='6pt'))
+    roman.addElement(number)
     doc.styles.addElement(roman)
     listing = List(stylename=numbers)
     listing.setAttrNS(XML[1:-1], 'id', 'numbered-list')
@@ -101,7 +106,6 @@ def produce(path):
     item.setAttrNS(XML[1:-1], 'id', 'numbered-item')
     p = P(stylename=body, text='List ')
     span = Span(stylename=bold, text='item')
-    span.setAttrNS(XML[1:-1], 'id', 'list-run')
     p.addElement(span)
     item.addElement(p)
     item.addElement(P(stylename=body, text='List continuation'))
@@ -293,6 +297,25 @@ try:
             picture.save(art / (name + '.png'))
             return picture
 
+        def view_labels(name=None):
+            click(round(610 * data()['window_size'][0] / 1100), 26)
+            wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
+            labels = [label['text'] for label in data()['page_layout']['list_labels']]
+            if name:
+                time.sleep(.4)
+                capture_window(name)
+            click(round(610 * data()['window_size'][0] / 1100), 26)
+            wait(lambda: not data()['page_layout']['visible'])
+            return labels
+
+        def menu_action(label):
+            address = data()['desktop_menu']
+            command = ['gdbus', 'call', '--session', '--dest', address['service'], '--object-path', address['path']]
+            layout = subprocess.check_output([*command, '--method', 'com.canonical.dbusmenu.GetLayout', '0', '3', '[]'], text=True)
+            action = re.search(r"\((\d+), \{[^{}]*'label': <'_?" + re.escape(label) + r"'>", layout)
+            assert action, layout
+            subprocess.run([*command, '--method', 'com.canonical.dbusmenu.Event', action[1], 'clicked', '<0>', '0'], check=True, stdout=subprocess.DEVNULL)
+
         def go(position):
             key('Home', ('Control_L',))
             if position:
@@ -465,6 +488,128 @@ try:
         key('z', ('Control_L',))
         check_text(original, joining)
         assert save('override-join-undone')[1] == checkpoint_xml
+        # Level changes alter XML and numbering while leaving editor text intact.
+        next_item = original.index('Next item')
+        go(next_item)
+        revision = data()['editing']['revision']
+        key('Tab', ('Shift_L',))
+        assert data()['editing']['revision'] == revision and not data()['modified']
+        key('Tab')
+        wait(lambda: data()['editing']['revision'] > revision and data()['modified'])
+        check_text(original, next_item)
+        root, indented_xml = save('level-indented')
+        main_list = root.find('.//' + TEXT + 'list')
+        assert len(main_list.findall(TEXT + 'list-item')) == 1
+        assert len(main_list.findall(TEXT + 'list-item')[0].find(TEXT + 'list').findall(TEXT + 'list-item')) == 2
+        assert view_labels('level-indented-layout')[:3] == ['4.', '4.a)', 'II.']
+        labels = data()['page_layout']['list_labels']
+        assert labels[2]['x'] > labels[0]['x'] + 10
+        go(next_item)
+        key('Tab', ('Shift_L',))
+        wait(lambda: data()['modified'])
+        check_text(original, next_item)
+        save('level-outdented')
+        assert view_labels('level-outdented-layout')[:3] == ['4.', '4.a)', 'V.']
+        labels = data()['page_layout']['list_labels']
+        assert abs(labels[2]['x'] - labels[0]['x']) < .1
+        key('z', ('Control_L',))
+        check_text(original)
+        assert save('outdent-undone')[1] == indented_xml
+        key('z', ('Control_L',))
+        assert save('indent-undone')[1] == checkpoint_xml
+        key('y', ('Control_L',))
+        assert save('indent-redone')[1] == indented_xml
+        key('z', ('Control_L',))
+        assert save('indent-redo-undone')[1] == checkpoint_xml
+        # Universal menu formatting also works with a caret inside an item.
+        go(next_item + 2)
+        revision = data()['editing']['revision']
+        menu_action('Indent')
+        wait(lambda: data()['editing']['revision'] > revision)
+        check_text(original, next_item + 2)
+        assert save('menu-indented')[1] == indented_xml
+        menu_action('Outdent')
+        wait(lambda: data()['modified'])
+        assert view_labels()[:3] == ['4.', '4.a)', 'V.']
+        key('z', ('Control_L',))
+        key('z', ('Control_L',))
+        assert save('menu-levels-undone')[1] == checkpoint_xml
+        go(next_item)
+        selection_end = next_item + len('Next item') + 1
+        key('Right', ('Shift_L',), count=selection_end - next_item)
+        wait(lambda: data()['editing']['anchor'] == next_item and data()['editing']['cursor'] == selection_end)
+        key('Tab')
+        wait(lambda: data()['modified'])
+        check_text(original, selection_end)
+        assert data()['editing']['anchor'] == next_item
+        assert save('selected-item-indented')[1] == indented_xml
+        key('z', ('Control_L',))
+        check_text(original, selection_end)
+        assert data()['editing']['anchor'] == next_item
+        assert save('selected-indent-undone')[1] == checkpoint_xml
+        # Outdenting the first nested item preserves the following items in a
+        # continued nested tail, including a different item style override.
+        go(next_item)
+        key('Tab')
+        wait(lambda: data()['modified'])
+        nested_item = original.index('Nested item')
+        go(nested_item)
+        key('Tab', ('Shift_L',))
+        check_text(original, nested_item)
+        root, _ = save('outdent-nested-prefix')
+        main_list = root.find('.//' + TEXT + 'list')
+        items = main_list.findall(TEXT + 'list-item')
+        assert len(items) == 2 and plain(items[1].find(TEXT + 'p')) == 'Nested item'
+        assert items[1].find(TEXT + 'list').get(TEXT + 'continue-list')
+        assert view_labels('nested-tail-layout')[:3] == ['4.', '5.', 'I.']
+        key('z', ('Control_L',))
+        key('z', ('Control_L',))
+        assert save('nested-outdent-undone')[1] == checkpoint_xml
+        # Enter twice leaves an empty item instead of creating more numbered
+        # blanks. The second command changes structure, with identical text.
+        for prefix, end in [('root', next_item + len('Next item')),
+                            ('nested', nested_item + len('Nested item'))]:
+            go(end)
+            key('Return')
+            with_blank = original[:end] + '\n' + original[end:]
+            check_text(with_blank, end + 1)
+            root, created_xml = save(prefix + '-empty-item-created')
+            revision = data()['editing']['revision']
+            key('Return')
+            wait(lambda: data()['editing']['revision'] > revision and data()['modified'])
+            check_text(with_blank, end + 1)
+            root, exited_xml = save(prefix + '-empty-item-exited')
+            blanks = [p for p in root.iter(TEXT + 'p') if not plain(p)]
+            assert len(blanks) == 1
+            assert all(blanks[0] not in set(listing.iter()) for listing in root.iter(TEXT + 'list'))
+            assert view_labels(prefix + '-empty-exit-layout')[:3] == ['4.', '4.a)', 'V.']
+            key('z', ('Control_L',))
+            check_text(with_blank)
+            assert save(prefix + '-empty-exit-undone')[1] == created_xml
+            key('y', ('Control_L',))
+            assert save(prefix + '-empty-exit-redone')[1] == exited_xml
+            key('z', ('Control_L',))
+            key('z', ('Control_L',))
+            check_text(original)
+            assert save(prefix + '-empty-creation-undone')[1] == checkpoint_xml
+        # Ordinary tabs still insert text, including after an inline soft break.
+        go(1)
+        key('Tab')
+        check_text(original[:1] + '\t' + original[1:], 2)
+        key('z', ('Control_L',))
+        check_text(original)
+        assert save('ordinary-tab-undone')[1] == checkpoint_xml
+        soft = next_item + 3
+        go(soft)
+        key('Return', ('Shift_L',))
+        key('Tab')
+        check_text(original[:soft] + '\n\t' + original[soft:], soft + 2)
+        root, _ = save('tab-after-soft-break')
+        assert len(root.find('.//' + TEXT + 'list').findall(TEXT + 'list-item')) == 2
+        key('z', ('Control_L',))
+        key('z', ('Control_L',))
+        check_text(original)
+        assert save('soft-tab-undone')[1] == checkpoint_xml
         go(0)
         key('Right', ('Shift_L',), count=3)
         wait(lambda: data()['editing']['anchor'] == 0 and data()['editing']['cursor'] == 3)
@@ -509,6 +654,8 @@ try:
                    'list_numbering_reflow': True, 'nested_list_retention': True,
                    'list_header_split': True,
                    'inherited_sublist_style_after_join': True,
+                   'list_indent_outdent_and_menu': True, 'empty_item_exit': True,
+                   'ordinary_and_soft_break_tabs': True,
                    'archive_retention': True, 'save_reopen': True,
                    'page_layout': layout_report, 'qt_loaded': False}
         (art / 'results.json').write_text(json.dumps(results, indent=2) + '\n')

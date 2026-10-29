@@ -38,10 +38,12 @@ void supported(const XmlElement &e) {
   for (auto n = e.firstChild(); !n.isNull(); n = n.nextSibling())
     if (n.isElement()) {
       if (n.namespaceURI() != TEXT ||
-          !TextList{"span", "a", "s", "tab", "line-break"}.contains(
+          !TextList{"span", "a", "s", "tab", "line-break", "meta"}.contains(
               n.localName()))
         fail("This paragraph contains an embedded object that cannot be edited "
              "yet");
+      if (n.localName() == "meta" && !plain_text(n).empty())
+        fail("Editing text-bearing metadata requires the rich metadata editor");
       supported(n);
     }
 }
@@ -426,7 +428,270 @@ void split_items(XmlElement item, const std::vector<XmlElement> &paragraphs) {
     tail = next;
   }
 }
+XmlElement previous_element(XmlElement node) {
+  do {
+    node = node.previousSibling();
+  } while (!node.isNull() && !node.isElement());
+  return node;
+}
+XmlElement next_element(XmlElement node) {
+  do {
+    node = node.nextSibling();
+  } while (!node.isNull() && !node.isElement());
+  return node;
+}
+Text fresh_list_id(OdfPackage &package) {
+  std::set<Text> used;
+  std::function<void(XmlElement)> walk = [&](XmlElement node) {
+    used.insert(node.attributeNS(XML, "id"));
+    for (auto child = node.firstChild(); !child.isNull();
+         child = child.nextSibling())
+      if (child.isElement())
+        walk(child);
+  };
+  walk(package.xml.documentElement());
+  size_t number = 1;
+  Text id;
+  do {
+    id = "WordsList" + Text::number(number++);
+  } while (used.contains(id));
+  return id;
+}
+Text pin_list_style(OdfPackage &package, XmlElement list) {
+  auto style = read_source_list_style(package, list);
+  if (style.empty())
+    style = default_list_style(package);
+  list.setAttributeNS(TEXT, "text:style-name", style);
+  return style;
+}
+// A tail is a continuation of its prefix, while later references to the
+// original whole list must now continue its tail. References inside the
+// prefix/between fragments still resolve against the original source anchor.
+XmlElement list_tail(OdfPackage &package, XmlElement list, XmlElement after) {
+  if (next_element(after).isNull())
+    return {};
+  pin_list_style(package, list);
+  auto tail = list.cloneNode(false);
+  tail.removeAttributeNS(XML, "id");
+  auto id = list.attributeNS(XML, "id");
+  if (id.empty()) {
+    id = fresh_list_id(package);
+    list.setAttributeNS(XML, "xml:id", id);
+  }
+  auto tail_id = fresh_list_id(package);
+  tail.setAttributeNS(XML, "xml:id", tail_id);
+  tail.setAttributeNS(TEXT, "text:continue-list", id);
+  tail.removeAttributeNS(TEXT, "continue-numbering");
+  auto node = after.nextSibling();
+  while (!node.isNull()) {
+    auto next = node.nextSibling();
+    tail.appendChild(node);
+    node = next;
+  }
+  return tail;
+}
+void continue_after_tail(OdfPackage &package, XmlElement list,
+                         XmlElement tail) {
+  if (tail.isNull())
+    return;
+  auto id = list.attributeNS(XML, "id"), tail_id = tail.attributeNS(XML, "id");
+  bool after = false;
+  std::function<void(XmlElement)> walk = [&](XmlElement node) {
+    if (after && text_element(node, "list") &&
+        node.attributeNS(TEXT, "continue-list") == id)
+      node.setAttributeNS(TEXT, "text:continue-list", tail_id);
+    if (node == tail)
+      after = true;
+    for (auto child = node.firstChild(); !child.isNull();
+         child = child.nextSibling())
+      if (child.isElement())
+        walk(child);
+  };
+  walk(package.xml.documentElement());
+}
+void indent_items(OdfPackage &package, const std::vector<XmlElement> &items) {
+  auto list = items.front().parentNode();
+  auto style = pin_list_style(package, list);
+  auto parent = previous_element(items.front());
+  if (parent.isNull()) {
+    // A header provides an unnumbered structural parent when the first item
+    // is indented. ODF permits a header containing only a nested list.
+    parent = package.xml.createElementNS(TEXT, "text:list-header");
+    list.insertBefore(parent, items.front());
+  }
+  if (!text_element(parent, "list-item") &&
+      !text_element(parent, "list-header"))
+    fail("List indentation cannot cross an unknown structure");
+  auto nested = parent.lastChild();
+  while (!nested.isNull() && !nested.isElement())
+    nested = nested.previousSibling();
+  if (!text_element(nested, "list") ||
+      read_source_list_style(package, nested) != style) {
+    nested = package.xml.createElementNS(TEXT, "text:list");
+    nested.setAttributeNS(TEXT, "text:style-name", style);
+    parent.appendChild(nested);
+  }
+  for (auto item : items)
+    nested.appendChild(item);
+}
+void outdent_items(OdfPackage &package, const std::vector<XmlElement> &items) {
+  auto list = items.front().parentNode();
+  auto parent = list.parentNode();
+  auto outer = parent.parentNode();
+  if (!text_element(parent, "list-item") &&
+      !text_element(parent, "list-header"))
+    return;
+  if (!text_element(outer, "list"))
+    fail("Nested list has no containing outer list");
+  if (!next_element(list).isNull())
+    fail("Outdent is not yet supported when the parent item has text after "
+         "this sub-list");
+  auto style = pin_list_style(package, list);
+  auto outer_style = pin_list_style(package, outer);
+  auto tail = list_tail(package, list, items.back());
+  auto previous = parent;
+  for (auto item : items) {
+    if (!item.hasAttributeNS(TEXT, "style-override") && style != outer_style)
+      item.setAttributeNS(TEXT, "text:style-override", style);
+    outer.insertAfter(item, previous);
+    previous = item;
+  }
+  if (!tail.isNull()) {
+    auto last = items.back();
+    last.appendChild(tail);
+    continue_after_tail(package, list, tail);
+  }
+}
+void unlist_empty_item(OdfPackage &package, XmlElement item) {
+  auto list = item.parentNode(), parent = list.parentNode();
+  pin_list_style(package, list);
+  auto tail = list_tail(package, list, item);
+  if (!tail.isNull())
+    parent.insertAfter(tail, list);
+  auto paragraph = child(item, TEXT, "p");
+  if (paragraph.isNull())
+    paragraph = child(item, TEXT, "h");
+  auto id = item.attributeNS(XML, "id");
+  if (!id.empty()) {
+    if (!paragraph.hasAttributeNS(XML, "id"))
+      paragraph.setAttributeNS(XML, "xml:id", id);
+    else if (paragraph.attributeNS(XML, "id") != id) {
+      auto anchor = package.xml.createElementNS(TEXT, "text:meta");
+      anchor.setAttributeNS(XML, "xml:id", id);
+      paragraph.insertBefore(anchor, paragraph.firstChild());
+    }
+  }
+  auto previous = list;
+  while (!item.firstChild().isNull()) {
+    auto node = item.firstChild();
+    if (text_element(node, "number"))
+      item.removeChild(node);
+    else {
+      parent.insertAfter(node, previous);
+      previous = node;
+    }
+  }
+  list.removeChild(item);
+  continue_after_tail(package, list, tail);
+}
 } // namespace
+bool change_words_list(OdfPackage &package, size_t begin, size_t end,
+                       WordsListAction action, bool at_start_only) {
+  auto all = blocks(package.body());
+  if (all.empty())
+    return false;
+  auto size = all.back().start + all.back().text.size();
+  if (begin > end || end > size)
+    fail("List selection is outside the document");
+  auto locate = [&](size_t position) {
+    for (size_t i = 0; i < all.size(); ++i)
+      if (position <= all[i].start + all[i].text.size())
+        return i;
+    return all.size() - 1;
+  };
+  auto first = locate(begin), last = locate(end);
+  auto source = all[first].node;
+  auto item = source.parentNode();
+  if (!text_element(item, "list-item") ||
+      !text_element(item.parentNode(), "list"))
+    return false;
+  if (action == WordsListAction::ExitEmpty) {
+    if (begin != end || !all[first].text.empty())
+      return false;
+    supported(source);
+    for (auto node = item.firstChild(); !node.isNull();
+         node = node.nextSibling())
+      if (node.isElement() && node != source && !text_element(node, "number") &&
+          !text_element(node, "soft-page-break"))
+        fail("Leaving this list is not yet supported for a continuation "
+             "paragraph or an item containing a sub-list");
+    // Empty-item exit removes numbering entirely. Until paragraph-level list
+    // continuations are available, refuse to reparent unselected nested tails.
+    for (auto current = item;
+         text_element(current.parentNode().parentNode(), "list-item") ||
+         text_element(current.parentNode().parentNode(), "list-header");
+         current = current.parentNode().parentNode())
+      if (!next_element(current).isNull() ||
+          !next_element(current.parentNode()).isNull())
+        fail("Leaving a nested list is not yet supported while following "
+             "nested items or parent text remain");
+    while (text_element(item.parentNode().parentNode(), "list-item") ||
+           text_element(item.parentNode().parentNode(), "list-header"))
+      outdent_items(package, {item});
+    unlist_empty_item(package, item);
+    return true;
+  }
+  if (at_start_only && !((begin == end && begin == all[first].start) ||
+                         (begin != end && first != last)))
+    return false;
+  if (begin != end && last > first && end == all[last].start)
+    --last;
+  std::set<const void *> selected;
+  std::vector<XmlElement> candidates;
+  for (size_t i = first; i <= last; ++i) {
+    auto node = all[i].node.parentNode();
+    if (!text_element(node, "list-item") ||
+        !text_element(node.parentNode(), "list"))
+      fail("List level selection includes paragraphs outside list items");
+    if (selected.insert(node.identity()).second)
+      candidates.push_back(node);
+  }
+  std::vector<XmlElement> top;
+  for (auto node : candidates) {
+    bool contained = false;
+    for (auto parent = node.parentNode(); parent.isElement();
+         parent = parent.parentNode())
+      contained = contained || selected.contains(parent.identity());
+    if (!contained)
+      top.push_back(node);
+  }
+  auto list = top.front().parentNode();
+  for (auto node : top)
+    if (node.parentNode() != list)
+      fail("List level selection crosses unrelated lists or mixed levels");
+  std::set<const void *> picked;
+  for (auto node : top)
+    picked.insert(node.identity());
+  std::vector<XmlElement> items;
+  bool active = false;
+  for (auto node = list.firstChild(); !node.isNull();
+       node = node.nextSibling()) {
+    if (picked.contains(node.identity()))
+      active = true;
+    if (active && node.isElement()) {
+      if (!text_element(node, "list-item"))
+        fail("List level selection contains an unknown structure");
+      items.push_back(node);
+      if (node == top.back())
+        break;
+    }
+  }
+  if (action == WordsListAction::Indent)
+    indent_items(package, items);
+  else
+    outdent_items(package, items);
+  return true;
+}
 void replace_words_text(OdfPackage &package, size_t begin, size_t count,
                         const Text &inserted, bool paragraph_breaks) {
   auto all = blocks(package.body());

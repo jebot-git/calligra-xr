@@ -588,7 +588,8 @@ struct Reader {
       else if (n.isElement()) {
         auto e = n.toElement();
         if (e.namespaceURI() == TEXT &&
-            (e.localName() == "span" || e.localName() == "a")) {
+            (e.localName() == "span" || e.localName() == "a" ||
+             e.localName() == "meta")) {
           auto next = current;
           auto next_color = color;
           chain(true, e.attributeNS(TEXT, "style-name"),
@@ -1188,7 +1189,7 @@ struct Reader {
       if (!id.empty())
         list_ids[id] = state();
       blocks(item_node, depth + 1, &item);
-      if (item.first)
+      if (item.first && child(item_node, TEXT, "list").isNull())
         note(flow.unsupported, "List item without an editable paragraph");
     };
     if (numbered)

@@ -27,6 +27,12 @@ copying restart values or XML identities. Backspace/Delete can join adjacent
 items of the same list while retaining the final item's trailing content;
 generated and continued counters are validated before the change commits.
 
+Words now also provides item/range indent and outdent through Tab/Shift+Tab and
+the universal Format → List menu. Enter leaves a sole empty root item or a
+terminal nested item. These commands preserve paragraph text/order, selection,
+IDs, styles and native undo checkpoints; split list tails retain continuation
+references. More complex paragraph-level list cases remain unfinished below.
+
 The default Words/Sheets/Stage document, XML/package and spreadsheet calculation
 paths now use native C++20, libxml2, libzip and the installed system FLTK. They
 require no Qt or KDE headers/libraries. The upstream Qt/KDE build remains an
@@ -108,7 +114,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Full IME/preedit validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -175,11 +181,25 @@ be joined. A header stays unnumbered when its continuation becomes an item;
 style overrides and explicit restarts retain their appropriate source scope.
 Joins across cells, unrelated/nested lists, headers or frames, conditional
 styles requiring unsupported continuation rewriting and paragraphs containing
-embedded objects are intentionally restricted. Empty-item exit, list
-indent/outdent, list-formatting controls and general table structure tools are
-still unfinished. Undo restores styled XML,
-selection/caret and saved-state identity; a rejected edit leaves the model,
-history and caret intact. The journal is bounded to 100 commands and 32 MiB
+embedded objects are intentionally restricted. Tab/Shift+Tab changes whole list
+items and their descendants at a real paragraph start or across a selected
+paragraph range; the universal Format → List menu also works inside an item.
+Selected items must share a list/level after contained descendants are removed
+from the operation. Outdent at the top level is a no-op. Enter on a sole empty
+root item leaves numbering, and terminal nested empty items can leave all list
+levels. No paragraph text or editing offsets are invented by these operations.
+List fragments retain ID anchors and following continuation references; when
+an unlisted item and its paragraph both have IDs, a valid empty text:meta anchor
+retains the item's identity. Metadata text renders transparently, and empty
+metadata anchors survive ordinary edits. Editing nonempty metadata still needs
+the rich editor. Exit of empty continuation paragraphs/items with nested content,
+nested exit before following content, and outdent before trailing parent text
+remain unsupported and reject atomically. List-formatting controls, broader
+paragraph/mixed-level list edits and general table structure tools remain
+unfinished. Undo restores styled XML,
+selection/caret and saved-state identity. Native commands validate before
+committing; compound frontend text events still need a shared transaction
+boundary. The journal is bounded to 100 commands and 32 MiB
 of changed XML bytes; edits larger than that clear history. Each edit currently
 serializes content.xml, so large documents still need incremental operations
 and typing groups. The page view

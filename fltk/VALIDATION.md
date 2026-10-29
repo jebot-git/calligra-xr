@@ -1183,3 +1183,51 @@ leak checking for the core suites. The source and expanded fixture follow
 Empty-item exit, list indent/outdent and formatting controls remain the next
 Words editing requirements; this increment does not complete structural lists
 or advance Stage implementation.
+
+## Words list levels and empty-item exit — 2026-10-29
+
+Native XML commands now indent/outdent whole list items and same-level ranges,
+including their descendant content. Tab/Shift+Tab uses real paragraph boundaries;
+ordinary text tabs and tabs after inline breaks keep their text-editing behavior.
+The universal Format → List menu also acts from inside an item. A first item can
+be indented under a structural header without inventing an editable paragraph.
+Top-level outdent is a no-op. Enter on a sole empty root item removes numbering;
+a terminal nested empty item can leave all list levels. List tails carry explicit
+continuation anchors, and later references to the original whole list follow the
+tail. Body text/order, styles, item/paragraph IDs, selection, saved-state identity
+and XML undo/redo are preserved. Outdent before trailing parent text and complex
+empty/nested continuation exits still fail atomically; they remain part of the
+unfinished paragraph-level editor.
+
+The native-words-levels suite adds range endpoints, descendant deduplication,
+root/nested/first item cases, same-cell/section behavior, continued/consecutive
+counters, ID collision avoidance, read-only protection, metadata/CDATA edits,
+saved XML undo and unsupported-operation rollback. All 35 core suites pass in
+Release and ASan/UBSan with core leak checking. Real X11/Wayland keyboard tests
+exercise Tab/Shift+Tab, selected ranges, menu actions, rendered indent positions,
+Enter twice, formatting-only save checkpoints and ordinary tabs. The GUI
+sanitizer run disables third-party leak detection.
+
+Strict, version-matched OASIS schema checks caught a nonconforming ID anchor
+during development. It now uses text:meta instead of assigning xml:id to a span.
+Native rendering treats metadata as transparent; empty anchors are editable and
+retained by both replacement APIs. Text-bearing metadata edits remain restricted.
+The independent odfpy fixture now declares table columns and uses IDs only on
+elements that allow them. The older tolerant-preservation suites still exercise
+nonstandard input separately. Saved intermediate core and GUI packages validate
+their actual content.xml/styles.xml against the corresponding official schemas;
+validation does not remove attributes or upgrade the document version to pass.
+Schema checks cover structural headers, empty ID-anchor lists, continued tails,
+metadata anchors and undo/redo exports, as permitted by the
+[ODF 1.4 schema](https://docs.oasis-open.org/office/OpenDocument/v1.4/os/schemas/OpenDocument-v1.4-schema.rng).
+
+```sh
+build-native/fltk/calligra-native-words-levels-test --artifacts /new/core-exports
+uv run --no-project --with lxml python fltk/tests/odf_schema.py \
+  --schema-dir /path/to/official-schemas --output /path/to/results.json \
+  /new/core-exports /path/to/words-gui-artifacts
+```
+
+The local schema directory uses names such as OpenDocument-v1.2-schema.rng and
+OpenDocument-v1.3-schema.rng. The validator is offline; source URLs and hashes of
+the official schema files are recorded with the local verification artifacts.

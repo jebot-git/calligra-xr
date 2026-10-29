@@ -73,7 +73,9 @@ enum Command {
     Next,
     Previous,
     About,
-    PageLayout
+    PageLayout,
+    ListIndent,
+    ListOutdent
 };
 class Grid : public Fl_Table {
     std::map<std::pair<int, int>, std::string> painted;
@@ -292,8 +294,11 @@ public:
         add("&Edit/&Copy", FL_CTRL + 'c', Copy);
         add("&Edit/&Paste", FL_CTRL + 'v', Paste);
         add("&Edit/Select &all", FL_CTRL + 'a', SelectAll);
-        if (kind == Kind::Words)
+        if (kind == Kind::Words) {
             add("&View/&Page layout", 0, PageLayout);
+            add("&Format/List/&Indent", 0, ListIndent);
+            add("&Format/List/&Outdent", 0, ListOutdent);
+        }
         if (kind == Kind::Sheets)
             add("&Sheet/&Add worksheet…", 0, AddSheet);
         if (kind == Kind::Stage) {
@@ -452,13 +457,30 @@ public:
             editor->add_key_binding('z', FL_CTRL | FL_SHIFT, undo_key);
             editor->add_key_binding('y', FL_CTRL, undo_key);
             if (kind == Kind::Words) {
-                editor->add_key_binding(FL_Enter, FL_SHIFT, [](int key, Fl_Text_Editor* widget) -> int {
+                for (int key : { FL_Enter, FL_KP_Enter })
+                    editor->add_key_binding(key, 0, [](int key, Fl_Text_Editor* widget) -> int {
+                        auto* office = static_cast<Office*>(widget->user_data());
+                        if (office->word_list_action(WordsListAction::ExitEmpty, true))
+                            return 1;
+                        return Fl_Text_Editor::kf_enter(key, widget);
+                    });
+                auto list_tab = [](int, Fl_Text_Editor* widget) -> int {
                     auto* office = static_cast<Office*>(widget->user_data());
-                    office->soft_break = true;
-                    auto result = Fl_Text_Editor::kf_enter(key, widget);
-                    office->soft_break = false;
-                    return result;
-                });
+                    bool reverse = Fl::event_state() & FL_SHIFT;
+                    if (office->word_list_action(reverse ? WordsListAction::Outdent : WordsListAction::Indent, true))
+                        return 1;
+                    return reverse ? 0 : Fl_Text_Editor::kf_default('\t', widget);
+                };
+                editor->add_key_binding(FL_Tab, 0, list_tab);
+                editor->add_key_binding(FL_Tab, FL_SHIFT, list_tab);
+                for (int key : { FL_Enter, FL_KP_Enter })
+                    editor->add_key_binding(key, FL_SHIFT, [](int key, Fl_Text_Editor* widget) -> int {
+                        auto* office = static_cast<Office*>(widget->user_data());
+                        office->soft_break = true;
+                        auto result = Fl_Text_Editor::kf_enter(key, widget);
+                        office->soft_break = false;
+                        return result;
+                    });
             }
         }
         if (kind == Kind::Stage) {
@@ -592,6 +614,28 @@ public:
             else
                 editor->activate();
         }
+    }
+    bool word_list_action(WordsListAction action, bool key = false)
+    {
+        if (kind != Kind::Words)
+            return false;
+        if (page_view) {
+            message("Switch to Edit to change list levels");
+            return true;
+        }
+        auto selection = word_selection();
+        try {
+            if (!words->list_action(selection, action, key))
+                return false;
+            words_edit_previous.reset();
+            modified = words->modified();
+            restore_word_selection(selection);
+            title();
+        } catch (const std::exception& e) {
+            restore_word_selection(selection);
+            message(e.what());
+        }
+        return true;
     }
     TextSelection word_selection()
     {
@@ -920,6 +964,9 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
+            } else if (c == ListIndent || c == ListOutdent) {
+                if (!word_list_action(c == ListIndent ? WordsListAction::Indent : WordsListAction::Outdent))
+                    message("Place the cursor in a list item");
             } else if (c == Undo || c == Redo) {
                 if (kind == Kind::Sheets) {
                     bool redo = c == Redo;

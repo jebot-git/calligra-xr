@@ -98,8 +98,12 @@ CUPS test queues.
   Paragraph continuations follow next styles and avoid repeating forced page
   breaks. Enter creates list items, and Backspace/Delete can join compatible
   items in the same list. Nested suffixes, style overrides and restarts retain
-  their scope. Cross-cell/unrelated-list joins remain restricted; empty-item
-  exit, indent/outdent and list-formatting tools are unfinished.
+  their scope. Tab/Shift+Tab at paragraph starts or across paragraph selections,
+  and Format → List → Indent/Outdent, change item levels without changing text.
+  Enter leaves a sole empty root item or a terminal nested empty item. Undo
+  restores these formatting-only changes and their selections. Cross-cell/
+  unrelated-list joins, complex paragraph-level list moves and list-formatting
+  controls remain restricted or unfinished.
   Pages switches to the native page-flow view;
   Edit returns to text editing, and double-clicking a rendered line opens its
   paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.

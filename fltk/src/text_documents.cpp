@@ -30,7 +30,8 @@ namespace {
             if (n.isElement()) {
                 auto e = n.toElement();
                 if (e.namespaceURI() != TEXT
-                    || !TextList { "span", "a", "s", "tab", "line-break" }.contains(e.localName())
+                    || !TextList { "span", "a", "s", "tab", "line-break", "meta" }.contains(e.localName())
+                    || (e.localName() == "meta" && !plain_text(e).empty())
                     || !inline_supported(e))
                     return false;
             }
@@ -57,7 +58,7 @@ namespace {
         List<Leaf> leaves;
         auto collect = [&](auto&& self, const XmlElement& e) -> void {
             for (auto n = e.firstChild(); !n.isNull(); n = n.nextSibling()) {
-                if (n.isText())
+                if (n.isText() || n.isCDATASection())
                     leaves.push_back({ n, n.nodeValue() });
                 else if (n.isElement()) {
                     auto item = n.toElement();
@@ -73,7 +74,10 @@ namespace {
         };
         collect(collect, paragraph);
         if (leaves.isEmpty()) {
-            set_plain_text(paragraph, text);
+            auto holder = paragraph.ownerDocument().createElement("holder");
+            set_plain_text(holder, text);
+            while (!holder.firstChild().isNull())
+                paragraph.appendChild(holder.firstChild());
             return;
         }
         Text inserted = text.mid(prefix, text.size() - prefix - suffix);
@@ -271,6 +275,24 @@ void TextDocument::replace(size_t begin, size_t count, const Text& inserted,
         || new_selection.anchor > expected.size() || new_selection.cursor > expected.size())
         fail("Invalid text selection");
     apply(std::move(candidate), old_selection, new_selection);
+}
+bool TextDocument::list_action(TextSelection selection, WordsListAction action, bool at_start_only)
+{
+    if (read_only())
+        fail("This document is read-only");
+    auto before = text();
+    if (selection.anchor > before.size() || selection.cursor > before.size())
+        fail("Invalid text selection");
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(package_.xml.toByteArray());
+    if (!change_words_list(candidate, std::min(selection.anchor, selection.cursor),
+            std::max(selection.anchor, selection.cursor), action, at_start_only))
+        return false;
+    if (joined(candidate.body()) != before)
+        fail("List operation would change paragraph text or source order");
+    (void)read_text_flow(candidate);
+    apply(std::move(candidate), selection, selection);
+    return true;
 }
 std::optional<TextSelection> TextDocument::travel(bool redo)
 {

@@ -3,6 +3,7 @@
 #include "native_text_layout.h"
 #include "odf_package.h"
 #include "native_presentation.h"
+#include "native_words_edit.h"
 namespace DomeOffice {
 struct TextSelection {
     size_t anchor = 0, cursor = 0;
@@ -20,6 +21,9 @@ public:
         bool paragraph_breaks = true,
         std::optional<TextSelection> previous = { },
         std::optional<TextSelection> next = { });
+    // Changes whole list items (including their descendants) without changing
+    // paragraph text. Keyboard Tab applies only at paragraph/range boundaries.
+    bool list_action(TextSelection, WordsListAction, bool at_start_only = false);
     std::optional<TextSelection> undo();
     std::optional<TextSelection> redo();
     bool can_undo() const { return history_index_ != 0; }
