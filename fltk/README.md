@@ -274,12 +274,13 @@ text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` retu
 `#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
 errors; special-function non-convergence cannot terminate the application.
 
-The native financial module implements 35 names: `PMT`, `PV`, `FV`, `NPER`,
+The native financial module implements 41 names: `PMT`, `PV`, `FV`, `NPER`,
 `RATE`, `IPMT`, `PPMT`, `ISPMT`, `CUMIPMT`, `CUMPRINC`, `NPV`, `IRR`, `MIRR`,
 `FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, legacy three-argument
 `DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
 `LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`,
-`DOLLARFR`, `XIRR` and `XNPV`. Loan functions share stable annuity calculations, including
+`DOLLARFR`, `XIRR`, `XNPV`, `ACCRINTM`, `DISC`, `INTRATE`, `PRICEDISC`,
+`RECEIVED` and `YIELDDISC`. Loan functions share stable annuity calculations, including
 zero/near-zero rates, and cumulative interest uses a closed sum. Iterative
 return/rate solvers have bounded work and report non-convergence as a cell
 error. Fractional VDB boundaries retain the original calculation behavior.
@@ -300,8 +301,18 @@ Real numeric grid labels reduce precision to fit the column, retaining their
 exponent; insufficient widths show overflow markers. Copying and editing retain
 the full value. Complete number/style/locale formatting remains unported.
 
-Calendar-dependent bond/coupon functions and legacy euro conversions remain
-unported. In particular, standard five/six-argument
+The shared native Gregorian calendar now implements `YEARFRAC` and `DAYS360`
+with all five OpenFormula financial bases. Financial US Basis 0 and the signed
+US `DAYS360` method retain their distinct February/end-of-month rules.
+Actual/Actual uses the specified leap/average-year denominator, with constant-time
+Gregorian leap counting for long intervals. The six dated securities functions
+above share this model, including typed arrays, dependencies and analysis aliases.
+Nine differences from retained upstream test expectations are documented in
+VALIDATION.md; this is an explicit OpenFormula choice rather than a claim of
+identical historical numerical behavior.
+
+Coupon-bearing bond functions, remaining date-dependent calculations and legacy
+euro conversions remain unported. In particular, standard five/six-argument
 `DURATION` remains incomplete and preserves its original cached result; it is
 distinct from the retained three-argument Calligra extension. The supported
 periodic functions do not establish full financial-module fidelity.

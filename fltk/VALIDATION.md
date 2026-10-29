@@ -622,3 +622,82 @@ uv run --with scipy --with odfpy --with openpyxl --with Pillow --with python-xli
 ```
 
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-dated-cashflows-20261029/`.
+
+
+## Native calendar bases and dated securities — 2026-10-29
+
+The shared native Gregorian calendar now supplies `YEARFRAC`, `DAYS360` and
+reusable day-count/year-length interfaces for the five OpenFormula bases.
+`ACCRINTM`, `DISC`, `INTRATE`, `PRICEDISC`, `RECEIVED` and `YIELDDISC` use those
+interfaces without Qt. The financial catalogue now has 41 names. XIRR/XNPV use
+the same civil-date conversion as the new calendar module; their actual/365
+cash-flow exponents are unchanged. Common-epoch serials, truncation, ISO dates
+and civil date-times, and bounded year 1–9999 validation remain shared.
+
+The reference is OpenFormula 1.4 §§4.11.7, 6.10.7, 6.10.25 and the respective
+financial functions:
+https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part4-formula.pdf
+Financial Basis 0 follows Procedure A's ordered month-end adjustments and swaps
+reversed dates. US DAYS360 instead keeps the original date order and applies its
+own February/31st rules. European DAYS360 preserves the sign of reversed dates.
+Actual/Actual follows Procedure E, including its explicit leap start-year rule
+across a year boundary. Long intervals use the inclusive average year length;
+Gregorian leap counts are constant-time and do not loop across years.
+
+`calendar_reference.py` checks 6,859 cases: 88 retained upstream expressions,
+920 Gregorian basis cases, 368 signed DAYS360 cases, 5,460 dated securities
+cases, 16 Excel namespace cases and seven analysis aliases. Python datetime,
+calendar and Fraction provide the independent civil-date and rational arithmetic
+reference. Fixtures include leap centuries, February/31st boundaries, reversed
+intervals, year 1–9999 spans and short cross-year intervals. The native suite also
+covers typed array mapping, conversion/errors, dependent recalculation and
+unsupported-status propagation through IFERROR.
+
+All 88 retained expressions are evaluated. Nine expectations deliberately differ
+from the old source tests; they are reported with both values in reference.json:
+
+- Six YEARFRAC Actual/Actual cases begin after February in a leap year and end
+  in the following year. Procedure E uses 366; the old tests use 365.
+- ACCRINTM from 2004-02-01 to 2004-05-01 at 10% on 1,000 with Basis 0 is 25.
+  The old financial helper/test counts 89 days and expects 24.722222.
+- The reversed-date DISC test expects Boolean false, although its retained
+  function rejects that domain. The native function returns ordinary #NUM!.
+- The multi-year INTRATE Actual/Actual case uses the inclusive average-year
+  denominator, rather than the old financial helper's start-year denominator.
+
+These differences are not excluded from coverage or called historical parity.
+The corpus asserts the retained case count and the nine known deviations.
+Remaining coupon schedules, treasury-bill legacy differences and full calculation
+settings, number/style/locale formatting and original document model still need
+porting. Standard coupon DURATION remains incomplete and preserves source caches.
+
+Independent odfpy/openpyxl producers create ODS, XLSX 1900 and XLSX 1904 inputs
+with typed dates and intentionally stale caches. Native calculation replaces all
+supported caches; invalid-basis IFERROR is an ordinary completed calculation;
+unknown/coupon-dependent caches stay unchanged. Original inputs and date serials
+are verified. GUI tests edit the principal, check actual painted labels, undo,
+redo, save and reopen, and retain unrelated package members.
+
+Reproduce the focused checks with:
+
+```sh
+python3 fltk/tests/calendar_reference.py
+uv run --with odfpy --with openpyxl python3 fltk/tests/calendar_producer.py /tmp/calligra-calendar
+uv run --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/calendar_ui.py
+```
+
+Release and ASan/UBSan core suites both pass all 27 tests, with core leak detection
+on. Both builds pass all 6,859 calendar references, independent producer formats
+and the focused GUI workflow; GUI leak checking is disabled for third-party
+allocations. The previous 685 dated cash-flow and 1,978 periodic references are
+also rerun against the shared conversion layer. Artifacts are under
+`/home/blux/de-xr/artifacts/calligra-native-calendar-20261029/`.
+
+Both full shared GUI regressions also pass. A private nested DomeD/Wayland
+session verifies all three system-FLTK applications, Words table/caption pixels
+and page navigation, Sheets calendar calculation and painted values with native
+keyboard selection, and Stage table rendering and keyboard undo/redo. No active
+desktop/display-manager session is restarted. Maps show no Qt; GTK3 still loads
+through system FLTK/libdecor. Software GL checks do not establish hardware or
+spatial XR readiness. Installation remains a separate authenticated step; a
+verified stage does not mean the installed version has advanced.

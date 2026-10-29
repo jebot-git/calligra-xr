@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "native_calendar.h"
 #include "native_financial_dates.h"
 #include <cassert>
 #include <iostream>
@@ -7,10 +8,10 @@ int main() {
   using namespace std::chrono;
   using V = NativeValue;
   auto epoch = sys_days(year(1899) / 12 / 30);
-  assert(financial_date(V::numeric(0)) == epoch);
-  assert(financial_date(V::numeric(-1.9)) == epoch - days(1));
-  assert(financial_date(V("2000-02-29")) == sys_days(year(2000) / 2 / 29));
-  assert(financial_date(V("2026-10-29T23:59:59+02:00")) ==
+  assert(calendar_date(V::numeric(0)) == epoch);
+  assert(calendar_date(V::numeric(-1.9)) == epoch - days(1));
+  assert(calendar_date(V("2000-02-29")) == sys_days(year(2000) / 2 / 29));
+  assert(calendar_date(V("2026-10-29T23:59:59+02:00")) ==
          sys_days(year(2026) / 10 / 29));
   SheetEngine engine;
   engine.addNewSheet("Dates");

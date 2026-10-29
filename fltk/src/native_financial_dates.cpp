@@ -2,7 +2,7 @@
 // Native date conversion and irregular cash-flow calculations. The retained
 // financial.cpp and OpenFormula 6.12.51/52 supply the behavioral references.
 #include "native_financial_dates.h"
-#include "native_time.h"
+#include "native_calendar.h"
 #include <limits>
 #include <map>
 #include <span>
@@ -72,7 +72,7 @@ Flows flows(const V &values, const V &dates, bool numeric_sequence) {
   auto date_items = items(dates);
   if (amounts.empty() || amounts.size() != date_items.size())
     fail("#NUM!");
-  const auto first = financial_date(date_items.front());
+  const auto first = calendar_date(date_items.front());
   Flows out;
   for (auto amount : amounts)
     out.norm = std::max(out.norm, std::abs(amount));
@@ -80,7 +80,7 @@ Flows flows(const V &values, const V &dates, bool numeric_sequence) {
   // exactly; their cancellation must not manufacture a spurious IRR.
   std::map<int, Sum> by_day;
   for (size_t i = 0; i < amounts.size(); ++i) {
-    auto day = financial_date(date_items[i]);
+    auto day = calendar_date(date_items[i]);
     int delta = int((day - first).count());
     if (delta < 0)
       fail("#NUM!");
@@ -198,31 +198,6 @@ Real xirr(const Flows &flows, Real guess) {
   fail("#NUM!");
 }
 } // namespace
-std::chrono::sys_days financial_date(const NativeValue &v) {
-  using namespace std::chrono;
-  if (v.isError())
-    throw v;
-  const auto epoch = sys_days(year(1899) / 12 / 30);
-  if (v.isNumber()) {
-    auto serial = std::trunc(v.number);
-    auto minimum = (sys_days(year(1) / 1 / 1) - epoch).count();
-    auto maximum = (sys_days(year(9999) / 12 / 31) - epoch).count();
-    if (!std::isfinite(serial) || serial < minimum || serial > maximum)
-      fail("#NUM!");
-    return epoch + days(int(serial));
-  }
-  if (v.kind != V::String || v.string.size() > 128)
-    fail("#VALUE!");
-  auto date = Date::fromString(v.string, ISODate);
-  if (!date.valid) {
-    auto time = DateTime::fromString(v.string, ISODate);
-    if (time.valid)
-      date = time.day;
-  }
-  if (!date.valid || int(date.day.year()) < 1 || int(date.day.year()) > 9999)
-    fail("#VALUE!");
-  return sys_days(date.day);
-}
 NativeValue financial_date_function(const Text &name,
                                     const std::vector<V> &args) try {
   bool irr = name == "XIRR";

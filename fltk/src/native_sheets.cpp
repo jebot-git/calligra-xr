@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_sheets.h"
+#include "native_calendar.h"
 #include "native_engineering.h"
 #include "native_financial.h"
 #include "native_time.h"
@@ -850,7 +851,7 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
   return failure;
 }
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = financial_name(engineering_name(e->name));
+  const auto name = calendar_name(financial_name(engineering_name(e->name)));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -887,6 +888,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     for (const auto &[name, arity] : engineering_signatures())
       out[name] = arity;
     for (const auto &[name, arity] : financial_signatures())
+      out[name] = arity;
+    for (const auto &[name, arity] : calendar_signatures())
       out[name] = arity;
     return out;
   }();
@@ -1046,6 +1049,12 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         }
       return Value::array(rows, columns, std::move(result));
     }
+  }
+  if (calendar_signatures().contains(name)) {
+    std::vector<Value> args;
+    for (size_t i = 0; i < count; ++i)
+      args.push_back(arg(i));
+    return calendar_function(name, args);
   }
   if (financial_signatures().contains(name)) {
     std::vector<Value> args;

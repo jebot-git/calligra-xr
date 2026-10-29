@@ -11,6 +11,7 @@
 // sheets/functions/financial.cpp. No original Qt value or calculation classes
 // participate in this module.
 #include "native_financial.h"
+#include "native_calendar.h"
 #include "native_financial_dates.h"
 #include <limits>
 namespace DomeOffice {
@@ -27,14 +28,17 @@ const NativeSignatures &financial_signatures() {
       {"LEVEL_COUPON", {5, 5}}, {"ZERO_COUPON", {3, 3}}, {"SLN", {3, 3}},
       {"SYD", {4, 4}},          {"DB", {4, 5}},          {"DDB", {4, 5}},
       {"VDB", {5, 7}},          {"DOLLARDE", {2, 2}},    {"DOLLARFR", {2, 2}},
-      {"XIRR", {2, 3}},         {"XNPV", {3, 3}}};
+      {"XIRR", {2, 3}},         {"XNPV", {3, 3}},        {"ACCRINTM", {3, 5}},
+      {"DISC", {4, 5}},         {"INTRATE", {4, 5}},     {"PRICEDISC", {4, 5}},
+      {"RECEIVED", {4, 5}},     {"YIELDDISC", {4, 5}}};
   return values;
 }
 Text financial_name(const Text &name) {
   static const Text prefix = "COM.SUN.STAR.SHEET.ADDIN.ANALYSIS.GET";
   static const std::set<Text> aliases = {
-      "CUMIPMT", "CUMPRINC",   "DOLLARDE", "DOLLARFR", "DURATION",
-      "EFFECT",  "FVSCHEDULE", "NOMINAL",  "XIRR",     "XNPV"};
+      "CUMIPMT",    "CUMPRINC",  "DOLLARDE", "DOLLARFR", "DURATION", "EFFECT",
+      "FVSCHEDULE", "NOMINAL",   "XIRR",     "XNPV",     "ACCRINTM", "DISC",
+      "INTRATE",    "PRICEDISC", "RECEIVED", "YIELDDISC"};
   if (name.startsWith(prefix)) {
     auto base = name.mid(prefix.size());
     if (aliases.contains(base))
@@ -290,6 +294,31 @@ NativeValue financial_function(const Text &input,
     return index < args.size() ? number(args[index]) : fallback;
   };
   auto result = [](Real value) { return V::numeric(double(value)); };
+  if (name == "ACCRINTM" || name == "DISC" || name == "INTRATE" ||
+      name == "PRICEDISC" || name == "RECEIVED" || name == "YIELDDISC") {
+    auto start = calendar_date(args[0]), end = calendar_date(args[1]);
+    const char *invalid = name == "DISC" ? "#NUM!" : "#VALUE!";
+    auto basis = std::trunc(n(4));
+    if (basis < 0 || basis > 4 || start > end ||
+        (start == end && name != "ACCRINTM"))
+      fail(invalid);
+    Real first = n(2), second = n(3, 1000);
+    if (first <= 0 || second <= 0)
+      fail(invalid);
+    Real fraction = year_fraction(start, end, int(basis));
+    if (name == "ACCRINTM")
+      return result(second * first * fraction);
+    if (name == "PRICEDISC")
+      return result(second * (1 - first * fraction));
+    if (name == "RECEIVED") {
+      Real denominator = 1 - second * fraction;
+      if (denominator == 0)
+        fail(invalid);
+      return result(first / denominator);
+    }
+    Real denominator = name == "DISC" ? second : first;
+    return result(divide((second - first) / denominator, fraction));
+  }
   if (name == "PMT" || name == "PV" || name == "FV") {
     Real rate = n(0), periods = n(1), a = n(2), b = n(3);
     bool due = n(4) != 0;
