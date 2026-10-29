@@ -15,7 +15,9 @@ public:
                    NativeBlockLayouter &, size_t depth = 0);
   void begin_page();
   TextCursorChunk fill(double width, double height, double capacity,
-                       bool force_first_line = false);
+                       bool force_first_line = false, double reserve_after = 0);
+  double height_left(double width);
+  bool has_pending_break() const;
   bool finished() const;
 
 private:

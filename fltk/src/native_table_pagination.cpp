@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_table_pagination.h"
 #include "native_table_stream.h"
+#include "native_text_keep.h"
 #include <cmath>
 #include <limits>
 namespace DomeOffice {
@@ -197,13 +198,48 @@ struct NativeTablePaginator::Impl {
     }
     return cache.emplace(width, std::move(p)).first->second;
   }
+  double height_left(double width) {
+    auto &p = prepare(width);
+    size_t after = stream ? stream->end_row() : row;
+    double height = p.layout->height - p.layout->row_edges.at(after);
+    if (stream)
+      height += stream->height_left(width);
+    if (row && row >= p.layout->header_rows && p.header_groups)
+      height += p.header_height;
+    return height;
+  }
+  bool has_pending_break() const {
+    const auto &model = block_table(flow, block);
+    if (stream && stream->has_pending_break())
+      return true;
+    size_t after = stream ? stream->end_row() : row;
+    for (const auto &cell : model.cells) {
+      if (cell.row < after)
+        continue;
+      size_t end = cell.row + cell.rows;
+      while (end > cell.row && !model.rows[end - 1].visible)
+        --end;
+      if (end > cell.row && !model.rows[end - 1].height &&
+          text_blocks_force_break(flow, cell.blocks, depth + 1))
+        return true;
+    }
+    return false;
+  }
   TablePageFragment next(double width, double available, double capacity,
-                         bool empty, bool repeat_header) {
+                         bool empty, bool repeat_header, double reserve_after,
+                         bool keep_before) {
     if (!std::isfinite(available) || !std::isfinite(capacity) || capacity <= 0)
       throw std::runtime_error("Invalid table page capacity");
     auto &p = prepare(width);
     TablePageFragment out;
     out.display.unsupported = p.unsupported;
+    if (!std::isfinite(reserve_after) || reserve_after < 0)
+      throw std::runtime_error("Invalid following keep extent");
+    if (reserve_after >= capacity - 1e-7) {
+      note(out.display.unsupported,
+           "A table keep-with-next boundary cannot fit a fresh page");
+      reserve_after = 0;
+    }
     auto first =
         std::lower_bound(p.groups.begin(), p.groups.end(), row,
                          [](const Group &g, size_t r) { return g.begin < r; });
@@ -227,13 +263,13 @@ struct NativeTablePaginator::Impl {
       fixed_group = fixed_group ||
                     model.rows[first->begin].height.has_value() ||
                     model.rows[first->begin].keep_together;
-    if (!stream && !first->page_breaks && fixed_group &&
+    if (!keep_before && !stream && !first->page_breaks && fixed_group &&
         first->height + header <= capacity + 1e-7 &&
         first->height + header > available + 1e-7 && !empty) {
       out.advance = true;
       return out;
     }
-    if (!row && !stream && p.header_groups &&
+    if (!keep_before && !row && !stream && p.header_groups &&
         p.header_groups < p.groups.size()) {
       double required = p.header_height + p.groups[p.header_groups].height;
       if (required <= capacity + 1e-7 && required > available + 1e-7 &&
@@ -257,7 +293,25 @@ struct NativeTablePaginator::Impl {
     bool only_initial_headers = !row;
     for (auto it = first; it != p.groups.end(); ++it) {
       double room = available - y;
-      if (!stream && !it->page_breaks && it->height <= room + 1e-7) {
+      double tail = it + 1 == p.groups.end() ? reserve_after : 0;
+      bool tail_needs_room = tail > 0 && it->height + tail > room + 1e-7;
+      bool row_keep =
+          it->end == it->begin + 1 && model.rows[it->begin].keep_together;
+      bool explicit_keep = !model.may_break_rows || row_keep;
+      if (tail_needs_room && explicit_keep &&
+          it->height + tail + header > capacity + 1e-7 &&
+          it->height + header <= capacity + 1e-7) {
+        note(out.display.unsupported,
+             "A table keep-with-next boundary conflicts with a row/table keep");
+        tail = 0;
+        tail_needs_room = false;
+      }
+      if (!stream && tail_needs_room &&
+          it->height + tail + header <= capacity + 1e-7 &&
+          (y > header + 1e-7 || !empty))
+        break;
+      if (!stream && !it->page_breaks && it->height <= room + 1e-7 &&
+          !tail_needs_room) {
         append(out.display, it->display, y);
         y += it->height;
         row = it->end;
@@ -269,8 +323,8 @@ struct NativeTablePaginator::Impl {
       if (it->end == it->begin + 1)
         fixed = fixed || model.rows[it->begin].height.has_value() ||
                 model.rows[it->begin].keep_together;
-      if (!stream && !it->page_breaks && fixed &&
-          it->height <= capacity - header + 1e-7)
+      if (!stream && !it->page_breaks && fixed && !tail_needs_room &&
+          !keep_before && it->height <= capacity - header + 1e-7)
         break;
       if (!stream) {
         if (!model.may_break_rows)
@@ -280,7 +334,8 @@ struct NativeTablePaginator::Impl {
             flow, block, it->begin, it->end, it->source_cells, layouter, depth);
       }
       auto chunk = stream->next(width, std::max(0., room),
-                                std::max(.01, capacity - header), false);
+                                std::max(.01, capacity - header), false, tail,
+                                keep_before || tail > 0);
       if (chunk.display.height <= 1e-7 && !chunk.finished) {
         if ((y > header + 1e-7 || !empty)) {
           if (only_initial_headers && !empty) {
@@ -299,11 +354,13 @@ struct NativeTablePaginator::Impl {
           repeat = false;
           note(out.display.unsupported,
                "Repeating table header leaves no room for the next cell line");
-          chunk = stream->next(width, std::max(0., available), capacity, false);
+          chunk = stream->next(width, std::max(0., available), capacity, false,
+                               tail, keep_before || tail > 0);
         }
         if (chunk.display.height <= 1e-7 && !chunk.finished)
           chunk = stream->next(width, std::max(0., available - y),
-                               std::max(.01, capacity - header), true);
+                               std::max(.01, capacity - header), true, tail,
+                               keep_before || tail > 0);
         if (chunk.display.height <= 1e-7 && !chunk.finished)
           throw std::runtime_error(
               "Native table cell cursors did not progress");
@@ -319,6 +376,8 @@ struct NativeTablePaginator::Impl {
     }
     out.display.height = y;
     out.finished = row == model.rows.size() && !stream;
+    if (y <= 1e-7 && !out.finished && !empty)
+      out.advance = true;
     return out;
   }
 };
@@ -371,9 +430,18 @@ NativeTablePaginator::NativeTablePaginator(const TextFlow &flow,
                                            NativeBlockLayouter &layouter,
                                            size_t depth)
     : impl_(std::make_shared<Impl>(flow, block, layouter, depth)) {}
+double NativeTablePaginator::height_left(double width) {
+  return impl_->height_left(width);
+}
+bool NativeTablePaginator::has_pending_break() const {
+  return impl_->has_pending_break();
+}
 TablePageFragment NativeTablePaginator::next(double width, double available,
                                              double capacity, bool page_empty,
-                                             bool repeat_header) {
-  return impl_->next(width, available, capacity, page_empty, repeat_header);
+                                             bool repeat_header,
+                                             double reserve_after,
+                                             bool keep_before) {
+  return impl_->next(width, available, capacity, page_empty, repeat_header,
+                     reserve_after, keep_before);
 }
 } // namespace DomeOffice

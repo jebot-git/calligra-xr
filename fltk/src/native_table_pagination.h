@@ -14,7 +14,11 @@ public:
   NativeTablePaginator(const TextFlow &, const TextBlock &,
                        NativeBlockLayouter &, size_t depth = 0);
   TablePageFragment next(double width, double available, double capacity,
-                         bool page_empty, bool repeat_header = true);
+                         bool page_empty, bool repeat_header = true,
+                         double reserve_after = 0, bool keep_before = false);
+
+  double height_left(double width);
+  bool has_pending_break() const;
 
 private:
   struct Impl;

@@ -10,7 +10,12 @@ public:
                     size_t end, std::vector<size_t> cells,
                     NativeBlockLayouter &, size_t depth);
   TextCursorChunk next(double width, double height, double capacity,
-                       bool force = false);
+                       bool force = false, double reserve_after = 0,
+                       bool flexible_start = false);
+
+  double height_left(double width);
+  bool has_pending_break() const;
+  size_t end_row() const;
 
 private:
   struct Impl;

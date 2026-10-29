@@ -184,8 +184,15 @@ cropping remains intentional. Fixed row dimensions retain
 their total height and minimum row heights can span pages. Source cell selection
 includes nested cells and repeated headers. Impossible line/keep constraints are
 diagnosed, and impossible padding fails without emitting decoration-only pages.
-Keep-with-next across tables and between cell blocks, master changes inside cells
-and header spans crossing into body rows remain explicitly unsupported. The
+Keep-with-next now crosses paragraph/table boundaries and nested cell blocks.
+Chains that fit a fresh page move together; long chains keep their terminal
+fragment with the following paragraph/table prefix when constraints permit.
+Remaining-source probes reserve that prefix only in cells controlling the final
+fragment, so unrelated short cells can finish naturally. Explicit page breaks
+and master assignments take precedence, including assigning the current master
+again. Conflicting keep/row/widow constraints retain bounded source progress and
+diagnostics. Master changes inside cells and header spans crossing into body
+rows remain explicitly unsupported. The
 continuous Stage frame path shares cell geometry and GPU paint. DOCX
 import still omits styles/page geometry. No PDF/printing parity is claimed.
 

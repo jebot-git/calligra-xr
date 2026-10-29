@@ -240,11 +240,21 @@ background/border resolver; source grids and XML remain intact. Empty-cell
 formatting struts do not invent editable paragraphs. Impossible page/padding/keep
 constraints are bounded and explicitly reported or rejected.
 
+A shared native keep planner now connects paragraphs and tables, including
+nested cell blocks and hidden-table gaps. Whole connected chains move together
+when they fit; oversized chains reserve the following prefix at the terminal
+fragment. Read-only source-cursor probes use remaining content and mandatory
+breaks to identify the final fragment's controlling cells, without unnecessarily
+delaying shorter siblings. Cached block extents and lazy connected-chain
+measurements avoid formatting unrelated master-width scopes. Explicit breaks
+and every master assignment override a keep, even when the master name matches
+the current page. Impossible row/table/paragraph keep combinations are reported
+while preserving bounded progress and source coverage.
+
 A vertical span crossing the header/body boundary still disables repetition with
-a diagnostic. Table keep-with-next, paragraph keep-with-next across a table,
-keep-with-next between cell blocks and master changes inside cells remain
-explicitly unsupported. These are remaining pagination requirements, not full
-Words structure parity. Structural cell/row editing is unfinished; supported
+a diagnostic. Master changes inside cells remain explicitly unsupported. These
+are remaining pagination requirements, not full Words structure parity.
+Structural cell/row editing is unfinished; supported
 edits preserve the original grid and inline-break XML.
 Words and Stage text-editor undo shortcuts now route through application history,
 so native editor Undo does not discard the application's Redo chain.

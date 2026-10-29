@@ -448,3 +448,47 @@ FLTK, with no Qt mapped. GTK3 still loads through libdecor decorations. Table
 keeps across blocks, header/body-crossing spans and master changes inside cells
 remain diagnosed limitations; full document/layout/editing parity is unfinished.
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-cell-flow-20261029/`.
+
+## Paragraph/table/cell keep chains — 2026-10-29
+
+The `native-keep-boundaries` suite covers heading/table/caption chains, hidden
+tables, long table and paragraph continuations, fixed-height blank fragments,
+nested cell blocks, independent short/long sibling cells, and forced breaks.
+Source coverage, whole-line page bounds, retained row dimensions and bounded
+progress are asserted. Remaining-height probes inspect active nested cursors
+and pending breaks rather than reserving a caption in every sibling cell.
+Conflicting row/table/paragraph keeps produce diagnostics and retain content.
+
+Explicit master assignments break before the paragraph/table even when the
+assigned master matches the current page, as specified by
+[ODF 1.4, section 16.9](https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part3-schema.pdf).
+This also follows the retained `KoTextLayoutArea` table/paragraph boundary
+behavior. The tests cover paragraph-to-table, table-to-paragraph and
+paragraph-to-paragraph keeps at these forced boundaries. Break precedence and
+satisfiable keep subsets follow [XSL 1.1 section 4.8](https://www.w3.org/TR/xsl11/#keepbreak).
+
+`keep_producer.py` uses odfpy to generate five independent ODT cases: an ordinary
+heading/table/caption chain, a long table with short/long sibling cells, nested
+cell content, an explicit page break and a same-name master assignment. The
+inspector checks exact original Unicode coverage, repeated headers, line/cell
+bounds and unchanged inputs. `keep_ui.py` checks actual table/caption pixels,
+nested source selection, edit/undo/redo/save/reopen, retained keep/master/grid
+attributes and byte-identical untouched package members. Reproduce with:
+
+```sh
+uv run --with odfpy python3 fltk/tests/keep_producer.py /tmp/calligra-keeps
+uv run --with odfpy --with Pillow --with python-xlib python3 fltk/tests/keep_ui.py
+```
+
+All 24 Release suites and all 24 ASan/UBSan suites pass. Core leak checking is
+enabled; GUI checks exclude third-party toolkit leaks. All five focused GUI
+cases pass in Release and ASan/UBSan. A private native Wayland run checks Words'
+End navigation and final table/caption pixels, Sheets' complex-result keyboard
+selection, and Stage's table pixels and undo/redo. All three use system FLTK
+with no Qt mapped; GTK3 still loads through system decorations. The Wayland
+harness waits for compositor focus and uses the reported content viewport.
+The tests use software OpenGL and do not establish hardware/spatial XR or full
+office-suite fidelity. Header/body-crossing spans and inner master handling
+remain unfinished.
+
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-keeps-20261029/`.

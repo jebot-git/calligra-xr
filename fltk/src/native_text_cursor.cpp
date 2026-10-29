@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_cursor.h"
 #include "native_table_pagination.h"
+#include "native_text_keep.h"
 #include <cmath>
 namespace DomeOffice {
 namespace {
@@ -29,16 +30,104 @@ struct NativeTextCursor::Impl {
   const TextFlow &flow;
   std::span<const TextBlock> blocks;
   NativeBlockLayouter &layouter;
-  size_t depth, block = 0, source = 0, line = 0;
+  NativeKeepPlanner keeps;
+  size_t depth, block = 0, source = 0, line = 0, last_visible = size_t(-1);
   double width = 0, after = 0;
   bool started = false, page_has_text = false, blocked = false,
        nested_written = false;
   std::shared_ptr<const TextBoxLayout> layout;
   std::vector<double> heights;
   std::unique_ptr<NativeTablePaginator> nested;
+  std::map<double, std::vector<double>> suffixes;
+  size_t measurement_records = 0;
+  void prepare(double w) {
+    if (!layout || width != w) {
+      layout = layouter.paragraph(blocks[block], w, source);
+      width = w;
+      line = 0;
+      heights = {0};
+      for (const auto &item : layout->lines)
+        heights.push_back(heights.back() + item.height);
+    }
+  }
+  double height_left(double w) {
+    if (block == blocks.size())
+      return 0;
+    auto found = suffixes.find(w);
+    if (found == suffixes.end()) {
+      if (blocks.size() > 1000000 - measurement_records)
+        throw std::runtime_error("Cell keep measurements exceed native limit");
+      measurement_records += blocks.size();
+      std::vector<double> values(blocks.size());
+      size_t next = size_t(-1);
+      for (size_t i = blocks.size(); i-- > 0;) {
+        auto traits = text_block_traits(flow, blocks[i]);
+        if (!traits.visible)
+          continue;
+        double h = blocks[i].kind == TextBlock::Paragraph
+                       ? layouter.paragraph(blocks[i], w)->height
+                       : layouter.table(blocks[i], w)->height;
+        values[i] =
+            h + (next == size_t(-1)
+                     ? traits.after
+                     : std::max(traits.after,
+                                text_block_traits(flow, blocks[next]).before) +
+                           values[next]);
+        next = i;
+      }
+      found = suffixes.emplace(w, std::move(values)).first;
+    }
+    size_t current = block;
+    while (current < blocks.size() &&
+           !text_block_traits(flow, blocks[current]).visible)
+      ++current;
+    if (current == blocks.size())
+      return 0;
+    const auto &b = blocks[current];
+    auto traits = text_block_traits(flow, b);
+    double full = b.kind == TextBlock::Paragraph
+                      ? layouter.paragraph(b, w)->height
+                      : layouter.table(b, w)->height;
+    double remaining = full;
+    if (current == block) {
+      if (b.kind == TextBlock::Paragraph) {
+        prepare(w);
+        remaining = heights.back() - heights[line];
+      } else if (nested)
+        remaining = nested->height_left(w);
+    }
+    return remaining + found->second[current] - full +
+           (current == block && started ? 0 : std::max(after, traits.before));
+  }
+  bool has_pending_break() const {
+    std::optional<TextBlockTraits> previous;
+    for (size_t i = block; i < blocks.size(); ++i) {
+      const auto &b = blocks[i];
+      auto traits = text_block_traits(flow, b);
+      if (!traits.visible)
+        continue;
+      if (previous && (previous->break_after || traits.break_before))
+        return true;
+      if (b.kind == TextBlock::Table) {
+        if (i == block && nested) {
+          if (nested->has_pending_break())
+            return true;
+        } else if (text_blocks_force_break(flow, blocks.subspan(i, 1),
+                                           depth + 1))
+          return true;
+      }
+      previous = traits;
+    }
+    return false;
+  }
   Impl(const TextFlow &f, std::span<const TextBlock> b, NativeBlockLayouter &l,
        size_t d)
-      : flow(f), blocks(b), layouter(l), depth(d) {
+      : flow(f), blocks(b), layouter(l), keeps(f, l), depth(d) {
+    for (size_t i = blocks.size(); i-- > 0;)
+      if (text_block_traits(flow, blocks[i]).visible) {
+        last_visible = i;
+        break;
+      }
     if (depth >= 32)
       throw std::runtime_error("Excessive native text cursor depth");
   }
@@ -50,7 +139,8 @@ struct NativeTextCursor::Impl {
     nested.reset();
     nested_written = false;
   }
-  TextCursorChunk fill(double w, double height, double capacity, bool force) {
+  TextCursorChunk fill(double w, double height, double capacity, bool force,
+                       double reserve_after) {
     if (!std::isfinite(w) || w <= 0 || !std::isfinite(height) ||
         !std::isfinite(capacity) || capacity <= 0)
       throw std::runtime_error("Invalid cell cursor area");
@@ -60,6 +150,17 @@ struct NativeTextCursor::Impl {
       return out;
     while (block < blocks.size()) {
       const auto &b = blocks[block];
+      auto keep = keeps.following(blocks, block, w, capacity);
+      double extra =
+          keep.linked ? keep.extra
+                      : (block == last_visible && reserve_after > 0
+                             ? reserve_after + text_block_traits(flow, b).after
+                             : 0);
+      if (!started && keep.whole_fits &&
+          keep.whole + std::max(after, text_block_traits(flow, b).before) >
+              height - y + 1e-7 &&
+          !force)
+        break;
       if (b.kind == TextBlock::Table) {
         const auto &table = block_table(flow, b);
         if (!table.visible) {
@@ -76,8 +177,9 @@ struct NativeTextCursor::Impl {
                                                           depth + 1);
         }
         double gap = started ? 0 : std::max(after, std::max(0., table.before));
-        auto fragment = nested->next(w, height - y - gap, capacity,
-                                     force && !page_has_text, !nested_written);
+        auto fragment = nested->next(
+            w, height - y - gap, capacity, force && !page_has_text,
+            !nested_written, extra, !started && keeps.preceding(blocks, block));
         for (const auto &warning : fragment.display.unsupported)
           note(out.display.unsupported, warning);
         if (fragment.advance)
@@ -106,19 +208,9 @@ struct NativeTextCursor::Impl {
         blocked = true;
         break;
       }
-      if (p.keep_next)
-        note(out.display.unsupported,
-             "Keep-with-next between table cell blocks is not implemented");
       if (!p.master.empty())
         note(out.display.unsupported, "Page master changes inside table cells");
-      if (!layout || width != w) {
-        layout = layouter.paragraph(b, w, source);
-        width = w;
-        line = 0;
-        heights = {0};
-        for (const auto &item : layout->lines)
-          heights.push_back(heights.back() + item.height);
-      }
+      prepare(w);
       for (const auto &warning : layout->unsupported)
         note(out.display.unsupported, warning);
       double gap = started ? 0 : std::max(after, std::max(0., p.before));
@@ -132,6 +224,21 @@ struct NativeTextCursor::Impl {
       if (!started && p.keep_together &&
           paragraph_height + gap <= capacity + 1e-7 && fit < remaining)
         fit = 0;
+      size_t kept_fit = fit;
+      if (extra > 0) {
+        if (p.keep_together && paragraph_height <= capacity &&
+            paragraph_height + gap + extra > capacity)
+          note(out.display.unsupported,
+               "A keep-with-next boundary conflicts with keep-together");
+        else
+          kept_fit =
+              fit_kept_tail(std::span<const double>(heights.data() + line,
+                                                    heights.size() - line),
+                            fit, height - y - gap,
+                            std::max(.01, capacity - (!started ? p.before : 0)),
+                            extra, p.widows, out.display.unsupported);
+      }
+      fit = kept_fit;
       if (fit < remaining) {
         if (fit && remaining - fit < size_t(p.widows))
           fit = remaining > size_t(p.widows) ? remaining - p.widows : 0;
@@ -139,7 +246,7 @@ struct NativeTextCursor::Impl {
           fit = 0;
       }
       if (!fit && force && !page_has_text && remaining) {
-        fit = raw_fit ? raw_fit : 1;
+        fit = kept_fit ? kept_fit : raw_fit ? raw_fit : 1;
         note(out.display.unsupported,
              raw_fit ? "Unsatisfiable cell paragraph keep/widow/orphan rule"
                      : "A cell line or paragraph margin exceeds the page text "
@@ -192,8 +299,15 @@ void NativeTextCursor::begin_page() {
   impl_->after = 0;
 }
 TextCursorChunk NativeTextCursor::fill(double width, double height,
-                                       double capacity, bool force) {
-  return impl_->fill(width, height, capacity, force);
+                                       double capacity, bool force,
+                                       double reserve_after) {
+  return impl_->fill(width, height, capacity, force, reserve_after);
+}
+double NativeTextCursor::height_left(double width) {
+  return impl_->height_left(width);
+}
+bool NativeTextCursor::has_pending_break() const {
+  return impl_->has_pending_break();
 }
 bool NativeTextCursor::finished() const {
   return impl_->block == impl_->blocks.size();

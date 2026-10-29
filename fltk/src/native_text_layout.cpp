@@ -5,6 +5,7 @@
 #include "native_table_model.h"
 #include "native_table_pagination.h"
 #include "native_tabs.h"
+#include "native_text_keep.h"
 #include "native_text_shaper.h"
 #include <charconv>
 #include <cmath>
@@ -2449,6 +2450,7 @@ static TextPagination paginate_impl(const TextFlow &flow,
       [&](const TextBlock &block, double w, size_t source) {
         return cell_paragraphs(block, w, source);
       });
+  NativeKeepPlanner keeps(flow, table_layout);
   size_t emitted_lines = 0, emitted_cells = 0, emitted_paints = 0;
   for (size_t root = 0; root < blocks.size(); ++root) {
     const auto &block = blocks[root];
@@ -2456,8 +2458,10 @@ static TextPagination paginate_impl(const TextFlow &flow,
       const auto &table = block_table(flow, block);
       if (!table.visible)
         continue;
-      bool changed_master = !table.master.empty() && table.master != master;
-      if (changed_master) {
+      bool keep_before = keeps.preceding(blocks, root) && !pending_break &&
+                         !table.break_before;
+      bool assigned_master = !table.master.empty();
+      if (assigned_master) {
         master = table.master;
         if (page_empty())
           result.pages.back().style = style();
@@ -2467,8 +2471,6 @@ static TextPagination paginate_impl(const TextFlow &flow,
       } else if ((table.break_before || pending_break) && !page_empty())
         advance(table.master.empty());
       pending_break = false;
-      if (table.keep_next)
-        note(result.unsupported, "Table keep-with-next is not implemented");
       NativeTablePaginator paginator(flow, block, table_layout);
       bool first = true;
       while (true) {
@@ -2476,9 +2478,18 @@ static TextPagination paginate_impl(const TextFlow &flow,
         double gap =
             first ? std::max(previous_after, std::max(0., table.before)) : 0;
         double bottom = page.height - page.bottom;
+        double capacity = std::max(.01, bottom - page.top);
+        auto keep = keeps.following(
+            blocks, root, page.width - page.left - page.right, capacity);
+        if (first && keep.whole_fits && gap + keep.whole <= capacity + 1e-7 &&
+            y + gap + keep.whole > bottom + 1e-7 && !page_empty()) {
+          advance(true);
+          continue;
+        }
         auto fragment = paginator.next(
             page.width - page.left - page.right, bottom - y - gap,
-            std::max(.01, bottom - page.top - gap), page_empty());
+            std::max(.01, capacity - gap), page_empty(), true,
+            keep.linked ? keep.extra : 0, first && keep_before);
         if (fragment.advance) {
           advance(true);
           continue;
@@ -2517,8 +2528,8 @@ static TextPagination paginate_impl(const TextFlow &flow,
     }
     const size_t paragraph = block.index;
     const auto &p = flow.paragraphs.at(paragraph);
-    bool changed_master = !p.master.empty() && p.master != master;
-    if (changed_master) {
+    bool assigned_master = !p.master.empty();
+    if (assigned_master) {
       master = p.master;
       if (page_empty())
         result.pages.back().style = style();
@@ -2551,39 +2562,18 @@ static TextPagination paginate_impl(const TextFlow &flow,
       double gap = first ? std::max(previous_after, std::max(0., p.before)) : 0;
       double bottom = page.height - page.bottom;
       double height = heights.back() - heights[line_offset];
-      // Keep chains together when their complete content fits a fresh page.
-      double group_height = height;
-      if (first && p.keep_next) {
-        size_t next = root;
-        while (next + 1 < blocks.size() &&
-               blocks[next].kind == TextBlock::Paragraph &&
-               flow.paragraphs[blocks[next].index].keep_next &&
-               group_height <= bottom - page.top && next - root < 1000) {
-          if (blocks[next + 1].kind == TextBlock::Table) {
-            note(result.unsupported,
-                 "Paragraph keep-with-next across a table is not implemented");
-            break;
-          }
-          size_t index = blocks[next + 1].index;
-          const auto &following = flow.paragraphs[index];
-          const auto &previous = flow.paragraphs[blocks[next].index];
-          if (previous.break_after || following.break_before ||
-              !following.master.empty())
-            break;
-          group_height += std::max(std::max(0., previous.after),
-                                   std::max(0., following.before));
-          auto next_lines = wrap(following, clusters[index], page, 0, measure,
-                                 shaping[index].get(), shaper);
-          for (const auto &line : next_lines)
-            group_height += line.line.height;
-          ++next;
-        }
-      }
-      if (first && !page_empty() &&
-          ((p.keep_together && height <= bottom - page.top &&
+      double capacity = bottom - page.top;
+      auto keep = keeps.following(
+          blocks, root, page.width - page.left - page.right, capacity);
+      double group_height = keep.linked ? keep.whole : height;
+      if (!page_empty() &&
+          ((first && p.keep_together && height <= capacity &&
             y + gap + height > bottom) ||
-           (p.keep_next && group_height <= bottom - page.top &&
-            y + gap + group_height > bottom))) {
+           (first && keep.whole_fits && gap + group_height <= capacity &&
+            y + gap + group_height > bottom) ||
+           (keep.linked &&
+            height + keep.extra + (first ? p.before : 0) <= capacity &&
+            y + gap + height + keep.extra > bottom))) {
         advance(true);
         continue;
       }
@@ -2592,12 +2582,32 @@ static TextPagination paginate_impl(const TextFlow &flow,
       while (fit < lines.size() &&
              y + used + lines[fit].line.height <= bottom + 1e-7)
         used += lines[fit++].line.height;
+      auto keep_heights = std::span<const double>(heights.data() + line_offset,
+                                                  heights.size() - line_offset);
+      size_t kept_fit = fit;
+      if (keep.linked) {
+        if (p.keep_together && height <= capacity &&
+            height + keep.extra > capacity)
+          note(result.unsupported,
+               "A keep-with-next boundary conflicts with keep-together");
+        else
+          kept_fit =
+              fit_kept_tail(keep_heights, fit, bottom - y - gap,
+                            std::max(.01, capacity - (first ? p.before : 0)),
+                            keep.extra, p.widows, result.unsupported);
+      }
+      fit = kept_fit;
       if (fit < lines.size()) {
         if (fit && lines.size() - fit < size_t(p.widows))
           fit = lines.size() > size_t(p.widows) ? lines.size() - p.widows : 0;
         if ((!fit || (first && fit < size_t(p.orphans))) && !page_empty()) {
           advance(true);
           continue;
+        }
+        if (!fit && kept_fit && keep.linked && page_empty()) {
+          fit = kept_fit;
+          note(result.unsupported,
+               "A keep-with-next boundary conflicts with widow/orphan rules");
         }
         if (!fit) {
           // Unsatisfiable keep/widow rules or an oversized line must still

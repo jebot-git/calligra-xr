@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_table_stream.h"
+#include "native_text_keep.h"
 #include <cmath>
+#include <numeric>
 namespace DomeOffice {
 namespace {
 void note(std::vector<Text> &values, const Text &value) {
@@ -69,8 +71,70 @@ struct NativeTableStream::Impl {
       return std::pair{a.begin, a.index} < std::pair{b.begin, b.index};
     });
   }
-  TextCursorChunk next(double width, double height, double capacity,
-                       bool force) {
+  double height_left(double width) {
+    const auto &model = block_table(flow, block);
+    auto geometry = layouter.table(block, width);
+    std::vector<double> heights(end - row);
+    for (size_t r = row; r < end; ++r)
+      if (model.rows[r].visible)
+        heights[r - row] =
+            r == row && initialized
+                ? minimum_left
+                : model.rows[r].height.value_or(model.rows[r].minimum);
+    struct Constraint {
+      size_t begin, end;
+      double need;
+    };
+    std::vector<Constraint> constraints;
+    for (const auto &source : sources) {
+      if (source.end <= row)
+        continue;
+      const auto &g = geometry->cells[source.index];
+      if (g.box.rect.width <= 0)
+        continue;
+      auto live = active.find(source.index);
+      double body = live == active.end()
+                        ? g.text->height
+                        : live->second.empty_left +
+                              live->second.cursor->height_left(
+                                  std::max(.01, g.content_clip.width));
+      double padding = g.box.rect.height - g.content_clip.height;
+      size_t begin = std::max(row, source.begin);
+      if (source.end == begin + 1 && !model.rows[begin].height)
+        heights[begin - row] = std::max(heights[begin - row], body + padding);
+      else if (source.end > begin + 1)
+        constraints.push_back({begin, source.end, body + padding});
+    }
+    for (const auto &c : constraints) {
+      double have = 0;
+      size_t flexible = size_t(-1);
+      for (size_t r = c.begin; r < c.end; ++r) {
+        have += heights[r - row];
+        if (model.rows[r].visible && !model.rows[r].height)
+          flexible = r;
+      }
+      if (flexible != size_t(-1) && c.need > have)
+        heights[flexible - row] += c.need - have;
+    }
+    return std::accumulate(heights.begin(), heights.end(), 0.);
+  }
+  bool has_pending_break() const {
+    const auto &model = block_table(flow, block);
+    for (const auto &source : sources) {
+      if (source.end <= row || model.rows[source.end - 1].height)
+        continue;
+      auto live = active.find(source.index);
+      if (live != active.end()) {
+        if (live->second.cursor->has_pending_break())
+          return true;
+      } else if (text_blocks_force_break(flow, model.cells[source.index].blocks,
+                                         depth + 1))
+        return true;
+    }
+    return false;
+  }
+  TextCursorChunk next(double width, double height, double capacity, bool force,
+                       double reserve_after, bool flexible_start) {
     TextCursorChunk out;
     if (!std::isfinite(height) || !std::isfinite(capacity) || capacity <= 0)
       throw std::runtime_error("Invalid streamed table page area");
@@ -101,6 +165,9 @@ struct NativeTableStream::Impl {
       }
       return it->second;
     };
+    std::map<size_t, double> ending_heights;
+    double highest = 0, row_start = 0;
+    bool forced_continuation = false;
     auto fill = [&](Cell &cell, Frame &f, double bottom, bool allow_force) {
       double room = std::max(0., bottom - f.top - f.inset[0] - f.inset[2]);
       if (cell.empty_left > 0) {
@@ -110,7 +177,15 @@ struct NativeTableStream::Impl {
       } else if (!cell.cursor->finished()) {
         auto chunk = cell.cursor->fill(
             std::max(.01, f.width - f.inset[1] - f.inset[3]), room,
-            std::max(.01, capacity - f.inset[0] - f.inset[2]), allow_force);
+            std::max(.01, capacity - f.inset[0] - f.inset[2]), allow_force,
+            row + 1 == end && end == model.rows.size() &&
+                    !model.rows[row].height && !forced_continuation &&
+                    highest <= height + 1e-7 &&
+                    ending_heights.contains(cell.source.index) &&
+                    ending_heights.at(cell.source.index) >= highest - 1e-7 &&
+                    minimum_left <= std::max(0., highest - row_start) + 1e-7
+                ? reserve_after
+                : 0);
         double used = chunk.display.height;
         append(f.text, std::move(chunk.display), 0, 0);
         f.text.height += used;
@@ -142,7 +217,8 @@ struct NativeTableStream::Impl {
       }
       double remaining = std::max(0., height - y);
       // Honor fixed/minimum dimensions on a fresh page whenever possible.
-      if (minimum_left > remaining + 1e-7 && minimum_left <= capacity + 1e-7 &&
+      if (!flexible_start && minimum_left > remaining + 1e-7 &&
+          minimum_left <= capacity + 1e-7 &&
           (y > 0 || height < capacity - 1e-7))
         break;
       if (style.keep_together &&
@@ -152,10 +228,35 @@ struct NativeTableStream::Impl {
               remaining + 1e-7 &&
           (y > 0 || height < capacity - 1e-7))
         break;
-      double min_part = std::min(minimum_left, remaining);
+      double min_room = remaining;
+      if (row + 1 == end && end == model.rows.size() && reserve_after > 0 &&
+          minimum_left <= remaining + 1e-7 &&
+          minimum_left + reserve_after > remaining + 1e-7 &&
+          !(style.keep_together &&
+            geometry->row_edges[row + 1] - geometry->row_edges[row] <=
+                capacity + 1e-7))
+        min_room = std::max(0., remaining - reserve_after);
+      double min_part = std::min(minimum_left, min_room);
       double limit = style.height ? y + min_part : height;
       double bottom = y + min_part;
       bool all_done = true, any_progress = false;
+      ending_heights.clear();
+      highest = 0;
+      forced_continuation = false;
+      row_start = y;
+      if (reserve_after > 0 && row + 1 == end && end == model.rows.size() &&
+          !style.height)
+        for (auto &[id, cell] : active)
+          if (cell.source.end == row + 1) {
+            auto &f = frame(id, cell);
+            double h = f.top + f.inset[0] + f.inset[2] + cell.empty_left +
+                       cell.cursor->height_left(
+                           std::max(.01, f.width - f.inset[1] - f.inset[3]));
+            ending_heights[id] = h;
+            highest = std::max(highest, h);
+            forced_continuation =
+                forced_continuation || cell.cursor->has_pending_break();
+          }
       for (auto &[id, cell] : active) {
         auto &f = frame(id, cell);
         if (cell.source.end != row + 1)
@@ -318,8 +419,18 @@ NativeTableStream::NativeTableStream(const TextFlow &flow,
                                      size_t depth)
     : impl_(std::make_shared<Impl>(flow, block, begin, end, std::move(cells),
                                    layouter, depth)) {}
+double NativeTableStream::height_left(double width) {
+  return impl_->height_left(width);
+}
+bool NativeTableStream::has_pending_break() const {
+  return impl_->has_pending_break();
+}
+size_t NativeTableStream::end_row() const { return impl_->end; }
 TextCursorChunk NativeTableStream::next(double width, double height,
-                                        double capacity, bool force) {
-  return impl_->next(width, height, capacity, force);
+                                        double capacity, bool force,
+                                        double reserve_after,
+                                        bool flexible_start) {
+  return impl_->next(width, height, capacity, force, reserve_after,
+                     flexible_start);
 }
 } // namespace DomeOffice
