@@ -4,6 +4,10 @@
 #include "odf_package.h"
 #include "native_presentation.h"
 namespace DomeOffice {
+struct TextSelection {
+    size_t anchor = 0, cursor = 0;
+    bool operator==(const TextSelection&) const = default;
+};
 class TextDocument {
 public:
     TextDocument();
@@ -11,6 +15,17 @@ public:
     void save(const Text&);
     Text text() const;
     void set_text(const Text&);
+    // Offsets count Unicode scalars in text(), including paragraph separators.
+    void replace(size_t begin, size_t count, const Text& inserted,
+        bool paragraph_breaks = true,
+        std::optional<TextSelection> previous = { },
+        std::optional<TextSelection> next = { });
+    std::optional<TextSelection> undo();
+    std::optional<TextSelection> redo();
+    bool can_undo() const { return history_index_ != 0; }
+    bool can_redo() const { return history_index_ < history_.size(); }
+    bool modified() const { return state_ != saved_state_; }
+    uint64_t revision() const { return revision_; }
     TextFlow flow() const { return read_text_flow(package_); }
     TextPagination paginate(const MeasureText& measure) const { return paginate_text(flow(), measure); }
     bool imported_office() const { return imported_office_; }
@@ -19,6 +34,18 @@ public:
 private:
     OdfPackage package_ { Kind::Words };
     bool imported_office_ = false;
+    struct Edit {
+        size_t offset;
+        Bytes before, after;
+        TextSelection previous, next;
+        uint64_t before_state, after_state;
+    };
+    std::vector<Edit> history_;
+    size_t history_index_ = 0, history_bytes_ = 0;
+    uint64_t state_ = 0, saved_state_ = 0, next_state_ = 1, revision_ = 0;
+    void apply(OdfPackage, TextSelection, TextSelection);
+    std::optional<TextSelection> travel(bool redo);
+    void clear_history();
 };
 struct SlideBox {
     double x = 1, y = 1, width = 24, height = 3;

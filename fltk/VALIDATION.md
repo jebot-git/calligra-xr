@@ -1107,3 +1107,46 @@ CPU image decoding; it never creates a window or opens an X display. GUI paths
 still default to native Wayland. The independent batch test explicitly exports
 FLTK_BACKEND=wayland with both display variables absent to cover this launcher
 case, including Stage image content and CUPS submission.
+
+## Words structural editing — 2026-10-29
+
+Implementation priority is now Words layout/editing, then Sheets functions,
+with Stage last. This increment replaces Words' frontend text snapshots with
+native XML transactions. Enter and paragraph deletion preserve inline styles,
+links and whitespace in body, section and same-cell paragraph splits/joins;
+Shift+Enter inserts an inline line break. Continuations follow next styles and
+clear inherited forced page/master assignments. Copied style chains retain
+parent-relative font sizes instead of flattening them. Equivalent adjacent
+inline runs are compacted, preventing one span per typed key.
+
+The native suite checks Unicode offsets, IDs, next styles, inherited relative
+sizes, continuation-style reuse, byte-exact XML undo/redo, branching saved-state
+tracking, selection restoration, bounded command history, opaque ZIP retention,
+failed loads and atomic rejection of cross-cell/list/conditional-style edits.
+All 33 core suites pass in Release and ASan/UBSan, with leak checking enabled
+for the core suites.
+
+The independent odfpy keyboard test covers Enter/Backspace in cells and
+sections, Shift+Enter, saved checkpoint traversal, selection/caret restoration,
+rejected cross-cell joins/list splits, continued typing after rejection,
+saved XML inspection and paginated reopen. It passes on private X11 and native
+Wayland sessions using system FLTK with no Qt mapped, and under ASan/UBSan on
+X11 (third-party GUI leak detection disabled). Page-view screenshots were
+checked after editing and reopening. Real input caught and fixed FLTK moving
+the caret before its predelete callback and after a rejected edit; caret state
+is now captured before the event and restored after FLTK finishes it.
+
+```sh
+ctest --test-dir build-native --output-on-failure
+uv run --no-project --with python-xlib --with Pillow --with odfpy python \
+  fltk/tests/words_edit_ui.py --artifacts /absolute/path/words-x11
+uv run --no-project --with python-xlib --with Pillow --with odfpy python \
+  fltk/tests/words_edit_ui.py --wayland --artifacts /absolute/path/words-wayland
+```
+
+The shared GUI regression edits each original paragraph when testing style/page
+preservation. Selecting and deleting the entire document correctly removes
+those old paragraph/page-break structures, so that operation no longer stands
+in for editing the existing paragraphs. Full rich editing, structural list/table
+tools, typing groups and incremental XML operations remain unfinished, along
+with the Words layout work listed in PORT_STATUS.md.

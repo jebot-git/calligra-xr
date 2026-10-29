@@ -206,7 +206,11 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('Home');time.sleep(.2);assert data()['page_layout']['rasterizations']==cached
             host.configure(width=1100,height=780);xd.sync();time.sleep(.2)
             click(host,610,26);wait(lambda:not data()['page_layout']['visible'])
-            click(host,350,100);key('a',('Control_L',));text('Changed title');key('Return');text('Body text');key('Return');text('Next page')
+            # Edit each source paragraph: replacing the entire document now
+            # correctly removes its old paragraph/page-break structures.
+            click(host,350,100);key('Home',('Control_L',));key('End',('Shift_L',));text('Changed title')
+            key('Down');key('Home');key('End',('Shift_L',));text('Body text')
+            key('Down');key('Home');key('End',('Shift_L',));text('Next page')
             wait(lambda:data()['text']=='Changed title\nBody text\nNext page')
             click(host,610,26);wait(lambda:data()['page_layout']['visible'] and data()['page_layout']['pages']==2)
             assert not data()['page_layout']['render_error']

@@ -199,6 +199,30 @@ public:
         return Fl_Table::handle(e);
     }
 };
+class WordsEditor : public Fl_Text_Editor {
+public:
+    using Fl_Text_Editor::Fl_Text_Editor;
+    unsigned handling = 0;
+    std::function<TextSelection()> selection;
+    std::optional<TextSelection> before_event;
+    std::function<void()> restore_after_event;
+    int handle(int event) override
+    {
+        if (!handling && selection)
+            before_event = selection();
+        ++handling;
+        int result = Fl_Text_Editor::handle(event);
+        if (!--handling) {
+            before_event.reset();
+            if (restore_after_event) {
+                auto restore = std::move(restore_after_event);
+                restore_after_event = { };
+                restore();
+            }
+        }
+        return result;
+    }
+};
 class Office {
 public:
     Kind kind;
@@ -231,8 +255,8 @@ public:
     Options options;
     std::vector<Fl_Widget*> presentation_hidden;
     int canvas_x = 0, canvas_y = 0, canvas_w = 0, canvas_h = 0;
-    std::vector<std::string> history;
-    size_t history_index = 0;
+    std::optional<TextSelection> words_edit_previous;
+    bool soft_break = false;
     struct CellEdit {
         int sheet, col, row;
         Text old_value, new_value;
@@ -336,7 +360,8 @@ public:
             grid->paste = [this](const std::string& text) { guard([&] { paste_cells(qs(text.c_str())); }); };
             content->resizable(grid);
         } else if (kind == Kind::Words) {
-            editor = new Fl_Text_Editor(28, 66, 1044, 668);
+            editor = new WordsEditor(28, 66, 1044, 668);
+            static_cast<WordsEditor*>(editor)->selection = [this] { return word_selection(); };
             editor->buffer(&buffer);
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
             text_pages = new TextPageCanvas(28, 66, 1044, 668);
@@ -426,6 +451,15 @@ public:
             editor->add_key_binding('z', FL_CTRL, undo_key);
             editor->add_key_binding('z', FL_CTRL | FL_SHIFT, undo_key);
             editor->add_key_binding('y', FL_CTRL, undo_key);
+            if (kind == Kind::Words) {
+                editor->add_key_binding(FL_Enter, FL_SHIFT, [](int key, Fl_Text_Editor* widget) -> int {
+                    auto* office = static_cast<Office*>(widget->user_data());
+                    office->soft_break = true;
+                    auto result = Fl_Text_Editor::kf_enter(key, widget);
+                    office->soft_break = false;
+                    return result;
+                });
+            }
         }
         if (kind == Kind::Stage) {
             auto* present = new Fl_Button(568, 10, 130, 32, "Present");
@@ -443,14 +477,48 @@ public:
         window.xclass(kind == Kind::Words ? "calligra-words-fltk"
                 : kind == Kind::Sheets    ? "calligra-sheets-fltk"
                                           : "calligra-stage-fltk");
+        buffer.add_predelete_callback(
+            [](int, int, void* p) {
+                auto* a = static_cast<Office*>(p);
+                if (a->kind == Kind::Words && !a->updating && a->words) {
+                    auto* widget = static_cast<WordsEditor*>(a->editor);
+                    a->words_edit_previous = widget->before_event.value_or(a->word_selection());
+                }
+            },
+            this);
         buffer.add_modify_callback(
-            [](int, int inserted, int deleted, int, const char*, void* p) {
+            [](int position, int inserted, int deleted, int, const char* deleted_text, void* p) {
                 auto* a = static_cast<Office*>(p);
                 if (!a->updating && (inserted || deleted)) {
                     a->modified = true;
-                    if (a->kind != Kind::Stage) a->remember_text();
                     a->title();
-                    if (a->kind == Kind::Stage) {
+                    if (a->kind == Kind::Words) {
+                        try {
+                            auto bytes = a->buffer_text();
+                            auto begin = Text(bytes.substr(0, position)).size();
+                            auto added = Text(bytes.substr(position, inserted));
+                            auto removed = deleted_text ? Text(std::string(deleted_text, deleted)).size() : 0;
+                            a->words->replace(begin, removed, added, !a->soft_break,
+                                a->words_edit_previous, TextSelection { begin + added.size(), begin + added.size() });
+                            a->words_edit_previous.reset();
+                            static_cast<WordsEditor*>(a->editor)->before_event.reset();
+                            a->modified = a->words->modified();
+                            a->title();
+                        } catch (const std::exception& e) {
+                            auto selection = a->words_edit_previous.value_or(TextSelection { });
+                            a->fill_buffer(a->words->text());
+                            a->restore_word_selection(selection);
+                            // FLTK finishes its caret update after the buffer callback.
+                            // A rejected edit must restore it once that event completes.
+                            auto* widget = static_cast<WordsEditor*>(a->editor);
+                            if (widget->handling)
+                                widget->restore_after_event = [a, selection] { a->restore_word_selection(selection); };
+                            a->words_edit_previous.reset();
+                            a->modified = a->words->modified();
+                            a->title();
+                            a->message(e.what());
+                        }
+                    } else if (a->kind == Kind::Stage) {
                         try {
                             a->commit_text(true);
                             a->modified = a->stage->modified();
@@ -517,9 +585,7 @@ public:
         updating = true;
         buffer.text(utf8(text).c_str());
         updating = false;
-        history.clear();
-        if (kind != Kind::Stage) history.push_back(buffer_text());
-        history_index = 0;
+        words_edit_previous.reset();
         if (editor) {
             if (readonly())
                 editor->deactivate();
@@ -527,21 +593,27 @@ public:
                 editor->activate();
         }
     }
-    void remember_text()
+    TextSelection word_selection()
     {
-        auto text = buffer_text();
-        if (!history.empty() && history[history_index] == text)
-            return;
-        history.resize(history_index + 1);
-        history.push_back(text);
-        size_t bytes = 0;
-        for (const auto& state : history)
-            bytes += state.size();
-        while (history.size() > 1 && (history.size() > 100 || bytes > 32 * 1024 * 1024)) {
-            bytes -= history.front().size();
-            history.erase(history.begin());
-        }
-        history_index = history.size() - 1;
+        auto bytes = buffer_text();
+        int cursor = editor ? std::clamp(editor->insert_position(), 0, int(bytes.size())) : 0;
+        int first = 0, last = 0;
+        int anchor = cursor;
+        if (buffer.selection_position(&first, &last))
+            anchor = cursor == first ? last : first;
+        return { Text(bytes.substr(0, std::clamp(anchor, 0, int(bytes.size())))).size(), Text(bytes.substr(0, cursor)).size() };
+    }
+    void restore_word_selection(TextSelection selection)
+    {
+        auto text = words->text();
+        int anchor = text.left(std::min(selection.anchor, text.size())).toUtf8().size();
+        int cursor = text.left(std::min(selection.cursor, text.size())).toUtf8().size();
+        editor->insert_position(cursor);
+        if (anchor != cursor)
+            buffer.select(std::min(anchor, cursor), std::max(anchor, cursor));
+        else
+            buffer.unselect();
+        editor->show_insert_position();
     }
     void reset()
     {
@@ -650,7 +722,7 @@ public:
     }
     void commit_text(bool merge = false)
     {
-        if (!editor)
+        if (!editor || readonly())
             return;
         auto text = qs(buffer_text().c_str());
         if (kind == Kind::Words)
@@ -868,19 +940,16 @@ public:
                     editor->insert_position(buffer.length());
                     editor->show_insert_position();
                 } else {
-                    if (c == Undo && history_index)
-                        --history_index;
-                    else if (c == Redo && history_index + 1 < history.size())
-                        ++history_index;
-                    else
+                    auto selection = c == Undo ? words->undo() : words->redo();
+                    if (!selection)
                         return;
-                    updating = true;
-                    buffer.text(history[history_index].c_str());
-                    updating = false;
+                    fill_buffer(words->text());
+                    restore_word_selection(*selection);
                     if (page_view)
                         refresh_pages();
                 }
-                modified = kind == Kind::Stage ? stage->modified() : true;
+                modified = kind == Kind::Stage ? stage->modified() : kind == Kind::Words ? words->modified()
+                                                                                         : true;
                 title();
             } else if (c == Copy) {
                 if (editor)
@@ -1015,6 +1084,9 @@ public:
         } else
             data["text"] = buffer_text();
         if (kind == Kind::Words) {
+            auto selection = word_selection();
+            data["editing"] = { { "anchor", selection.anchor }, { "cursor", selection.cursor },
+                { "can_undo", words->can_undo() }, { "can_redo", words->can_redo() }, { "revision", words->revision() } };
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
             Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array();
             size_t table_paints = 0;

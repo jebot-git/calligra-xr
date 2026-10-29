@@ -7,8 +7,18 @@ a native PDF print backend and FLTK CUPS dialog cover all three applications.
 Words prints native pages, Stage prints slide scenes, and Sheets prints a
 paginated calculated-value grid with all/current worksheet selection. Copies,
 page ranges, cancellation and CUPS submission errors have explicit handling.
-The remaining-work inventory below describes optional fidelity/features beyond
-that baseline, rather than additional baseline acceptance gates.
+That baseline remains the minimum acceptance floor. The current implementation
+priority is **Words layout and editing first, Sheets functions second, Stage
+last**. The remaining-work inventory records the unfinished scope; the baseline
+does not imply that Words or the full suite is finished.
+
+The first Words editing increment adds immediate native document transactions,
+styled paragraph splits/joins in the body, sections and individual table cells,
+explicit soft breaks (Shift+Enter), XML undo/redo and saved-state/selection
+restoration. Paragraph continuation follows next-style declarations and clears
+inherited forced page/master assignments while retaining other formatting.
+Cross-container joins, structural list edits and unsupported embedded-object
+paragraphs are rejected without changing the document.
 
 The default Words/Sheets/Stage document, XML/package and spreadsheet calculation
 paths now use native C++20, libxml2, libzip and the installed system FLTK. They
@@ -91,7 +101,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Full IME/preedit validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -124,29 +134,43 @@ and vertical alignment position continuous text within each frame. Unknown
 objects and extension data remain in the saved package, but preservation does
 not imply correct display or editing support.
 
-## Optional source-port milestones beyond the accepted baseline
+## Implementation priorities — Words, then Sheets, then Stage
 
-1. Continue porting the original calculation behaviors, settings, model/style
-   handling and document filters to native C++, using upstream corpora to check
-   results and retaining unsupported source caches until they can be calculated.
-2. Port the KoText/text-layout algorithms and Flake shape models to native text,
-   geometry and persistence interfaces, replacing Qt text/layout dependencies.
-   Supply toolkit-independent display lists and input/selection adapters; keep
-   rasterization and upload out of steady-state presentation.
-3. Port KWDocument's pagination/frame management and KPrDocument's master/shape/
-   animation behavior to those interfaces, replacing the basic paragraph/frame
-   engines. Preserve the original loader, style and undo semantics.
-4. Port the remaining editing tools and dialogs to FLTK and validate real
-   document corpora, print/export, scripts, IME and both compositor realms.
+1. Finish Words layout and editing. Continue native KoText/text-layout and
+   KWDocument behavior: rich formatting/input/selection, structural lists and
+   tables, sections/columns, headers/footers, notes, images/anchors and the
+   remaining pagination/typography requirements. Preserve loader, style and
+   XML undo semantics. Validate real document corpora, OpenDocument round trips,
+   print/export, scripts, IME and both compositor realms as each part lands.
+2. Complete Sheets functions after Words. Port the remaining original
+   calculation catalogue and settings, using the upstream corpora and independent
+   references. Retain unsupported source caches until calculation is implemented;
+   then address the remaining model/style and filter work in that order.
+3. Leave Stage implementation last. Its remaining KPrDocument/master/shape/
+   animation behavior and editing tools follow Words and Sheets. Shared-engine
+   fixes still require Stage regression checks during earlier work.
+
+Keep native document/geometry/persistence interfaces independent of the toolkit,
+and use system FLTK for input and display. Qt6 frontends remain explicit opt-ins.
 
 ## Current editing limits
 
-Words provides text editing and a separate native paginated view. It preserves span/link
-attributes during text edits, but structural edits in nested tables/lists and
-paragraphs containing embedded objects are intentionally restricted. Contiguous text-only edits preserve existing inline line breaks separately from
-paragraph boundaries. Inserting/removing those breaks and other rich structural
-edits still need a richer editing model. Undo
-history is bounded to 100 text states and a 32 MiB history budget. The page view
+Words provides text editing and a separate native paginated view. Accepted
+editor changes immediately update the native model. Enter splits a paragraph;
+Backspace/Delete can join adjacent paragraphs under the same parent, including
+within a section or table cell. Shift+Enter creates an inline line break, and
+deleting that break preserves the paragraph. Existing span/link styles,
+whitespace controls and unique XML identities are retained; equivalent adjacent
+runs are compacted so typing does not accumulate one span per key. Paragraph
+continuations retain formatting without repeating a forced page/master break.
+Joins across cells/list items/frames, new structural list items, conditional
+styles requiring unsupported continuation rewriting and paragraphs containing
+embedded objects are intentionally restricted. Undo restores styled XML,
+selection/caret and saved-state identity; a rejected edit leaves the model,
+history and caret intact. The journal is bounded to 100 commands and 32 MiB
+of changed XML bytes; edits larger than that clear history. Each edit currently
+serializes content.xml, so large documents still need incremental operations
+and typing groups. The page view
 does not implement direct rich editing, complete typography or the advanced
 structural layout listed above. Document-font fallback is selected through a
 private Fontconfig context; missing glyphs are reported in layout diagnostics.

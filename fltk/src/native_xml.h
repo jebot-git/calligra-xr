@@ -128,6 +128,26 @@ public:
     return node_ && xmlHasNsProp(node_, BAD_CAST name.toUtf8().c_str(),
                                  BAD_CAST uri.toUtf8().c_str());
   }
+  struct Attribute {
+    Text uri, name, value;
+  };
+  std::vector<Attribute> attributes() const {
+    std::vector<Attribute> result;
+    if (!node_)
+      return result;
+    for (auto *p = node_->properties; p; p = p->next) {
+      auto *content = xmlNodeListGetString(owner_->doc, p->children, 1);
+      Text name(reinterpret_cast<const char *>(p->name));
+      if (p->ns && p->ns->prefix)
+        name = Text(reinterpret_cast<const char *>(p->ns->prefix)) + ':' + name;
+      result.push_back(
+          {p->ns ? Text(reinterpret_cast<const char *>(p->ns->href)) : Text(),
+           name,
+           content ? Text(reinterpret_cast<const char *>(content)) : Text()});
+      xmlFree(content);
+    }
+    return result;
+  }
   void setAttributeNS(const Text &uri, const Text &qname, const Text &value) {
     if (!node_)
       throw std::runtime_error("Attribute on null node");

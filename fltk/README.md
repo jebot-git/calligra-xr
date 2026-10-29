@@ -13,6 +13,10 @@ and full upstream spreadsheet function catalogue are not reimplemented here.
 The original Qt/KDE source remains available only through the opt-in frontend
 build. See [PORT_STATUS.md](PORT_STATUS.md).
 
+Implementation priorities are Words layout and editing first, Sheets functions
+second, and Stage last. OpenDocument export and CUPS printing remain the
+acceptance floor while this work proceeds.
+
 ## Build and install
 
 Dependencies: CMake 3.29+, Ninja, a C++20 compiler, system FLTK 1.4 development
@@ -50,8 +54,8 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 ## Export and printing baseline
 
 The accepted baseline is OpenDocument export and CUPS printing in Words, Sheets
-and Stage. Full upstream editing/layout/function/filter parity remains optional
-future work, documented in PORT_STATUS.md.
+and Stage. Words layout/editing is the active development focus; the remaining
+scope and subsequent priorities are documented in PORT_STATUS.md.
 
 Save or Save as writes ODT, ODS or ODP through the native package/model paths.
 Imported DOCX/XLSX/PPTX content can be saved in the corresponding OpenDocument
@@ -88,7 +92,12 @@ CUPS test queues.
 
 - Words loads ODT and imports DOCX body text, paragraphs and basic tables. It
   preserves existing ODT character-style spans and links while editing runs,
-  has undo/redo, and saves ODT. Pages switches to the native page-flow view;
+  splits/joins paragraphs in the body, sections and individual table cells,
+  distinguishes Enter from Shift+Enter soft breaks, and saves ODT. Native XML
+  undo/redo restores formatting, selection/caret and saved-state identity.
+  Paragraph continuations follow next styles and avoid repeating forced page
+  breaks. Cross-container joins and new list items remain restricted.
+  Pages switches to the native page-flow view;
   Edit returns to text editing, and double-clicking a rendered line opens its
   paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.
   Native textual lists support nested numbering/bullets, continuation, restarts,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
+#include "native_words_edit.h"
 #include "ooxml_text_import.h"
 #include "native_enhanced_geometry.h"
 #include <algorithm>
@@ -182,6 +183,8 @@ void TextDocument::load(const Text& p)
     else candidate.load(p);
     package_ = std::move(candidate);
     imported_office_ = office;
+    clear_history();
+    ++revision_;
 }
 void TextDocument::save(const Text& p)
 {
@@ -189,6 +192,7 @@ void TextDocument::save(const Text& p)
         fail("Words saves only ODT; choose an .odt destination");
     package_.save(p);
     imported_office_ = false;
+    saved_state_ = state_;
 }
 Text TextDocument::text() const { return joined(package_.body()); }
 void TextDocument::set_text(const Text& value)
@@ -205,8 +209,95 @@ void TextDocument::set_text(const Text& value)
     for (auto n = package_.body().firstChild(); !n.isNull(); n = n.nextSibling())
         if (n.isElement() && n.toElement().namespaceURI() != TEXT)
             flat = false;
-    set_paragraphs(package_.body(), value, flat);
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(package_.xml.toByteArray());
+    set_paragraphs(candidate.body(), value, flat);
+    apply(std::move(candidate), { text().size(), text().size() }, { value.size(), value.size() });
 }
+void TextDocument::clear_history()
+{
+    history_.clear();
+    history_index_ = history_bytes_ = 0;
+    state_ = saved_state_ = 0;
+    next_state_ = 1;
+}
+void TextDocument::apply(OdfPackage candidate, TextSelection previous, TextSelection next)
+{
+    const auto before = package_.xml.toByteArray(), after = candidate.xml.toByteArray();
+    if (before == after)
+        return;
+    size_t prefix = 0, suffix = 0;
+    while (prefix < before.size() && prefix < after.size() && before[prefix] == after[prefix])
+        ++prefix;
+    while (suffix < before.size() - prefix && suffix < after.size() - prefix
+        && before[before.size() - 1 - suffix] == after[after.size() - 1 - suffix])
+        ++suffix;
+    Edit edit { prefix, before.substr(prefix, before.size() - prefix - suffix),
+        after.substr(prefix, after.size() - prefix - suffix), previous, next, state_, next_state_++ };
+    for (size_t i = history_index_; i < history_.size(); ++i)
+        history_bytes_ -= history_[i].before.size() + history_[i].after.size();
+    history_.resize(history_index_);
+    history_bytes_ += edit.before.size() + edit.after.size();
+    history_.push_back(std::move(edit));
+    state_ = history_.back().after_state;
+    history_index_ = history_.size();
+    while (!history_.empty() && (history_.size() > 100 || history_bytes_ > 32 * 1024 * 1024)) {
+        history_bytes_ -= history_.front().before.size() + history_.front().after.size();
+        history_.erase(history_.begin());
+        --history_index_;
+    }
+    package_ = std::move(candidate);
+    ++revision_;
+}
+void TextDocument::replace(size_t begin, size_t count, const Text& inserted,
+    bool paragraph_breaks, std::optional<TextSelection> previous, std::optional<TextSelection> next)
+{
+    if (read_only())
+        fail("This document is read-only");
+    auto before = text();
+    if (begin > before.size() || count > before.size() - begin)
+        fail("Text edit is outside the document");
+    auto expected = before.left(begin) + inserted + before.mid(begin + count);
+    if (before == expected)
+        return;
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(package_.xml.toByteArray());
+    replace_words_text(candidate, begin, count, inserted, paragraph_breaks);
+    if (joined(candidate.body()) != expected)
+        fail("Text edit does not match the document structure");
+    auto old_selection = previous.value_or(TextSelection { begin + count, begin + count });
+    auto new_selection = next.value_or(TextSelection { begin + inserted.size(), begin + inserted.size() });
+    if (old_selection.anchor > before.size() || old_selection.cursor > before.size()
+        || new_selection.anchor > expected.size() || new_selection.cursor > expected.size())
+        fail("Invalid text selection");
+    apply(std::move(candidate), old_selection, new_selection);
+}
+std::optional<TextSelection> TextDocument::travel(bool redo)
+{
+    if (read_only())
+        fail("This document is read-only");
+    if (redo ? !can_redo() : !can_undo())
+        return { };
+    const auto& edit = history_[redo ? history_index_ : history_index_ - 1];
+    const auto& from = redo ? edit.before : edit.after;
+    const auto& to = redo ? edit.after : edit.before;
+    auto bytes = package_.xml.toByteArray();
+    if (edit.offset > bytes.size() || from.size() > bytes.size() - edit.offset
+        || bytes.compare(edit.offset, from.size(), from) != 0)
+        fail("Words undo history does not match the document");
+    bytes.std::string::replace(edit.offset, from.size(), to);
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(bytes);
+    if (paragraphs(candidate.body()).empty())
+        fail("Undo would remove every paragraph");
+    package_ = std::move(candidate);
+    history_index_ = redo ? history_index_ + 1 : history_index_ - 1;
+    state_ = redo ? edit.after_state : edit.before_state;
+    ++revision_;
+    return redo ? edit.next : edit.previous;
+}
+std::optional<TextSelection> TextDocument::undo() { return travel(false); }
+std::optional<TextSelection> TextDocument::redo() { return travel(true); }
 Presentation::Presentation() { add_slide("Title"); clear_history(); }
 void Presentation::clear_history()
 {
