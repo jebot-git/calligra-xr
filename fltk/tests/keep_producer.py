@@ -11,7 +11,7 @@ from odf.text import P,LineBreak
 def produce(directory):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     cases=[]
-    for kind in ('chain','long','nested','forced','master-table'):
+    for kind in ('chain','long','nested','forced','master-table','cell-master'):
         doc=OpenDocumentText();expected=[]
         for name,width,nextname in [('Narrow',300,'Wide'),('Wide',380,'Wide')]:
             page=PageLayout(name=name+'Page');page.addElement(PageLayoutProperties(pagewidth=f'{width}pt',pageheight='210pt',margin='15pt'))
@@ -20,6 +20,7 @@ def produce(directory):
             s=Style(name=name,family=family);s.addElement(props);doc.automaticstyles.addElement(s);return s
         para=style('P','paragraph',TextProperties(fontfamily='DejaVu Sans',fontsize='11pt',color='#203040'))
         para.addElement(ParagraphProperties(lineheight='15pt',margintop='0pt',marginbottom='0pt'))
+        if kind=='cell-master':para.setAttribute('masterpagename','Wide')
         heading=Style(name='Heading',family='paragraph',parentstylename=para)
         heading.addElement(ParagraphProperties(keepwithnext='always'));doc.automaticstyles.addElement(heading)
         caption=Style(name='Caption',family='paragraph',parentstylename=para)
@@ -31,7 +32,7 @@ def produce(directory):
         if kind=='master-table':keepgrid.setAttribute('masterpagename','Narrow')
         column=style('Column','table-column',TableColumnProperties(relcolumnwidth='1*'))
         headerrow=style('HeaderRow','table-row',TableRowProperties(rowheight='20pt'))
-        bodyrow=style('BodyRow','table-row',TableRowProperties(rowheight='40pt' if kind!='nested' else '30pt'))
+        bodyrow=style('BodyRow','table-row',TableRowProperties(rowheight='30pt' if kind in ('nested','cell-master') else '40pt'))
         cellstyle=style('Cell','table-cell',TableCellProperties(backgroundcolor='#c8d8ff',padding='2pt',border='1pt solid #2040aa'))
         parentstyle=style('Parent','table-cell',TableCellProperties(backgroundcolor='#fff0cc',padding='3pt',border='1pt solid #2040aa'))
         def paragraph(parent,text,sty=para):
@@ -45,7 +46,7 @@ def produce(directory):
             for _ in range(cols):t.addElement(TableColumn(stylename=column))
             return t
         header_ids=[];heading_id=None
-        if kind=='nested':
+        if kind in ('nested','cell-master'):
             outer=table(doc.text,'Outer',1,False);r=TableRow();outer.addElement(r);c=TableCell(stylename=parentstyle);r.addElement(c)
             filler=paragraph(c,'\n'.join(f'Filler_{i}' for i in range(7)))
             heading_id=paragraph(c,'Nested heading',heading)

@@ -191,8 +191,10 @@ Remaining-source probes reserve that prefix only in cells controlling the final
 fragment, so unrelated short cells can finish naturally. Explicit page breaks
 and master assignments take precedence, including assigning the current master
 again. Conflicting keep/row/widow constraints retain bounded source progress and
-diagnostics. Master changes inside cells and header spans crossing into body
-rows remain explicitly unsupported. The
+diagnostics. Paragraph page-master assignments inside cells are ignored as
+required by ODF, including inherited styles in repeated and nested cells; the
+same styles still assign page masters to root paragraphs. Nested table master
+handling and header spans crossing into body rows remain unfinished. The
 continuous Stage frame path shares cell geometry and GPU paint. DOCX
 import still omits styles/page geometry. No PDF/printing parity is claimed.
 

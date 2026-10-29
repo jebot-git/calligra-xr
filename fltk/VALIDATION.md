@@ -492,3 +492,25 @@ office-suite fidelity. Header/body-crossing spans and inner master handling
 remain unfinished.
 
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-keeps-20261029/`.
+
+## Paragraph master assignments inside table cells — 2026-10-29
+
+ODF 1.4 section 19.501 requires paragraph page-master assignments to be ignored
+inside a table. The reader now resolves that rule per paragraph instance, for
+both source paragraphs and cached cell formatting. A common inherited style
+can still assign a master to root paragraphs using that style. The table-model
+regression checks both contexts, repeated cells, nested cells, retained font and
+keep properties, and unchanged source XML.
+
+The sixth odfpy keep fixture assigns a master to the base paragraph style used
+throughout nested table content. It checks the original page progression and
+kept heading/table/caption chain without spurious unsupported-master warnings.
+All six producer cases and all six edit/undo/save/reopen GUI cases pass in
+Release and ASan/UBSan builds. Both sets of 24 core suites pass with sanitizer
+core leak checking enabled. Native Wayland checks verify the two-page nested
+case and actual caption/table pixels, alongside Sheets and Stage keyboard and
+rendering checks. Original master attributes remain in the saved package.
+Nested table master assignments, header/body-crossing spans and full document
+fidelity remain separate unfinished work.
+
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-cell-masters-20261029/`.

@@ -912,7 +912,8 @@ struct Reader {
     p.list = std::move(label);
     item.first = false;
   }
-  TextParagraph make_paragraph(const XmlElement &e, ListItem *item) {
+  TextParagraph make_paragraph(const XmlElement &e, ListItem *item,
+                               bool in_table) {
     TextParagraph p;
     p.color = TextColor{};
     character(p.font, p.color, text_default);
@@ -942,6 +943,10 @@ struct Reader {
     inlines(p, e, p.font, p.color);
     if (item)
       decorate_list(p, *item, applied);
+    // ODF 19.501 ignores paragraph master assignments inside tables. Resolve
+    // this per instance: the same style can still assign a root page master.
+    if (in_table)
+      p.master.clear();
     tab_records += p.tabs.size();
     if (tab_records > 262144)
       fail("Document exceeds native tab style limit");
@@ -952,7 +957,7 @@ struct Reader {
       fail("Too many text paragraphs");
     ParagraphSource source{e, item ? std::optional<ListItem>(*item)
                                    : std::nullopt};
-    auto p = make_paragraph(e, item);
+    auto p = make_paragraph(e, item, table_depth > 0);
     auto index = flow.paragraphs.size();
     flow.paragraphs.push_back(std::move(p));
     paragraph_sources.push_back(std::move(source));
@@ -993,7 +998,7 @@ struct Reader {
           if (formatted_paragraphs.size() >= 100000)
             fail("Too many formatted empty cell styles");
           cell_context = inherited;
-          auto empty = make_paragraph({}, nullptr);
+          auto empty = make_paragraph({}, nullptr, true);
           cell_context.clear();
           found = formatted_paragraphs
                       .emplace(std::move(empty_key),
@@ -1015,8 +1020,8 @@ struct Reader {
             fail("Too many formatted cell paragraphs");
           auto recipe = paragraph_sources.at(block.index);
           cell_context = inherited;
-          auto value = make_paragraph(recipe.node,
-                                      recipe.list ? &*recipe.list : nullptr);
+          auto value = make_paragraph(
+              recipe.node, recipe.list ? &*recipe.list : nullptr, true);
           cell_context.clear();
           found = formatted_paragraphs
                       .emplace(std::move(paragraph_key),

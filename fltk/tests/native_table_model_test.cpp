@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "native_table_layout.h"
 #include "native_table_model.h"
 #include "text_documents.h"
 #include <cassert>
@@ -171,6 +172,32 @@ int main(int argc, char **argv) {
          hidden.blocks.back().index == 2);
   assert(hidden.tables[0].cells.size() == 1 &&
          hidden.tables[0].cells[0].blocks[0].index == 0);
+  // ODF 19.501 ignores paragraph master assignments inside tables. The same
+  // inherited style still assigns the master to root paragraphs; repeated
+  // cells and their scoped/nested formatting must retain that distinction.
+  auto cell_master = package(
+      R"(<text:p text:style-name="Child">Root</text:p><table:table><table:table-row><table:table-cell table:number-columns-repeated="2"><text:p text:style-name="Child">Cell heading</text:p><text:p>Cell body</text:p><table:table><table:table-row><table:table-cell><text:p text:style-name="Child">Nested heading</text:p><text:p>Nested body</text:p></table:table-cell></table:table-row></table:table></table:table-cell></table:table-row></table:table><text:p text:style-name="Child">Root after</text:p>)",
+      R"(<office:styles><style:style style:name="Parent" style:family="paragraph" style:master-page-name="Master"><style:paragraph-properties fo:keep-with-next="always"/><style:text-properties fo:font-size="14pt"/></style:style><style:style style:name="Child" style:family="paragraph" style:parent-style-name="Parent"/></office:styles>)");
+  auto cell_master_xml = cell_master.xml.toByteArray();
+  auto cell_master_flow = read_text_flow(cell_master);
+  assert(cell_master_flow.paragraphs.size() == 6);
+  assert(cell_master_flow.paragraphs[0].master == "Master" &&
+         cell_master_flow.paragraphs[5].master == "Master");
+  for (size_t index : {1, 3}) {
+    const auto &p = cell_master_flow.paragraphs[index];
+    assert(p.master.empty() && p.keep_next && p.font.size == 14);
+  }
+  const auto &outer = block_table(cell_master_flow, cell_master_flow.blocks[1]);
+  assert(outer.cells.size() == 2);
+  for (const auto &cell : outer.cells) {
+    const auto &p = block_paragraph(cell_master_flow, cell.blocks[0]);
+    assert(p.master.empty() && p.keep_next && p.font.size == 14);
+    const auto &inner = block_table(cell_master_flow, cell.blocks[2]);
+    const auto &nested =
+        block_paragraph(cell_master_flow, inner.cells[0].blocks[0]);
+    assert(nested.master.empty() && nested.keep_next && nested.font.size == 14);
+  }
+  assert(cell_master.xml.toByteArray() == cell_master_xml);
   // Automatic styles in master/header sources have their own namespace even
   // when the caller parsed styles.xml into a different XML document object.
   auto scoped = package(body, styles);
