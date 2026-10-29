@@ -83,7 +83,12 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 assert st['pages']==len(reference['pages']),st
                 x,y,w,h=st['viewport'];zoom=max(.05,min(1.5,(w-48)/max(p['width'] for p in reference['pages'])))
                 extent=24+sum(p['height']*zoom+24 for p in reference['pages']);scroll=max(0,extent-h)
-                click(host,x+int(w/2),y+10);key('End');wait(lambda:state()['page']==st['pages'])
+                click(host,x+int(w/2),y+10);key('End',('Control_L',))
+                while state()['scroll']<scroll-1e-6:
+                    previous=state()['scroll']
+                    xtest.fake_input(xd,X.ButtonPress,5);xtest.fake_input(xd,X.ButtonRelease,5);xd.sync()
+                    wait(lambda:state()['scroll']>previous)
+                wait(lambda:state()['page']==st['pages'])
                 time.sleep(.2);xd.sync();g=host.get_geometry();snap=host.get_image(0,0,g.width,g.height,X.ZPixmap,0xffffffff)
                 picture=Image.frombytes('RGB',(g.width,g.height),snap.data,'raw','BGRX');picture.save(out/'kept-caption.png')
                 last=len(reference['pages'])-1;page=reference['pages'][last]
@@ -98,13 +103,16 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                 assert blue>100,(kind,blue,bounds)
                 # Select the actual kept table's source cell, including a child
                 # table nested within the outer cell's continuing text flow.
-                key('Home');wait(lambda:state()['page']==1)
-                target=next(c for c in cells if c['table']==case['table'] and not c['header'] and c['column']==0)
-                tpage=target['page'];left=x+(w-reference['pages'][tpage]['width']*zoom)/2
+                key('Home',('Control_L',));wait(lambda:state()['scroll']==0)
+                tpage,line=next((p,l) for p,page in enumerate(reference['pages'])
+                                for l in page['lines'] if l['source']==case['target'] and l['begin']==0)
+                left=x+(w-reference['pages'][tpage]['width']*zoom)/2
                 top=y+12+sum(p['height']*zoom+24 for p in reference['pages'][:tpage])
-                px=left+(target['x']+10)*zoom;py=top+(target['y']+10)*zoom
+                px=left+line['x']*zoom;py=top+(line['y']+line['height']/2)*zoom
                 assert y<=py<y+h,(kind,py,(y,h))
-                click(host,int(px),int(py));click(host,int(px),int(py));wait(lambda:not state()['visible'])
+                click(host,int(px),int(py));wait(lambda:state()['editing']);assert state()['visible']
+                expected_cursor=sum(len(s)+1 for s in case['expected'][:case['target']])
+                wait(lambda:data()['editing']['cursor']==expected_cursor)
                 text('Edited ');wanted='Edited '+case['expected'][case['target']]
                 wait(lambda:wanted in data()['text'])
                 key('z',('Control_L',));wait(lambda:wanted not in data()['text'])

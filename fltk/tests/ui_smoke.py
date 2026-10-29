@@ -200,10 +200,10 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             assert not data()['page_layout']['render_error']
             assert data()['page_layout']['shaped_lines']>0 and not data()['page_layout']['missing_glyphs']
             host.configure(width=900,height=700);xd.sync();time.sleep(.2)
-            key('End');wait(lambda:data()['page_layout']['page']==2)
-            key('Home');wait(lambda:data()['page_layout']['page']==1)
+            key('End',('Control_L',));wait(lambda:data()['page_layout']['caret_page']==2)
+            key('Home',('Control_L',));wait(lambda:data()['page_layout']['scroll']==0)
             time.sleep(.2);cached=data()['page_layout']['rasterizations'];assert cached>0
-            key('Home');time.sleep(.2);assert data()['page_layout']['rasterizations']==cached
+            key('Home',('Control_L',));time.sleep(.2);assert data()['page_layout']['rasterizations']==cached
             host.configure(width=1100,height=780);xd.sync();time.sleep(.2)
             click(host,610,26);wait(lambda:not data()['page_layout']['visible'])
             # Edit each source paragraph: replacing the entire document now

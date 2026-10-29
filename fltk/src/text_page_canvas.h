@@ -21,7 +21,7 @@ public:
   void set_pagination(TextPagination);
   void reset_editing();
   void selection_changed(bool reveal = true);
-  bool editing() const { return editing_; }
+  bool editing() const { return !pagination.pages.empty(); }
   double scroll_position() const { return scroll_; }
   std::optional<TextRect> caret_rect() const;
   std::optional<size_t> caret_page() const;
@@ -49,7 +49,7 @@ private:
   };
   std::vector<Line> lines_;
   std::vector<std::array<size_t, 3>> stop_index_;
-  bool editing_ = false, dragging_ = false;
+  bool dragging_ = false;
   int drag_x_ = 0, drag_y_ = 0;
   size_t preferred_page_ = 0, preferred_line_ = 0;
   TextCaret::Affinity affinity_ = TextCaret::Following;

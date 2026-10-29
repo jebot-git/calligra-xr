@@ -55,20 +55,21 @@ void TextPageCanvas::set_pagination(TextPagination value) {
   redraw();
 }
 std::optional<TextRect> TextPageCanvas::caret_rect() const {
-  if (editing_)
+  if (editing())
     if (auto stop = cursor())
       return screen_rect(*stop);
   return {};
 }
 std::optional<size_t> TextPageCanvas::caret_page() const {
-  if (editing_)
+  if (editing())
     if (auto stop = cursor())
       return stop->page;
   return {};
 }
 void TextPageCanvas::reset_editing() {
   stop_drag();
-  editing_ = false;
+  edit_map_ = {};
+  set_pagination({});
   preferred_page_ = preferred_line_ = 0;
   affinity_ = TextCaret::Following;
   preferred_x_.reset();
@@ -76,7 +77,7 @@ void TextPageCanvas::reset_editing() {
   redraw();
 }
 void TextPageCanvas::selection_changed(bool reveal) {
-  if (editing_ && reveal)
+  if (editing() && reveal)
     reveal_caret();
   redraw();
 }
@@ -138,7 +139,7 @@ void TextPageCanvas::draw() {
             continue;
           if (!line.shaped || !host)
             throw std::runtime_error("Native page glyph positions are missing");
-          if (editing_ && selection) {
+          if (editing() && selection) {
             auto range = selection();
             auto begin = std::min(range.anchor, range.cursor),
                  end = std::max(range.anchor, range.cursor);
@@ -207,7 +208,7 @@ void TextPageCanvas::draw() {
     }
     top += height + 24;
   }
-  if (editing_ && Fl::focus() == this && selection) {
+  if (editing() && Fl::focus() == this && selection) {
     auto range = selection();
     if (range.anchor == range.cursor || Fl::compose_state)
       if (auto stop = cursor()) {
@@ -289,7 +290,6 @@ void TextPageCanvas::choose(Stop stop, bool extend) {
   preferred_page_ = stop.page;
   preferred_line_ = stop.line;
   affinity_ = stop.caret.affinity;
-  editing_ = true;
   preferred_x_.reset();
   if (select)
     select(
@@ -614,19 +614,7 @@ int TextPageCanvas::handle(int event) {
     if (movement) {
       if (cancel_composition)
         cancel_composition();
-      if (editing_ && navigate(key, control, extend))
-        return 1;
-      if (key == FL_Home)
-        scroll(-extent());
-      else if (key == FL_End)
-        scroll(extent());
-      else
-        scroll((key == FL_Up || key == FL_Left || key == FL_Page_Up ? -1 : 1) *
-               (key == FL_Page_Up || key == FL_Page_Down ? h() * .85 : 48));
-      return 1;
-    }
-    if (!editing_ && key == ' ' && !control) {
-      scroll(h() * .85);
+      navigate(key, control, extend);
       return 1;
     }
     if (key == FL_BackSpace || (key == FL_Delete && !extend)) {
@@ -644,13 +632,11 @@ int TextPageCanvas::handle(int event) {
             end = control ? edit_map_.next_word(end)
                           : edit_map_.next_grapheme(end);
         }
-        editing_ = true;
         erase(begin, end);
         selection_changed();
         return 1;
       }
     }
-    editing_ = true;
     if (input) {
       auto handled = input(event);
       selection_changed();
@@ -658,7 +644,6 @@ int TextPageCanvas::handle(int event) {
     }
   }
   if (event == FL_PASTE && input) {
-    editing_ = true;
     auto handled = input(event);
     selection_changed();
     return handled;

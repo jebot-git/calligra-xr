@@ -75,6 +75,7 @@ enum Command {
     Previous,
     About,
     PageLayout,
+    TextView,
     ListIndent,
     ListOutdent,
     CharacterFormat,
@@ -292,6 +293,7 @@ public:
     TextPageCanvas* text_pages = nullptr;
     Fl_Button* page_button = nullptr;
     bool page_view = false;
+    int page_menu = -1, text_menu = -1;
     uint64_t text_font_revision = 0, page_revision = 0;
     Grid* grid = nullptr;
     Fl_Input* formula = nullptr;
@@ -330,7 +332,7 @@ public:
         menu.user_data(this);
         menu.hide();
         auto add = [&](const char* label, int shortcut, Command command) {
-            menu.add(
+            return menu.add(
                 label, shortcut,
                 [](Fl_Widget* w, void* p) {
                     static_cast<Office*>(w->user_data())->command(int(reinterpret_cast<intptr_t>(p)));
@@ -350,7 +352,10 @@ public:
         add("&Edit/&Paste", FL_CTRL + 'v', Paste);
         add("&Edit/Select &all", FL_CTRL + 'a', SelectAll);
         if (kind == Kind::Words) {
-            add("&View/&Page layout", 0, PageLayout);
+            page_menu = add("&View/&Page layout", 0, PageLayout);
+            text_menu = add("&View/&Text view", 0, TextView);
+            menu.mode(page_menu, FL_MENU_RADIO);
+            menu.mode(text_menu, FL_MENU_RADIO | FL_MENU_VALUE);
             add("&Format/Character/&Font…", FL_CTRL + 'd', CharacterFormat);
             add("&Format/Character/&Bold", FL_CTRL + 'b', Bold);
             add("&Format/Character/&Italic", FL_CTRL + 'i', Italic);
@@ -579,7 +584,11 @@ public:
         }
         if (kind == Kind::Words) {
             page_button = new Fl_Button(560, 10, 100, 32, "Pages");
-            page_button->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(PageLayout); }, this);
+            page_button->callback([](Fl_Widget*, void* p) {
+                auto* office = static_cast<Office*>(p);
+                office->command(office->page_view ? TextView : PageLayout);
+            },
+                this);
         }
         status = new Fl_Box(12, 750, 1076, 24);
         status->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
@@ -953,8 +962,11 @@ public:
             text_pages->reset_editing();
             words = std::make_unique<TextDocument>();
             fill_buffer(words->text());
+            restore_word_selection({ 0, 0 });
             if (page_view)
                 refresh_pages();
+            if (window.shown())
+                (page_view ? static_cast<Fl_Widget*>(text_pages) : editor)->take_focus();
         } else {
             stage = std::make_unique<Presentation>();
             refresh_stage();
@@ -1118,8 +1130,11 @@ public:
             text_pages->reset_editing();
             words = std::move(fresh);
             fill_buffer(words->text());
+            restore_word_selection({ 0, 0 });
             if (page_view)
                 refresh_pages();
+            if (window.shown())
+                (page_view ? static_cast<Fl_Widget*>(text_pages) : editor)->take_focus();
         } else {
             auto fresh = std::make_unique<Presentation>();
             fresh->load(qs(path.c_str()));
@@ -1205,22 +1220,28 @@ public:
                     : kind == Kind::Words ? std::string("*.{odt,docx,ODT,DOCX}") : std::string("*.{odp,pptx,ODP,PPTX}");
                 if (auto* name = fl_file_chooser("Open document", filter.c_str(), file.c_str()))
                     load(name);
-            } else if (c == PageLayout && kind == Kind::Words) {
-                if (!page_view)
+            } else if ((c == PageLayout || c == TextView) && kind == Kind::Words) {
+                bool pages = c == PageLayout;
+                if (pages && !page_view)
                     refresh_pages();
-                page_view = !page_view;
+                page_view = pages;
                 if (page_view) {
                     editor->hide();
                     text_pages->show();
                     text_pages->take_focus();
                     content->resizable(text_pages);
+                    text_pages->selection_changed();
                 } else {
                     text_pages->hide();
                     editor->show();
                     editor->take_focus();
                     content->resizable(editor);
                 }
-                page_button->label(page_view ? "Edit" : "Pages");
+                page_button->label(page_view ? "Text view" : "Pages");
+                menu.mode(page_menu, FL_MENU_RADIO | (page_view ? FL_MENU_VALUE : 0));
+                menu.mode(text_menu, FL_MENU_RADIO | (page_view ? 0 : FL_MENU_VALUE));
+                if (desktop_menu)
+                    desktop_menu->refresh();
                 window.redraw();
             } else if (c == Save || c == SaveAs)
                 save(c == SaveAs);
@@ -1613,7 +1634,13 @@ public:
         glReadBuffer(GL_BACK);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
         glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-        std::ofstream out(options.capture, std::ios::binary);
+        // Publish complete captures: readers may open them as soon as the
+        // final pathname appears, including under a heavily loaded compositor.
+        TempFile temporary(Text(options.capture + ".XXXXXX"));
+        if (!temporary.open())
+            return;
+        temporary.close();
+        std::ofstream out(utf8(temporary.fileName()), std::ios::binary);
         out << "P6\n" << w << ' ' << h << "\n255\n";
         std::vector<unsigned char> row(size_t(w) * 3);
         for (int y = h - 1; y >= 0; --y) {
@@ -1621,6 +1648,9 @@ public:
                 std::copy_n(pixels.data() + (size_t(y) * w + x) * 4, 3, row.data() + size_t(x) * 3);
             out.write(reinterpret_cast<char*>(row.data()), w * 3);
         }
+        out.close();
+        if (!out || ::rename(utf8(temporary.fileName()).c_str(), options.capture.c_str()) != 0)
+            return;
         Json metadata = { { "renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER)) },
             { "gpu_widgets", true }, { "universal_menu", desktop_menu->attached() } };
 #ifdef FLTK_USE_WAYLAND
@@ -1640,7 +1670,15 @@ public:
             metadata["page_min_alpha"] = unsigned(minimum);
             metadata["page_selection"] = { range.anchor, range.cursor };
         }
-        std::ofstream(options.capture + ".json") << metadata.dump(2) << '\n';
+        TempFile attributes(Text(options.capture + ".json.XXXXXX"));
+        if (!attributes.open())
+            return;
+        attributes.close();
+        std::ofstream detail(utf8(attributes.fileName()));
+        detail << metadata.dump(2) << '\n';
+        detail.close();
+        if (detail)
+            ::rename(utf8(attributes.fileName()).c_str(), (options.capture + ".json").c_str());
     }
     static void tick(void* data)
     {
@@ -1698,6 +1736,7 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
 {
     try {
         Options options;
+        options.pages = kind == Kind::Words;
         for (int i = 1; i < argc; ++i) {
             std::string arg = argv[i];
             auto value = [&]() {
@@ -1709,6 +1748,8 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
                 options.present = true;
             else if (arg == "--page-layout" && kind == Kind::Words)
                 options.pages = true;
+            else if (arg == "--text-view" && kind == Kind::Words)
+                options.pages = false;
             else if (arg == "--quit-after-ms")
                 options.duration = std::stoi(value());
             else if (arg == "--capture")
@@ -1727,7 +1768,7 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
                 options.report = value();
             else if (arg == "--help") {
                 std::cout << "Calligra FLTK [FILE] [--report JSON] [--capture PPM] "
-                             "[--quit-after-ms N] [--capture-delay-ms N] [--page-layout (Words)]\n"
+                             "[--quit-after-ms N] [--capture-delay-ms N] [--page-layout|--text-view (Words; pages default)]\n"
                              "Batch: FILE [--export-odf OUTPUT] [--print-pdf OUTPUT.pdf] [--print-to CUPS_PRINTER]\n";
                 return 0;
             } else if (arg.starts_with("--"))
@@ -1780,8 +1821,8 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
         Office office(kind, options);
         if (options.present)
             office.command(Present);
-        if (options.pages)
-            office.command(PageLayout);
+        if (kind == Kind::Words)
+            office.command(options.pages ? PageLayout : TextView);
         if (!options.capture.empty())
             Fl::add_timeout(options.capture_delay / 1000., [](void* p) { static_cast<Office*>(p)->capture(); }, &office);
         if (options.duration)

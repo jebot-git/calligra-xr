@@ -116,7 +116,7 @@ CUPS test queues.
   committed. Select All ends a transient typing format.
   The edit buffer stays plain text; Pages and print output display formatting.
   Underline/strike/highlight and named styles remain unfinished.
-  Pages switches to native paginated editing. Click for a caret, drag or use
+  Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical
   arrows preserve the horizontal target across indented lines.
@@ -124,10 +124,12 @@ CUPS test queues.
   by word/paragraph, Ctrl+Home/End reach document boundaries. Typing, clipboard,
   formatting and list commands share the native undo history. Wayland IME
   composition has one undo step, cancellation and a native candidate anchor.
-  Escape cancels preedit/selection. Edit returns to the legacy text buffer.
-  Before the first native editing action, page keys retain preview scrolling;
-  the wheel always scrolls. Native default-view and further editing polish
-  remain pending.
+  Escape cancels preedit/selection. Space inserts text immediately; navigation
+  keys move the document caret. The wheel scrolls the viewport.
+  View → Text view (or `--text-view`) explicitly opens the legacy text buffer;
+  View → Page layout returns to native editing and reveals the same selection.
+  `--page-layout` remains accepted. New/Open reset the caret to the start and
+  clear old page geometry. Further editing and layout polish remains pending.
   Native textual lists support nested numbering/bullets, continuation, restarts,
   headers, label styling and both ODF spacing modes. Generated labels stay out
   of the editable source text. The same engine renders lists in Stage frames.

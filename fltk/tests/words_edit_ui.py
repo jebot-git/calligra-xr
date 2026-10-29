@@ -156,7 +156,8 @@ parser.add_argument('--bin-dir', type=Path, default=ROOT / 'build-native/fltk')
 parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
-parser.add_argument('--page-only', action='store_true', help='Run the native page fixture without the long plain-editor regression')
+parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
 if args.ime and not args.wayland:
     parser.error('--ime requires --wayland')
@@ -265,7 +266,7 @@ try:
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
-                         '--report', report], client, 'words')
+                         '--report', report, *(['--text-view'] if args.text_view else [])], client, 'words')
 
         def data():
             return json.loads(report.read_text())
@@ -310,7 +311,9 @@ try:
                     time.sleep(.06)
             time.sleep(.2)
 
-        click(350, 100)
+        assert data()['page_layout']['visible'] == (not args.text_view)
+        if args.text_view:
+            click(350, 100)
         if args.ime:
             wait(lambda: input_method() in ('keyboard-us', 'anthy'))
             subprocess.run(['/usr/bin/fcitx5-remote', '-s', 'keyboard-us'], env=client, check=True)
@@ -354,15 +357,18 @@ try:
             picture.save(art / (name + '.png'))
             return picture
 
+        def primary_view():
+            menu_action('Text view' if args.text_view else 'Page layout')
+            wait(lambda: data()['page_layout']['visible'] == (not args.text_view))
+
         def view_labels(name=None):
-            click(round(610 * data()['window_size'][0] / 1100), 26)
+            menu_action('Page layout')
             wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
             labels = [label['text'] for label in data()['page_layout']['list_labels']]
             if name:
                 time.sleep(.4)
                 capture_window(name)
-            click(round(610 * data()['window_size'][0] / 1100), 26)
-            wait(lambda: not data()['page_layout']['visible'])
+            primary_view()
             return labels
 
         def menu_action(label):
@@ -392,8 +398,12 @@ try:
             original_styles = archive.read('styles.xml')
 
         def save(name):
+            before = source.stat().st_ino
             key('s', ('Control_L',))
-            wait(lambda: not data()['modified'])
+            # A false modified flag may belong to the prior report snapshot.
+            # Native saves atomically replace the file; acknowledge that write
+            # before comparing exact XML bytes or copying the saved package.
+            wait(lambda: source.stat().st_ino != before and not data()['modified'])
             raw = source.read_bytes()
             (art / (name + '.odt')).write_bytes(raw)
             with zipfile.ZipFile(source) as archive:
@@ -407,7 +417,7 @@ try:
 
         def type_text(value):
             for char in value:
-                name = {' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus', "'": 'apostrophe', '"': 'quotedbl', ',': 'comma'}.get(char, char)
+                name = {'/': 'slash', ' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus', "'": 'apostrophe', '"': 'quotedbl', ',': 'comma'}.get(char, char)
                 key(name, ('Shift_L',) if char.isupper() or char in '#\"' else ())
 
         layout_report = {}
@@ -421,7 +431,7 @@ try:
 
             def type_text(value):
                 for char in value:
-                    name = {' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus', "'": 'apostrophe', '"': 'quotedbl', ',': 'comma'}.get(char, char)
+                    name = {'/': 'slash', ' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus', "'": 'apostrophe', '"': 'quotedbl', ',': 'comma'}.get(char, char)
                     key(name, ('Shift_L',) if char.isupper() or char in '#\"' else ())
 
             def field(x, y, value):
@@ -775,13 +785,12 @@ try:
             assert items[0].get(XML + 'id') == 'numbered-item' and items[0].get(TEXT + 'start-value') == '4'
             assert items[1].get(XML + 'id') is None and items[1].get(TEXT + 'start-value') is None
             assert len(items[1].findall(TEXT + 'p')) == 2 and items[1].find(TEXT + 'list') is not None
-            click(round(610 * data()['window_size'][0] / 1100), 26)
+            menu_action('Page layout')
             wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
             assert [label['text'] for label in data()['page_layout']['list_labels']] == ['4.', '5.', '5.a)', 'VI.', 'I.', '2.', '2.a)']
             time.sleep(.4)
             capture_window('list-split-layout')
-            click(round(610 * data()['window_size'][0] / 1100), 26)
-            wait(lambda: not data()['page_layout']['visible'])
+            primary_view()
             go(listing + 1)
             key('BackSpace')
             check_text(original, listing)
@@ -814,13 +823,12 @@ try:
             assert len(items) == 1 and items[0].get(TEXT + 'style-override') == 'Roman'
             assert items[0].find(TEXT + 'list').get(TEXT + 'style-name') == 'Numbers'
             assert len(items[0].findall(TEXT + 'p')) == 2
-            click(round(610 * data()['window_size'][0] / 1100), 26)
+            menu_action('Page layout')
             wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
             assert [label['text'] for label in data()['page_layout']['list_labels']][-2:] == ['I.', 'I.a)']
             time.sleep(.4)
             capture_window('override-join-layout')
-            click(round(610 * data()['window_size'][0] / 1100), 26)
-            wait(lambda: not data()['page_layout']['visible'])
+            primary_view()
             key('z', ('Control_L',))
             check_text(original, joining)
             assert save('override-join-undone')[1] == checkpoint_xml
@@ -961,7 +969,7 @@ try:
             assert save('final')[1] == checkpoint_xml
             go(original.index('Next item'))
 
-            click(round(610 * data()['window_size'][0] / 1100), 26)
+            menu_action('Page layout')
             wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
             layout_report = data()['page_layout']
             assert not layout_report['render_error'] and layout_report['table_cells']
@@ -998,7 +1006,7 @@ try:
             produce(source, conditional=True)
             report = art / 'conditional-report.json'
             process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
-                             '--report', report], client, 'conditional')
+                             '--report', report, *(['--text-view'] if args.text_view else [])], client, 'conditional')
             wait(lambda: report.exists())
             if args.wayland:
                 host.set_input_focus(X.RevertToParent, X.CurrentTime)
@@ -1042,8 +1050,8 @@ try:
             assert not data()['modified']
             key('q', ('Control_L',))
             assert process.wait(timeout=15) == 0
-        # A native page click must preserve a scalar insertion position when
-        # entering the UTF-8 editor, rather than jump to the paragraph start.
+        # Native startup keys and page clicks preserve scalar source positions
+        # through the UTF-8 buffer and native XML editing transactions.
         source = art / 'page-hit.odt'
         doc = OpenDocumentText()
         page = PageLayout(name='HitPage')
@@ -1072,7 +1080,7 @@ try:
         report = art / 'page-hit-report.json'
         selection_capture = art / 'page-alpha.ppm'
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
-                         '--report', report, '--page-layout', '--capture', selection_capture,
+                         '--report', report, '--capture', selection_capture,
                          '--capture-delay-ms', '5000'], client, 'page-hit')
         wait(lambda: report.exists() and data()['page_layout']['glyphs'] > 0)
         if args.wayland:
@@ -1099,6 +1107,15 @@ try:
         # Hack is monospaced, with about 12pt advance at 20pt. At offset 3,
         # the leading Č has already made the UTF-8 byte offset differ.
         px, py = round(left + (20 + 3 * 12.04) * zoom), round(y + 12 + 32 * zoom)
+        # Native pages and the caret are ready before any document click.
+        assert data()['page_layout']['visible'] and data()['page_layout']['editing']
+        check_text(page_text, 0)
+        key('space'); check_text(' '+page_text, 1)
+        key('z', ('Control_L',)); check_text(page_text, 0)
+        assert not data()['modified']
+        key('Right', count=3); check_text(page_text, 3)
+        key('Left'); check_text(page_text, 2)
+        key('Right'); check_text(page_text, 3)
         click(px, py)
         wait(lambda: data()['page_layout']['editing'])
         assert data()['page_layout']['visible']
@@ -1146,6 +1163,11 @@ try:
         # Ctrl+End reveals the caret on a distant page. Repagination while
         # typing/undoing there must preserve the viewport rather than jump up.
         key('End', ('Control_L',)); check_text(expected, len(expected))
+        menu_action('Text view'); wait(lambda: not data()['page_layout']['visible'])
+        check_text(expected, len(expected))
+        menu_action('Page layout'); wait(lambda: data()['page_layout']['visible'])
+        check_text(expected, len(expected))
+        menu_action('Page layout'); assert data()['page_layout']['visible']
         wait(lambda: data()['page_layout']['caret_page'] > 1)
         old_scroll = data()['page_layout']['scroll']
         assert old_scroll > 0
@@ -1288,11 +1310,53 @@ try:
             save('page-ime-committed')
             subprocess.run(['/usr/bin/fcitx5-remote', '-s', 'keyboard-us'], env=client, check=True)
             wait(lambda: input_method() == 'keyboard-us')
+        last_saved_text = data()['text']
+        key('n', ('Control_L',))
+        wait(lambda: data()['text'] == '' and data()['page_layout']['visible'])
+        check_text('', 0)
+        assert data()['editing']['anchor'] == 0 and not data()['modified']
+        assert data()['page_layout']['scroll'] == 0 and data()['page_layout']['caret_page'] == 1
+        key('space'); check_text(' ', 1)
+        key('Return'); check_text(' \n', 2)
+        key('z', ('Control_L',)); check_text(' ', 1)
+        key('z', ('Control_L',)); check_text('', 0)
+        assert not data()['modified']
+        menu_action('Text view'); wait(lambda: not data()['page_layout']['visible'])
+        key('n', ('Control_L',)); check_text('', 0)
+        wait(lambda: data()['page_layout']['pages'] == 0)
+        assert data()['page_layout']['caret_rect'] is None and not data()['page_layout']['editing']
+        key('space'); check_text(' ', 1)
+        menu_action('Page layout'); wait(lambda: data()['page_layout']['visible'])
+        check_text(' ', 1)
+        assert data()['page_layout']['caret_rect'] is not None
+        key('z', ('Control_L',)); check_text('', 0)
+        assert not data()['modified']
+        # Open through the real FLTK chooser while native pages are active.
+        # Reloading also clears a distant old caret, scroll and document history.
+        for attempt in range(2):
+            key('o', ('Control_L',))
+            if args.wayland:
+                wait(lambda: any('Open document' in w.get('title', '') for w in scene()['windows']))
+            else:
+                dialog = wait(lambda: next((w for w in xd.screen().root.query_tree().children
+                                           if 'Open document' in str(w.get_wm_name())), None))
+                dialog.set_input_focus(X.RevertToParent, X.CurrentTime); xd.sync()
+            time.sleep(.2)
+            if attempt == 0:
+                key('a', ('Control_L',)); type_text(str(source))
+            key('Return')
+            wait(lambda: data()['file'] == str(source) and data()['text'] == last_saved_text
+                 and data()['editing']['cursor'] == 0 and data()['page_layout']['scroll'] == 0)
+            assert data()['page_layout']['visible'] and data()['page_layout']['caret_page'] == 1
+            assert not data()['editing']['can_undo'] and not data()['editing']['can_redo']
+            if attempt == 0:
+                key('End', ('Control_L',)); check_text(last_saved_text, len(last_saved_text))
+                assert data()['page_layout']['scroll'] > 0
         key('q', ('Control_L',))
         assert process.wait(timeout=15) == 0
         # The signature marker is an external read-only fixture, not a claim
         # that this test constructs or validates a cryptographic signature.
-        readonly_text = data()['text']
+        readonly_text = last_saved_text
         source_before = source.read_bytes()
         source = art / 'page-readonly.odt'
         source.write_bytes(source_before)
@@ -1346,6 +1410,10 @@ try:
                    'direct_native_page_editing': True,
                    'native_page_readonly': True,
                    'native_page_mouse_drag': True,
+                   'native_page_default_view_and_keyboard_start': True,
+                   'native_page_new_empty_document': True,
+                   'native_page_open_chooser_and_caret_reset': True,
+                   'native_page_explicit_text_view_roundtrip': True,
                    'native_page_stationary_drag_scroll': True,
                    'native_page_selection_opaque_compositing': True,
                    'native_page_adjacent_vertical_navigation': True,
@@ -1373,8 +1441,10 @@ try:
                    'archive_retention': True, 'save_reopen': True,
                    'page_layout': layout_report, 'qt_loaded': False}
         results['full_editor_regressions'] = not args.page_only
+        results['full_native_editor_regressions'] = not args.page_only and not args.text_view
+        results['full_text_view_regressions'] = not args.page_only and args.text_view
         if args.page_only:
-            keep = ('native_wayland', 'external_producer', 'native_page', 'direct_native_page', 'full_editor_regressions', 'qt_loaded')
+            keep = ('native_wayland', 'external_producer', 'native_page', 'direct_native_page', 'full_editor_regressions', 'full_native_editor_regressions', 'full_text_view_regressions', 'qt_loaded')
             results = {name:value for name,value in results.items() if any(name.startswith(k) for k in keep)}
         (art / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
         print('PASS native page editing, bidi/grapheme navigation, selection/formatting, structure/scroll, clipboard and read-only protection' + ('; Fcitx preedit, commit/cancel and candidate anchoring' if args.ime else '') if args.page_only else 'PASS Words real keyboard editing, XML/style preservation, undo/redo, saved state, selections, atomic rejection and native page editing', flush=True)

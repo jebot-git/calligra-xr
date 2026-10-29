@@ -107,9 +107,13 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                         assert matches,('glyph outside source cell',scroll,px,py,(r,g,b),regions)
                         if red:seen[matches[0][0]]+=1
                 if scroll>=maximum-1e-6:break
-                key('Page_Down');scroll=min(maximum,scroll+h*.85)
+                previous=scroll
+                for _ in range(max(1,int(h*.85/48))):
+                    xtest.fake_input(xd,X.ButtonPress,5);xtest.fake_input(xd,X.ButtonRelease,5)
+                xd.sync();wait(lambda:state()['scroll']>previous)
+                scroll=state()['scroll']
             assert all(v>30 for v in seen.values()),seen
-            key('Home');wait(lambda:state()['page']==1)
+            key('Home',('Control_L',));wait(lambda:state()['scroll']==0)
             target=next(c for c in cells if c['page']==0 and c['table']==outer and c['rows']==2)
             left=x+(w-widths[0]*zoom)/2;px=left+(target['x']+4)*zoom;py=y+12+(target['y']+10)*zoom
             click(host,int(px),int(py));wait(lambda:state()['editing']);assert state()['visible']

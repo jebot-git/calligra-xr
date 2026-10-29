@@ -1469,3 +1469,56 @@ leak checking remains disabled for third-party libraries. Further Words work
 includes native default-view integration, typing/reflow performance, table-aware
 navigation refinements and broader layout/formatting fidelity, before the next
 Sheets function work. Stage remains last in implementation priority.
+
+
+## Native Words editing is the default — 2026-10-30
+
+Words now opens in native pages with a document caret and keyboard input ready.
+Space inserts a literal space before any mouse click; arrows, Home/End and page
+keys navigate the source rather than scrolling an inactive preview. The wheel
+scrolls the viewport. Page layout and Text view are explicit idempotent radio
+menu choices; the toolbar toggles between them. `--page-layout` remains valid,
+and `--text-view` explicitly selects the plain text buffer. Qt6 remains an
+optional separate frontend.
+
+New/Open reset the source caret, native affinity, scroll and cached geometry,
+then focus the chosen view. A real reset regression left a hidden old page
+count of one after creating an empty Text-view document. Clearing the edit map
+and pagination on document reset fixes it. Switching views preserves the source
+selection and reveals the caret even on a distant page. The private UI flow
+opens a saved fixture through the actual FLTK chooser and reopens it from a
+distant caret; both loads must begin at zero with empty history. It also edits
+and undoes spaces/paragraphs in a new blank document in both view modes.
+
+The full editing macro now exercises native pages by default, including exact
+styled XML undo/redo, formatting, clipboard/menu/context actions, atomic
+cross-container rejection, body/cell/section splits and joins, list structure,
+levels and empty-item exit. A `--text-view` test option preserves the explicit
+plain-editor regression. The focused native flow retains bidi/grapheme, mouse,
+GPU alpha, scroll, read-only and Wayland Fcitx checks. Keep/cell visual tests now
+scroll with the wheel and edit the independently identified native source line.
+
+The first full Wayland run exposed an initial-save observation race: its raw
+odfpy XML snapshot preceded the native atomic save, so a correct Undo later
+serialized a different byte representation. The harness now acknowledges the
+atomic file replacement before reading a snapshot; the exact XML assertions
+remain intact. A shared image-list test also caught a partial PPM while the
+capture writer was active. Captures and their JSON metadata now publish with
+temporary files and atomic rename after close, matching the report snapshot
+contract and preserving their existing RGB pixels.
+
+
+The final full native macro passes on system-FLTK X11 and native Wayland. The
+focused ASan/UBSan flow and real Wayland Fcitx/Anthy startup/chooser flow pass,
+as do the shared suite GUI regression, all keep-chain cases and split/merged/
+nested cell checks. All 39 Release and ASan/UBSan core suites pass with core leak
+checking; third-party GUI leak checking remains disabled. The retained final
+set contains 221 packages validated against their declared ODF versions.
+Eleven private CUPS jobs pass using the full native Wayland formatting snapshots
+and the real IME snapshots. Every formatted PDF matches its reopened ODF and
+captured print raster; all nine accepted suite baseline pages remain byte-
+identical. No system printer or running desktop session is changed.
+
+Words still needs broader layout/formatting fidelity, table-aware navigation
+and editing/reflow performance work. Sheets functions follow Words; Stage is
+last. Native default editing does not establish full upstream feature parity.
