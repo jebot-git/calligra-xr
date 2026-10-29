@@ -93,18 +93,27 @@ int main() {
   for (const auto &page : pages.pages)
     for (const auto &line : page.lines)
       assert(line.paragraph != 3);
-  // Oversized row groups retain content and report the missing splitting path.
+  // Oversized fixed rows retain their declared total height across fragments.
   flow = document();
   flow.tables[0].rows[1].height = 100;
   pages = paginate_text(flow, metric);
-  assert(warned(pages, "row-group splitting"));
-  assert(std::any_of(
-      pages.pages.begin(), pages.pages.end(), [](const TextPage &p) {
-        return std::any_of(p.cells.begin(), p.cells.end(),
-                           [](const TextCellBox &c) {
-                             return c.row == 1 && c.rect.height == 100;
-                           });
-      }));
+  assert(!warned(pages, "row-group splitting"));
+  double fixed_height = 0;
+  size_t fixed_fragments = 0, original_lines = 0;
+  for (const auto &page : pages.pages) {
+    for (const auto &cell : page.cells)
+      if (cell.row == 1) {
+        fixed_height += cell.rect.height;
+        ++fixed_fragments;
+        assert(cell.rect.y + cell.rect.height <=
+               page.style.height - page.style.bottom + 1e-7);
+      }
+    for (const auto &line : page.lines)
+      if (line.paragraph == 2)
+        ++original_lines;
+  }
+  near(fixed_height, 100);
+  assert(fixed_fragments >= 2 && original_lines == 1);
   // Explicit breaks and a following master also work for empty-cell tables.
   flow = document();
   flow.tables[0].break_before = true;

@@ -2233,18 +2233,21 @@ class ParagraphBoxes {
   std::map<uintptr_t, Prepared> prepared;
   std::map<std::pair<uintptr_t, double>, std::shared_ptr<const TextBoxLayout>>
       cached;
-  size_t characters = 0;
+  size_t characters = 0, wrapped_lines = 0;
 
 public:
   ParagraphBoxes(const TextFlow &f, const MeasureText &m, NativeTextShaper *s)
       : flow(f), measure(m), shaper(s) {}
-  std::shared_ptr<const TextBoxLayout> operator()(const TextBlock &block,
-                                                  double width) {
+  std::shared_ptr<const TextBoxLayout>
+  operator()(const TextBlock &block, double width, size_t source = 0) {
     const auto &p = block_paragraph(flow, block);
     auto identity = reinterpret_cast<uintptr_t>(&p);
     auto key = std::pair{identity, width};
-    if (auto it = cached.find(key); it != cached.end())
-      return it->second;
+    if (!source)
+      if (auto it = cached.find(key); it != cached.end())
+        return it->second;
+    if (source > p.text.size())
+      fail("Invalid cell paragraph source cursor");
     if (!std::isfinite(width) || width <= 0 || width > 100000)
       fail("Invalid native cell text width");
     auto found = prepared.find(identity);
@@ -2264,7 +2267,7 @@ public:
     TextPageStyle frame;
     frame.width = width;
     frame.left = frame.right = frame.top = frame.bottom = 0;
-    auto lines = wrap(p, found->second.clusters, frame, 0, measure,
+    auto lines = wrap(p, found->second.clusters, frame, source, measure,
                       found->second.shaping.get(), shaper);
     auto result = std::make_shared<TextBoxLayout>();
     double y = 0;
@@ -2282,7 +2285,11 @@ public:
         fail("Cell paragraph exceeds native layout limit");
     }
     result->height = y;
-    cached.emplace(key, result);
+    wrapped_lines += result->lines.size();
+    if (wrapped_lines > 10000000)
+      fail("Native cell reflow exceeds work limit");
+    if (!source)
+      cached.emplace(key, result);
     return result;
   }
 };
@@ -2434,9 +2441,14 @@ static TextPagination paginate_impl(const TextFlow &flow,
            y <= page.style.top + 1e-7;
   };
   ParagraphBoxes cell_paragraphs(flow, measure, shaper);
-  NativeBlockLayouter table_layout(flow, [&](const TextBlock &block, double w) {
-    return cell_paragraphs(block, w);
-  });
+  NativeBlockLayouter table_layout(
+      flow,
+      [&](const TextBlock &block, double w) {
+        return cell_paragraphs(block, w);
+      },
+      [&](const TextBlock &block, double w, size_t source) {
+        return cell_paragraphs(block, w, source);
+      });
   size_t emitted_lines = 0, emitted_cells = 0, emitted_paints = 0;
   for (size_t root = 0; root < blocks.size(); ++root) {
     const auto &block = blocks[root];

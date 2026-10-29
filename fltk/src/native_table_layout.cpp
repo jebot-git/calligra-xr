@@ -207,11 +207,12 @@ void clip_text_layout(TextBoxLayout &value, TextRect clip) {
 struct NativeBlockLayouter::Impl {
   const TextFlow &flow;
   LayoutParagraph paragraph;
+  LayoutParagraphFrom paragraph_from;
   using Key = std::pair<const TextTable *, double>;
   std::map<Key, std::shared_ptr<const NativeTableLayout>> tables;
   size_t depth = 0, work = 0;
-  Impl(const TextFlow &f, LayoutParagraph p)
-      : flow(f), paragraph(std::move(p)) {}
+  Impl(const TextFlow &f, LayoutParagraph p, LayoutParagraphFrom from)
+      : flow(f), paragraph(std::move(p)), paragraph_from(std::move(from)) {}
   struct Scope {
     size_t &n;
     Scope(size_t &n) : n(n) {
@@ -605,8 +606,18 @@ struct NativeBlockLayouter::Impl {
   }
 };
 NativeBlockLayouter::NativeBlockLayouter(const TextFlow &flow,
-                                         LayoutParagraph p)
-    : impl_(std::make_shared<Impl>(flow, std::move(p))) {}
+                                         LayoutParagraph p,
+                                         LayoutParagraphFrom from)
+    : impl_(std::make_shared<Impl>(flow, std::move(p), std::move(from))) {}
+std::shared_ptr<const TextBoxLayout>
+NativeBlockLayouter::paragraph(const TextBlock &block, double width,
+                               size_t source) {
+  if (!source)
+    return impl_->paragraph(block, width);
+  if (!impl_->paragraph_from)
+    throw std::runtime_error("A source-aware paragraph formatter is required");
+  return impl_->paragraph_from(block, width, source);
+}
 TextBoxLayout NativeBlockLayouter::blocks(std::span<const TextBlock> blocks,
                                           double width) {
   return impl_->blocks(blocks, width);

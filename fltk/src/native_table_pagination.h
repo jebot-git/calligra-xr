@@ -7,14 +7,14 @@ struct TablePageFragment {
   bool advance = false, finished = false;
 };
 // Row boundaries remain source based when the following master changes width.
-// Cells joined by vertical spans move as a group until cell-flow splitting is
-// implemented; an oversized group is retained and explicitly diagnosed.
+// Whole row groups use cached geometry; fragments resume independent cell
+// source cursors, including merged and nested continuations.
 class NativeTablePaginator {
 public:
   NativeTablePaginator(const TextFlow &, const TextBlock &,
-                       NativeBlockLayouter &);
+                       NativeBlockLayouter &, size_t depth = 0);
   TablePageFragment next(double width, double available, double capacity,
-                         bool page_empty);
+                         bool page_empty, bool repeat_header = true);
 
 private:
   struct Impl;

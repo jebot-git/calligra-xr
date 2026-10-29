@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_table_pagination.h"
+#include "native_table_stream.h"
 #include <cmath>
 #include <limits>
 namespace DomeOffice {
@@ -29,11 +30,13 @@ struct NativeTablePaginator::Impl {
   const TextFlow &flow;
   TextBlock block;
   NativeBlockLayouter &layouter;
-  size_t row = 0;
+  size_t row = 0, depth = 0;
   struct Group {
     size_t begin = 0, end = 0;
     double y = 0, height = 0;
     TextBoxLayout display;
+    std::vector<size_t> source_cells;
+    bool page_breaks = false;
   };
   struct Prepared {
     std::shared_ptr<const NativeTableLayout> layout;
@@ -44,15 +47,22 @@ struct NativeTablePaginator::Impl {
   };
   std::map<double, Prepared> cache;
   size_t indexed = 0;
-  Impl(const TextFlow &f, const TextBlock &b, NativeBlockLayouter &l)
-      : flow(f), block(b), layouter(l) {}
+  std::unique_ptr<NativeTableStream> stream;
+  Impl(const TextFlow &f, const TextBlock &b, NativeBlockLayouter &l, size_t d)
+      : flow(f), block(b), layouter(l), depth(d) {
+    if (depth >= 32)
+      throw std::runtime_error("Excessive table pagination depth");
+  }
   Prepared &prepare(double width) {
     if (auto found = cache.find(width); found != cache.end())
       return found->second;
     auto &model = block_table(flow, block);
     Prepared p;
     p.layout = layouter.table(block, width);
-    p.unsupported = p.layout->display.unsupported;
+    for (const auto &warning : p.layout->display.unsupported)
+      if (warning != "Page and keep settings in unlinked text frames" &&
+          warning != "Page and keep settings in unlinked tables")
+        note(p.unsupported, warning);
     auto rows = model.rows.size();
     if (rows > 6000000 - indexed)
       throw std::runtime_error("Paginated table index exceeds native limit");
@@ -71,6 +81,49 @@ struct NativeTablePaginator::Impl {
       double y = p.layout->row_edges[r];
       p.groups.push_back({r, end, y, p.layout->row_edges[end] - y, {}});
       r = end;
+    }
+    size_t visits = 0;
+    std::map<const TextTable *, bool> break_cache;
+    std::function<bool(std::span<const TextBlock>, size_t)> has_breaks =
+        [&](std::span<const TextBlock> blocks, size_t depth) {
+          if (depth >= 32)
+            throw std::runtime_error("Excessive table cell block depth");
+          bool found = false;
+          for (const auto &b : blocks) {
+            if (++visits > 1000000)
+              throw std::runtime_error(
+                  "Table cell break inspection exceeds limit");
+            if (b.kind == TextBlock::Paragraph) {
+              const auto &paragraph = block_paragraph(flow, b);
+              found = found || paragraph.break_before || paragraph.break_after;
+              if (!paragraph.master.empty())
+                note(p.unsupported, "Page master changes inside table cells");
+            } else {
+              const auto &table = block_table(flow, b);
+              auto entry = break_cache.find(&table);
+              bool value = false;
+              if (entry != break_cache.end())
+                value = entry->second;
+              else {
+                value = table.break_before || table.break_after;
+                for (const auto &cell : table.cells)
+                  value = has_breaks(cell.blocks, depth + 1) || value;
+                break_cache.emplace(&table, value);
+              }
+              found = found || value;
+            }
+          }
+          return found;
+        };
+    for (size_t id = 0; id < model.cells.size(); ++id) {
+      auto group = std::lower_bound(
+          p.groups.begin(), p.groups.end(), model.cells[id].row,
+          [](const Group &g, size_t r) { return g.end <= r; });
+      if (group == p.groups.end())
+        throw std::runtime_error("Native table cell has no row group");
+      group->source_cells.push_back(id);
+      group->page_breaks =
+          has_breaks(model.cells[id].blocks, 0) || group->page_breaks;
     }
     for (const auto &group : p.groups) {
       if (group.end <= p.layout->header_rows) {
@@ -145,7 +198,7 @@ struct NativeTablePaginator::Impl {
     return cache.emplace(width, std::move(p)).first->second;
   }
   TablePageFragment next(double width, double available, double capacity,
-                         bool empty) {
+                         bool empty, bool repeat_header) {
     if (!std::isfinite(available) || !std::isfinite(capacity) || capacity <= 0)
       throw std::runtime_error("Invalid table page capacity");
     auto &p = prepare(width);
@@ -158,32 +211,39 @@ struct NativeTablePaginator::Impl {
       out.finished = true;
       return out;
     }
-    bool repeat =
-        row && p.header_groups && first >= p.groups.begin() + p.header_groups;
+    bool repeat = repeat_header && (row || stream) && p.header_groups &&
+                  first >= p.groups.begin() + p.header_groups;
     double header = repeat ? p.header_height : 0;
-    if (header + first->height > capacity + 1e-7 && repeat) {
+    if (header >= capacity - 1e-7 && repeat) {
       repeat = false;
       header = 0;
       note(out.display.unsupported,
-           "Repeating table header leaves no room for the next row group");
+           "Repeating table header leaves no room for body content");
     }
-    if (header + first->height > available + 1e-7 && !empty) {
+    // Fixed dimensions/explicit whole-table keeps move intact when possible.
+    const auto &model = block_table(flow, block);
+    bool fixed_group = !model.may_break_rows;
+    if (first->end == first->begin + 1)
+      fixed_group = fixed_group ||
+                    model.rows[first->begin].height.has_value() ||
+                    model.rows[first->begin].keep_together;
+    if (!stream && !first->page_breaks && fixed_group &&
+        first->height + header <= capacity + 1e-7 &&
+        first->height + header > available + 1e-7 && !empty) {
       out.advance = true;
       return out;
     }
-    if (!row && p.header_groups && p.header_groups < p.groups.size()) {
+    if (!row && !stream && p.header_groups &&
+        p.header_groups < p.groups.size()) {
       double required = p.header_height + p.groups[p.header_groups].height;
       if (required <= capacity + 1e-7 && required > available + 1e-7 &&
           !empty) {
         out.advance = true;
         return out;
       }
-      if (required > capacity + 1e-7)
-        note(out.display.unsupported,
-             "Table header cannot share a page with its first body group");
     }
     double y = 0;
-    if (repeat)
+    auto headers = [&] {
       for (size_t i = 0; i < p.header_groups; ++i) {
         auto display = p.groups[i].display;
         for (auto &cell : display.cells)
@@ -191,19 +251,74 @@ struct NativeTablePaginator::Impl {
         append(out.display, std::move(display), y);
         y += p.groups[i].height;
       }
+    };
+    if (repeat)
+      headers();
+    bool only_initial_headers = !row;
     for (auto it = first; it != p.groups.end(); ++it) {
-      if (it != first && y + it->height > available + 1e-7)
+      double room = available - y;
+      if (!stream && !it->page_breaks && it->height <= room + 1e-7) {
+        append(out.display, it->display, y);
+        y += it->height;
+        row = it->end;
+        only_initial_headers =
+            only_initial_headers && row <= p.layout->header_rows;
+        continue;
+      }
+      bool fixed = !model.may_break_rows;
+      if (it->end == it->begin + 1)
+        fixed = fixed || model.rows[it->begin].height.has_value() ||
+                model.rows[it->begin].keep_together;
+      if (!stream && !it->page_breaks && fixed &&
+          it->height <= capacity - header + 1e-7)
         break;
-      if (y + it->height > available + 1e-7)
-        note(out.display.unsupported,
-             "Table row-group splitting is not implemented; an oversized group "
-             "exceeds the page");
-      append(out.display, it->display, y);
-      y += it->height;
+      if (!stream) {
+        if (!model.may_break_rows)
+          note(out.display.unsupported,
+               "An oversized table cannot honor keep-between-rows");
+        stream = std::make_unique<NativeTableStream>(
+            flow, block, it->begin, it->end, it->source_cells, layouter, depth);
+      }
+      auto chunk = stream->next(width, std::max(0., room),
+                                std::max(.01, capacity - header), false);
+      if (chunk.display.height <= 1e-7 && !chunk.finished) {
+        if ((y > header + 1e-7 || !empty)) {
+          if (only_initial_headers && !empty) {
+            row = 0;
+            stream.reset();
+            out.display = {};
+            out.advance = true;
+          } else if (y <= 1e-7)
+            out.advance = true;
+          break;
+        }
+        if (repeat) {
+          out.display = {};
+          out.display.unsupported = p.unsupported;
+          y = header = 0;
+          repeat = false;
+          note(out.display.unsupported,
+               "Repeating table header leaves no room for the next cell line");
+          chunk = stream->next(width, std::max(0., available), capacity, false);
+        }
+        if (chunk.display.height <= 1e-7 && !chunk.finished)
+          chunk = stream->next(width, std::max(0., available - y),
+                               std::max(.01, capacity - header), true);
+        if (chunk.display.height <= 1e-7 && !chunk.finished)
+          throw std::runtime_error(
+              "Native table cell cursors did not progress");
+      }
+      double used = chunk.display.height;
+      append(out.display, std::move(chunk.display), y);
+      y += used;
+      only_initial_headers = false;
+      if (!chunk.finished)
+        break;
       row = it->end;
+      stream.reset();
     }
     out.display.height = y;
-    out.finished = row == block_table(flow, block).rows.size();
+    out.finished = row == model.rows.size() && !stream;
     return out;
   }
 };
@@ -253,10 +368,12 @@ std::optional<size_t> text_paragraph_at(const TextPage &page, double x,
 }
 NativeTablePaginator::NativeTablePaginator(const TextFlow &flow,
                                            const TextBlock &block,
-                                           NativeBlockLayouter &layouter)
-    : impl_(std::make_shared<Impl>(flow, block, layouter)) {}
+                                           NativeBlockLayouter &layouter,
+                                           size_t depth)
+    : impl_(std::make_shared<Impl>(flow, block, layouter, depth)) {}
 TablePageFragment NativeTablePaginator::next(double width, double available,
-                                             double capacity, bool page_empty) {
-  return impl_->next(width, available, capacity, page_empty);
+                                             double capacity, bool page_empty,
+                                             bool repeat_header) {
+  return impl_->next(width, available, capacity, page_empty, repeat_header);
 }
 } // namespace DomeOffice

@@ -174,16 +174,19 @@ This establishes a native shaping/rendering path, not full typography or print
 parity. Embedded document fonts, complete complex-script style properties,
 font synthesis, arbitrary variable axes, color glyph painting, advanced
 justification/hyphenation and vertical text remain incomplete. Rich formatting
-controls, paginated table/section layout, structural list editing, columns, notes,
+controls, advanced table pagination/section layout, structural list editing, columns, notes,
 headers/footers, anchored shapes and page-style details remain to be ported.
-Words paints native table grids in ordered page flow, moving rows joined by
-vertical spans together and repeating complete header groups. Remaining rows
-reflow when a following master changes page width. Double-click selection
-resolves the source cell, including nested cells and repeated headers. Oversized
-row groups still need cell-by-cell splitting and currently retain their geometry
-with an explicit overflow diagnostic. Keep-with-next across tables is also
-reported as unsupported. The continuous Stage frame path shares cell geometry
-and GPU paint. DOCX
+Words paints native table grids in ordered page flow and repeats complete
+header groups. Independent source cursors split long cells, continue merged cells
+and nested tables, and rewrap their remaining text when the next master changes
+page width. Whole glyph lines move between pages; declared fixed-height cell
+cropping remains intentional. Fixed row dimensions retain
+their total height and minimum row heights can span pages. Source cell selection
+includes nested cells and repeated headers. Impossible line/keep constraints are
+diagnosed, and impossible padding fails without emitting decoration-only pages.
+Keep-with-next across tables and between cell blocks, master changes inside cells
+and header spans crossing into body rows remain explicitly unsupported. The
+continuous Stage frame path shares cell geometry and GPU paint. DOCX
 import still omits styles/page geometry. No PDF/printing parity is claimed.
 
 Layout limits are one million Unicode scalars per paragraph, four million per

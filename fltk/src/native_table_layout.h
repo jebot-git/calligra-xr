@@ -5,6 +5,8 @@
 namespace DomeOffice {
 using LayoutParagraph = std::function<std::shared_ptr<const TextBoxLayout>(
     const TextBlock &, double)>;
+using LayoutParagraphFrom = std::function<std::shared_ptr<const TextBoxLayout>(
+    const TextBlock &, double, size_t)>;
 const TextParagraph &block_paragraph(const TextFlow &, const TextBlock &);
 const TextTable &block_table(const TextFlow &, const TextBlock &);
 TextRect intersect_text_rect(TextRect, TextRect);
@@ -27,7 +29,10 @@ struct NativeTableLayout {
 // Models and source paragraphs are immutable and must outlive this context.
 class NativeBlockLayouter {
 public:
-  NativeBlockLayouter(const TextFlow &, LayoutParagraph);
+  NativeBlockLayouter(const TextFlow &, LayoutParagraph,
+                      LayoutParagraphFrom = {});
+  std::shared_ptr<const TextBoxLayout>
+  paragraph(const TextBlock &, double width, size_t source = 0);
   TextBoxLayout blocks(std::span<const TextBlock>, double width);
   std::shared_ptr<const NativeTableLayout> table(const TextBlock &,
                                                  double width);

@@ -53,7 +53,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts | Full IME/preedit validation, accessibility, session recovery, printing/export UI, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native table row groups/repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, split table rows/merged-cell continuation, table keep-with-next, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, advanced table keeps/header-boundary spans and inner master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -218,7 +218,8 @@ Optimal column sizing currently uses declared widths and reports that limitation
 Page/keep properties are retained but diagnosed as ignored in unlinked frames.
 
 Words now consumes the ordered root blocks and paints table row groups in its
-page flow. Rows connected by vertical spans move together. Complete header groups
+page flow. Whole row groups use cached geometry; independent source cursors
+continue split rows, vertical spans and nested tables. Complete header groups
 repeat, and a header moves with its first body group when both fit a fresh page.
 The remaining source row index survives a master-width change; the next width
 resolves its cells and repeated headers afresh. Tables that disallow breaks
@@ -227,12 +228,23 @@ headers. Page selection distinguishes columns sharing the same line height,
 chooses nested cells before parents and retains original paragraph identities.
 Empty cells without a source paragraph do not invent an editing position.
 
-Oversized row groups still need independent cell cursors, split rows and merged
-continuations; they currently retain their geometry with an explicit overflow
-diagnostic. A vertical span crossing the header/body boundary disables header
-repetition with a diagnostic. Table keep-with-next and paragraph keep-with-next
-across a table are also explicitly unsupported. These are remaining pagination
-requirements, not full Words structure parity. Structural cell/row editing is
-unfinished; supported edits preserve the original grid and inline-break XML.
+Each continuing cell retains its paragraph/block index and Unicode source
+offset. Fresh widths shape the remaining source with whole-paragraph bidi
+context; same-width continuations reuse wrapped geometry. Ending cells determine
+row height; merged cells that do not end in that row fill their established page
+area once. This also lets nested tables continue without committing child glyphs
+to successively growing bands. Fixed/minimum dimensions, blank continuations,
+paragraph breaks, keeps/widow/orphan thresholds and final-fragment vertical
+alignment participate in the flow. Display-only fragment grids reuse the shared
+background/border resolver; source grids and XML remain intact. Empty-cell
+formatting struts do not invent editable paragraphs. Impossible page/padding/keep
+constraints are bounded and explicitly reported or rejected.
+
+A vertical span crossing the header/body boundary still disables repetition with
+a diagnostic. Table keep-with-next, paragraph keep-with-next across a table,
+keep-with-next between cell blocks and master changes inside cells remain
+explicitly unsupported. These are remaining pagination requirements, not full
+Words structure parity. Structural cell/row editing is unfinished; supported
+edits preserve the original grid and inline-break XML.
 Words and Stage text-editor undo shortcuts now route through application history,
 so native editor Undo does not discard the application's Redo chain.

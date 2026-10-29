@@ -395,7 +395,7 @@ Oversized row splitting, merged continuations and keep-with-next across tables
 are not implemented by this stage. The next page-layout work requires per-cell
 source cursors rather than slicing glyphs across arbitrary horizontal bands.
 
-The current 22 Release suites and 22 ASan/UBSan suites pass with core leak
+At this stage, 22 Release suites and 22 ASan/UBSan suites passed with core leak
 checking. The full shared GUI regression and the three-page table GUI fixture
 pass in both builds; a fresh private
 native Wayland run verifies rendered Words table/header pixels and all three
@@ -407,3 +407,44 @@ uv run --with odfpy --with Pillow --with python-xlib python3 fltk/tests/table_pa
 ```
 
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-table-pagination-20261029/`.
+
+
+## Independent paginated cell source flow — 2026-10-29
+
+The `native-cell-flow` suite checks independent long/short cells, merged and
+nested continuations, source ranges across master-width changes, fixed/minimum
+row dimensions, blank continuations, hard/trailing line breaks, paragraph page
+breaks, real HarfBuzz/ICU Unicode shaping and single-instance list labels.
+Impossible empty-cell padding fails immediately rather than making thousands of
+pages without source progress. Retained `TestTableLayout` merged-row cases use
+three columns, paired row spans, two original paragraphs per cell and small
+200 x 90/110 root areas; their source coverage and multi-page placement remain
+asserted. The retained upstream larger-than-area case is marked as an expected
+failure upstream; the native fixed-height case now checks bounded fragments
+whose total height equals the original dimension and whose source text appears
+once.
+
+`cell_flow_producer.py` independently creates an ODT with a two-row merged cell,
+a nested table, styled red/green text, hard line breaks, repeated headers and
+300/380 pt master widths. The test-only inspector checks every original Unicode
+source range, complete line/cell bounds and absence of missing glyphs without
+modifying the package. `cell_flow_ui.py` checks physical red/green glyph pixels
+against the corresponding source cells on every page, then source selection,
+edit/undo/redo, XML structure/inline-break retention, untouched package members,
+independent saved-document inspection and reopen. GUI checks run in isolated
+Xvfb/D-Bus sessions. Reproduce with:
+
+```sh
+uv run --with odfpy python3 fltk/tests/cell_flow_producer.py /tmp/calligra-cell-flow
+uv run --with odfpy --with Pillow --with python-xlib python3 fltk/tests/cell_flow_ui.py
+```
+
+All 23 Release suites and all 23 ASan/UBSan suites pass, including the retained
+merged-row topology and final constraint guards. Both full shared GUI regressions
+and both focused cell-flow GUI runs pass. Core leak checking remains enabled;
+GUI runs exclude retained third-party toolkit leaks. Native Wayland checks use
+the four-page split/merged fixture and system
+FLTK, with no Qt mapped. GTK3 still loads through libdecor decorations. Table
+keeps across blocks, header/body-crossing spans and master changes inside cells
+remain diagnosed limitations; full document/layout/editing parity is unfinished.
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-cell-flow-20261029/`.
