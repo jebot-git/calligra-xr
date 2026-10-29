@@ -872,6 +872,9 @@ try:
                          '--report', report], client, 'conditional')
         wait(lambda: report.exists())
         if args.wayland:
+            host.set_input_focus(X.RevertToParent, X.CurrentTime)
+            xd.sync()
+            wait(lambda: xd.get_input_focus().focus == host)
             window = wait(lambda: next((w for w in scene()['windows']
                                        if 'calligra-words' in w.get('app_id', '').lower()), None))
             request = urllib.request.Request(f'http://127.0.0.1:{port}/api/action',
