@@ -182,7 +182,11 @@ Words provides text editing and a separate native paginated view. Character
 controls (Ctrl+B/Ctrl+I and the Font dialog, Ctrl+D) preserve mixed values and
 apply only changed dialog fields. A caret changes future typing; an empty
 paragraph stores its default in ODF. Navigation clears a transient typing
-format, while a cancelled compound event restores it. Select All places the
+format, while a cancelled compound event restores it. Invalid character and
+paragraph fields stay in their dialog without changing document/history state.
+Font-family validation shares the resolver's quote/comma grammar and family
+limit, preventing an unmatched quote from being saved and later failing print.
+Select All clears transient typing formatting and places the
 caret at a range endpoint, and context-menu ranges are normalized before
 native selection/history queries. Paragraph alignment has Ctrl+L/E/R/J
 shortcuts; its dialog also controls point-based margins/spacing, line-height
@@ -235,6 +239,8 @@ and typing groups. The page view
 does not implement direct rich editing, complete typography or the advanced
 structural layout listed above. Document-font fallback is selected through a
 private Fontconfig context; missing glyphs are reported in layout diagnostics.
+Leading/interior empty lines use the font of their source run, including styled
+soft breaks. A terminal empty range keeps the paragraph-mark/default font.
 Stored font/style declarations remain unchanged. Colored font bitmaps currently
 contribute an alpha mask; they are not painted in their original colors.
 

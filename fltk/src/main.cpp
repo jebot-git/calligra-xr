@@ -1188,6 +1188,7 @@ public:
                 }
             } else if (c == SelectAll) {
                 if (editor && kind == Kind::Words) {
+                    words->clear_typing_format();
                     editor->insert_position(buffer.length());
                     Fl_Text_Editor::kf_select_all(0, editor);
                 } else if (editor)

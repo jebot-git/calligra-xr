@@ -1311,3 +1311,32 @@ uv run --no-project --with odfpy --with Pillow --with pypdf python \
   fltk/tests/words_format_print.py --ui-artifacts /path/to/words-ui \
   --artifacts /new/print-results --bin-dir /usr/local/bin
 ```
+
+## Font validation and styled empty lines — 2026-10-29
+
+A real Font-dialog repro accepted `Hack'`, saved it, then failed native printing
+with "Invalid quoted document font family". Edit validation and resolution now
+share one quote/comma parser with the existing 32-family limit. Explicit edits
+also reject lists containing no names. Font and Paragraph panels retain invalid
+fields and show the error inline, allowing correction or cancellation without
+changing XML, selection, revision, saved-state identity, redo or an active typing
+patch. Select All clears a transient typing patch through keyboard and menu.
+
+A separate native regression reproduced leading/interior blank lines resolving
+the paragraph font instead of the styled explicit break. Empty ranges inside
+source text now select the source run with a bounded lookup; terminal ranges
+retain the paragraph default. Nonempty smaller text already used its run's
+metrics, so the paragraph default is not rewritten to obtain smaller lines.
+Native tests cover quoted commas, Unicode names, both mismatched quotes,
+32/33-family boundaries, malformed caret/range edits, compound rollback, blank
+line metrics, smaller runs and terminal defaults. All 37 Release and ASan/UBSan
+core suites pass (with core leak checking). Real X11/Wayland and sanitizer GUI
+checks exercise invalid font/size/color/spacing correction, Cancel, quoted
+fallback rendering, selection and undo/redo, plus the shared GUI regressions.
+
+The print integration test now runs eight private CUPS jobs. Its quoted-font
+snapshot must embed Hack-Bold; its odfpy styled-break fixture (paragraph 24pt,
+visible runs/breaks 6pt) must produce exactly the same pixels as a uniform 6pt
+reference. Export/reopen and CUPS capture pixels must also agree. The original
+nine Words/Sheets/Stage baseline pages remain byte-identical. Schema checks use
+the actual ODF version and do not rewrite exports to pass validation.

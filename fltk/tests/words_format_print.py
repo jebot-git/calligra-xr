@@ -16,6 +16,9 @@ import subprocess
 import xml.etree.ElementTree as ET
 import zipfile
 
+from odf.opendocument import OpenDocumentText
+from odf.style import Style, TextProperties
+from odf.text import P, Span, LineBreak
 from PIL import Image
 from pypdf import PdfReader
 
@@ -27,6 +30,23 @@ def render(pdf, prefix):
     subprocess.run(['pdftoppm', '-r', '100', '-png', str(pdf), str(prefix)],
                    check=True, capture_output=True)
     return sorted(prefix.parent.glob(prefix.name + '-*.png'))
+
+
+def soft_lines(path, paragraph_size):
+    doc = OpenDocumentText()
+    body = Style(name='Body', family='paragraph')
+    body.addElement(TextProperties(fontfamily='Hack', fontsize=str(paragraph_size)+'pt'))
+    doc.styles.addElement(body)
+    small = Style(name='Small', family='text')
+    small.addElement(TextProperties(fontsize='6pt'))
+    doc.styles.addElement(small)
+    paragraph = P(stylename=body)
+    span = Span(stylename=small)
+    span.addElement(LineBreak()); span.addElement(LineBreak()); span.addText('A')
+    paragraph.addElement(span); doc.text.addElement(paragraph)
+    doc.save(str(path))
+    with zipfile.ZipFile(path, 'a') as archive:
+        archive.writestr('Extras/opaque.bin', b'\0keep\xff')
 
 
 def main():
@@ -46,8 +66,11 @@ def main():
         env.pop('DISPLAY', None)
         env.pop('WAYLAND_DISPLAY', None)
         binary = args.bin_dir.resolve() / 'calligra-words-fltk'
-        for name in ('font', 'paragraph', 'typed'):
+        for name in ('font', 'paragraph', 'typed', 'quoted-family', 'soft-lines'):
             source = args.ui_artifacts.resolve() / ('format-' + name + '.odt')
+            if name == 'soft-lines':
+                source = art / 'soft-lines-source.odt'
+                soft_lines(source, 24)
             before = hashlib.sha256(source.read_bytes()).hexdigest()
             known = set(cups.completed(completed_jobs))
             output = art / ('formatted-' + name + '.pdf')
@@ -64,7 +87,7 @@ def main():
                     assert old.read(entry) == new.read(entry), (name, entry)
             reader = PdfReader(output)
             assert len(reader.pages) == 1
-            assert 'Český' in (reader.pages[0].extract_text() or '')
+            assert ('A' if name == 'soft-lines' else 'Český') in (reader.pages[0].extract_text() or '')
             pages = render(output, art / ('formatted-' + name + '-page'))
             assert len(pages) == 1
             if name == 'font':
@@ -79,6 +102,9 @@ def main():
                 assert len(red) > 100
                 height = max(y for _, y in red) - min(y for _, y in red) + 1
                 assert 20 <= height < 80, height
+            if name == 'quoted-family':
+                faces = subprocess.check_output(['pdffonts', str(output)], text=True)
+                assert 'Hack-Bold' in faces, faces
             if name == 'paragraph':
                 bbox = art / 'paragraph-bounds.html'
                 subprocess.run(['pdftotext', '-bbox', str(output), str(bbox)], check=True)
@@ -89,6 +115,14 @@ def main():
                 alpha = next(w for w in page.iter(ns + 'word') if w.text == 'alpha')
                 midpoint = (float(section.get('xMin')) + float(alpha.get('xMax'))) / 2
                 assert abs(midpoint - (float(page.get('width')) / 2 + 3)) < 3, midpoint
+            if name == 'soft-lines':
+                reference = art / 'soft-lines-reference.odt'
+                soft_lines(reference, 6)
+                reference_pdf = art / 'soft-lines-reference.pdf'
+                subprocess.run([str(binary), str(reference), '--print-pdf', str(reference_pdf)],
+                               env=env, capture_output=True, check=True)
+                expected = render(reference_pdf, art / 'soft-lines-reference-page')
+                assert [p.read_bytes() for p in pages] == [p.read_bytes() for p in expected]
             reopened = art / ('formatted-' + name + '-reopened.pdf')
             subprocess.run([str(binary), str(exported), '--print-pdf', str(reopened)],
                            env=env, capture_output=True, check=True)
@@ -106,8 +140,8 @@ def main():
                              'reopened_pixels_identical': True,
                              'cups_pixels_identical': True, 'captured': str(captured)}
             print('PASS formatted', name, 'ODF, native PDF, reopen and CUPS raster', flush=True)
-        assert len(cups.completed(6)) == 6
-    results['completed_cups_jobs'] = 6
+        assert len(cups.completed(8)) == 8
+    results['completed_cups_jobs'] = 8
     results['system_printers_changed'] = False
     (art / 'format-results.json').write_text(json.dumps(results, indent=2) + '\n')
 

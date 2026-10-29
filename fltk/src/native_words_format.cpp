@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_format.h"
+#include "native_font_family.h"
 #include <functional>
 namespace DomeOffice {
 namespace {
@@ -450,6 +451,8 @@ void validate_words_format(const WordsCharacterFormat &f) {
   if (f.family && (f.family->trimmed().empty() || f.family->size() > 1024 ||
                    f.family->contains('\n') || f.family->contains('\r') ||
                    f.family->contains('\0')))
+    fail("Enter a font family name");
+  if (f.family && document_font_families(*f.family).empty())
     fail("Enter a font family name");
   if (f.color && *f.color != "auto" &&
       !std::regex_match(f.color->toUtf8().toStdString(),

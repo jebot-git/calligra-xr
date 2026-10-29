@@ -314,7 +314,8 @@ try:
             address = data()['desktop_menu']
             command = ['gdbus', 'call', '--session', '--dest', address['service'], '--object-path', address['path']]
             layout = subprocess.check_output([*command, '--method', 'com.canonical.dbusmenu.GetLayout', '0', '3', '[]'], text=True)
-            action = re.search(r"\((\d+), \{[^{}]*'label': <'_?" + re.escape(label) + r"'>", layout)
+            caption = ''.join('_?' + re.escape(c) for c in label)
+            action = re.search(r"\((\d+), \{[^{}]*'label': <'" + caption + r"'>", layout)
             assert action, layout
             subprocess.run([*command, '--method', 'com.canonical.dbusmenu.Event', action[1], 'clicked', '<0>', '0'], check=True, stdout=subprocess.DEVNULL)
 
@@ -355,8 +356,8 @@ try:
 
         def type_text(value):
             for char in value:
-                name = {' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus'}.get(char, char)
-                key(name, ('Shift_L',) if char.isupper() or char == '#' else ())
+                name = {' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus', "'": 'apostrophe', '"': 'quotedbl', ',': 'comma'}.get(char, char)
+                key(name, ('Shift_L',) if char.isupper() or char in '#\"' else ())
 
         def field(x, y, value):
             click(x, y)
@@ -371,6 +372,60 @@ try:
         def text_properties(root):
             return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                     for e in root.iter(STYLE+'style')}
+
+        # Invalid fields stay in the panel and cannot consume redo or saved
+        # state. Correcting a quoted fallback list must render and round-trip.
+        go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
+        key('z', ('Control_L',)); check_text(original, 2)
+        assert data()['editing']['can_redo'] and not data()['modified']
+        go(6); key('Right', ('Shift_L',), count=5)
+        key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+        x, y = panel_origin(560, 350)
+        revision = data()['editing']['revision']
+        for name in ("Hack'", '"Hack', ", '', "):
+            field(x+250, y+65, name)
+            click(x+480, y+315); time.sleep(.25)
+            assert data()['format_dialog'] and not data()['modified']
+            assert data()['editing']['can_redo'] and data()['editing']['revision'] == revision
+        capture_window('invalid-family-dialog')
+        field(x+250, y+65, "'Unavailable, Font', \"Hack\"")
+        field(x+190, y+105, '0')
+        click(x+480, y+315); time.sleep(.25)
+        assert data()['format_dialog'] and not data()['modified']
+        field(x+190, y+105, '12')
+        field(x+220, y+225, '#gggggg')
+        click(x+480, y+315); time.sleep(.25)
+        assert data()['format_dialog'] and not data()['modified']
+        field(x+220, y+225, '#102030')
+        click(x+480, y+315)
+        wait(lambda: not data()['format_dialog'] and data()['modified'])
+        root, _ = save('format-quoted-family')
+        assert any(p is not None and p.get(FO+'font-family') == "'Unavailable, Font', \"Hack\""
+                   for p in text_properties(root).values())
+        view_labels('quoted-family-layout')
+        key('z', ('Control_L',)); assert save('format-quoted-family-undone')[1] == original_xml
+        # Cancellation after a validation error retains the prior typing patch.
+        go(2); key('b', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
+        key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+        field(x+250, y+65, "Hack'")
+        click(x+480, y+315); time.sleep(.25)
+        assert data()['format_dialog'] and not data()['modified']
+        key('Escape'); wait(lambda: not data()['format_dialog'])
+        assert data()['editing']['typing_format'] and not data()['modified']
+        select_all(); wait(lambda: not data()['editing']['typing_format'])
+        go(2); key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
+        menu_action('Select all')
+        wait(lambda: data()['editing']['cursor'] == len(original) and not data()['editing']['typing_format'])
+        # Paragraph numeric errors have the same non-destructive correction path.
+        go(original.index('Section alpha'))
+        menu_action('Paragraph…'); wait(lambda: data()['format_dialog'])
+        x, y = panel_origin(700, 470)
+        field(x+575, y+155, '0')
+        click(x+620, y+435); time.sleep(.25)
+        assert data()['format_dialog'] and not data()['modified']
+        capture_window('invalid-paragraph-dialog')
+        key('Escape'); wait(lambda: not data()['format_dialog'])
+        assert save('format-invalid-cancelled')[1] == original_xml
 
         # Formatting is a native XML command with the same range and checkpoint
         # semantics as text editing, including mixed/inherited source styles.
@@ -915,6 +970,8 @@ try:
         assert process.wait(timeout=15) == 0
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
                    'native_character_paragraph_formatting': True,
+                   'font_validation_and_inline_correction': True,
+                   'select_all_clears_typing_format': True,
                    'format_dialog_cancel_noop_undo': True,
                    'caret_typing_format': True,
                    'compound_replacement_single_undo': True,

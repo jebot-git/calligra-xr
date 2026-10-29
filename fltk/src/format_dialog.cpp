@@ -40,6 +40,7 @@ public:
            event == FL_SHORTCUT;
   }
   bool run(Fl_Widget &focus) {
+    done = accepted = false;
     end();
     window.end();
     Fl_Group::current(previous_group);
@@ -158,21 +159,29 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
     color.value(initial.color->toUtf8().c_str());
   Buttons buttons(panel, x + width - 225, y + height - 50);
   Fl_Group::current(previous);
-  if (!panel.run(family))
-    return {};
-  WordsCharacterFormat result;
-  auto name = Text(family.value()).trimmed(),
-       ink = Text(color.value()).trimmed();
-  if (!name.empty() && (!initial.family || name != *initial.family))
-    result.family = name;
-  if (!ink.empty() && (!initial.color || ink != *initial.color))
-    result.color = ink;
-  changed_number(size, initial.size, result.size);
-  if (bold.value() && (!initial_bold || *initial_bold != (bold.value() == 2)))
-    result.weight = bold.value() == 2 ? 700 : 400;
-  changed_boolean(italic, initial.italic, result.italic);
-  validate_words_format(result);
-  return result;
+  while (panel.run(family)) {
+    try {
+      WordsCharacterFormat result;
+      auto name = Text(family.value()).trimmed(),
+           ink = Text(color.value()).trimmed();
+      if (!name.empty() && (!initial.family || name != *initial.family))
+        result.family = name;
+      if (!ink.empty() && (!initial.color || ink != *initial.color))
+        result.color = ink;
+      changed_number(size, initial.size, result.size);
+      if (bold.value() &&
+          (!initial_bold || *initial_bold != (bold.value() == 2)))
+        result.weight = bold.value() == 2 ? 700 : 400;
+      changed_boolean(italic, initial.italic, result.italic);
+      validate_words_format(result);
+      return result;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+  return {};
 }
 std::optional<WordsParagraphFormat>
 paragraph_format_dialog(Fl_Window &window,
@@ -217,24 +226,31 @@ paragraph_format_dialog(Fl_Window &window,
   boolean(page, initial.break_before);
   Buttons buttons(panel, x + width - 225, y + height - 50);
   Fl_Group::current(previous);
-  if (!panel.run(align))
-    return {};
-  WordsParagraphFormat result;
-  if (align.value() &&
-      (!initial.alignment || *initial.alignment != names.at(align.value())))
-    result.alignment = names.at(align.value());
-  changed_number(left, initial.left, result.left);
-  changed_number(right, initial.right, result.right);
-  changed_number(indent, initial.indent, result.indent);
-  changed_number(lines, initial.line_factor, result.line_factor);
-  changed_number(before, initial.before, result.before);
-  changed_number(after, initial.after, result.after);
-  changed_integer(orphans, initial.orphans, result.orphans);
-  changed_integer(widows, initial.widows, result.widows);
-  changed_boolean(keep, initial.keep_together, result.keep_together);
-  changed_boolean(next, initial.keep_next, result.keep_next);
-  changed_boolean(page, initial.break_before, result.break_before);
-  validate_words_format(result);
-  return result;
+  while (panel.run(align)) {
+    try {
+      WordsParagraphFormat result;
+      if (align.value() &&
+          (!initial.alignment || *initial.alignment != names.at(align.value())))
+        result.alignment = names.at(align.value());
+      changed_number(left, initial.left, result.left);
+      changed_number(right, initial.right, result.right);
+      changed_number(indent, initial.indent, result.indent);
+      changed_number(lines, initial.line_factor, result.line_factor);
+      changed_number(before, initial.before, result.before);
+      changed_number(after, initial.after, result.after);
+      changed_integer(orphans, initial.orphans, result.orphans);
+      changed_integer(widows, initial.widows, result.widows);
+      changed_boolean(keep, initial.keep_together, result.keep_together);
+      changed_boolean(next, initial.keep_next, result.keep_next);
+      changed_boolean(page, initial.break_before, result.break_before);
+      validate_words_format(result);
+      return result;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+  return {};
 }
 } // namespace DomeOffice

@@ -111,6 +111,9 @@ CUPS test queues.
   line-height multipliers, keeps, page-before and widow/orphan limits.
   Ctrl+L/E/R/J aligns left/center/right/justified. Mixed or unchanged dialog
   fields preserve their source values, and native undo restores the styled XML.
+  Invalid values remain in the dialog for correction. Font-family lists use
+  the same quote/comma parser as rendering; invalid or empty names cannot be
+  committed. Select All ends a transient typing format.
   The edit buffer stays plain text; Pages and print output display formatting.
   Underline/strike/highlight, named styles and direct paginated editing remain
   unfinished.

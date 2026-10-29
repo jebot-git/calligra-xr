@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_shaper.h"
+#include "native_font_family.h"
 #include <fontconfig/fontconfig.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -156,36 +157,11 @@ struct NativeTextShaper::Impl {
       return found->second;
     using Pattern = std::unique_ptr<FcPattern, decltype(&FcPatternDestroy)>;
     Pattern pattern(FcPatternCreate(), FcPatternDestroy);
-    auto requested = std::get<0>(request);
-    Text item;
-    Char quote = 0;
-    int families = 0;
-    auto add_family = [&] {
-      auto name = item.trimmed().toUtf8();
-      item.clear();
-      if (!name.empty()) {
-        if (++families > 32)
-          fail("Document font-family list exceeds the limit");
-        FcPatternAddString(pattern.get(), FC_FAMILY,
-                           reinterpret_cast<const FcChar8 *>(name.c_str()));
-      }
-    };
-    for (auto c : requested) {
-      if (quote) {
-        if (c == quote)
-          quote = 0;
-        else
-          item += c;
-      } else if (c == '\'' || c == '"')
-        quote = c;
-      else if (c == ',')
-        add_family();
-      else
-        item += c;
+    for (const auto &family : document_font_families(std::get<0>(request))) {
+      auto name = family.toUtf8();
+      FcPatternAddString(pattern.get(), FC_FAMILY,
+                         reinterpret_cast<const FcChar8 *>(name.c_str()));
     }
-    if (quote)
-      fail("Invalid quoted document font family");
-    add_family();
     FcPatternAddString(pattern.get(), FC_FAMILY,
                        reinterpret_cast<const FcChar8 *>("monospace"));
     FcPatternAddDouble(pattern.get(), FC_WEIGHT,
@@ -473,10 +449,20 @@ struct ShapingParagraph::Impl {
     auto output = std::make_shared<ShapedText>();
     output->rtl = ubidi_getParaLevel(bidi.get()) & 1;
     if (begin == end) {
-      auto face = engine->match(paragraph.font);
-      output->metrics = {
-          0, face->implementation->metrics.ascent * paragraph.font.size,
-          face->implementation->metrics.descent * paragraph.font.size};
+      const TextFont *font = &paragraph.font;
+      if (begin < scalars.size()) {
+        // A leading/interior empty line still has a source character (usually
+        // an explicit break). Its run supplies the font. At the paragraph end
+        // there is no source run; retain the paragraph-mark/default font.
+        auto span = std::lower_bound(
+            paragraph.spans.begin(), paragraph.spans.end(), begin,
+            [](const TextSpan &span, size_t at) { return span.end <= at; });
+        if (span != paragraph.spans.end())
+          font = &span->font;
+      }
+      auto face = engine->match(*font);
+      output->metrics = {0, face->implementation->metrics.ascent * font->size,
+                         face->implementation->metrics.descent * font->size};
       return output;
     }
     UErrorCode status = U_ZERO_ERROR;

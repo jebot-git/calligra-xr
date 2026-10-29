@@ -301,6 +301,36 @@ int main(int argc, char **argv) {
   fractional.before = 0.000001;
   book.format_paragraphs(point(0), fractional);
   snapshot("fractional-decimals");
+  book.load(input);
+  book.replace(0, 0, "x");
+  book.undo();
+  auto stable_revision = book.revision();
+  for (const Text &family : TextList{"Hack'", "\"Hack", " , '', \"\" "}) {
+    WordsCharacterFormat bad;
+    bad.family = family;
+    rejects([&] { book.format_characters(range, bad); });
+    rejects([&] { book.format_characters(point(2), bad); });
+    assert(book.revision() == stable_revision && !book.modified() &&
+           book.can_redo());
+    assert(!book.has_typing_format() && book.text() == original);
+  }
+  WordsCharacterFormat active;
+  active.italic = true;
+  book.format_characters(point(2), active);
+  book.begin_edit(point(2));
+  book.replace(2, 0, "y");
+  WordsCharacterFormat bad;
+  bad.family = "Hack'";
+  rejects([&] { book.format_characters(point(3), bad); });
+  assert(book.end_edit() == point(2) && book.has_typing_format());
+  assert(book.format_info(point(2)).character.italic == true);
+  assert(book.text() == original && !book.modified() && book.can_redo());
+  assert(snapshot("rejected-family") == original_xml);
+  WordsCharacterFormat quoted;
+  quoted.family = "'Unavailable, Font', \"Hack\"";
+  assert(book.format_characters(range, quoted));
+  assert(book.format_info(range).character.family == quoted.family);
+  snapshot("quoted-fallback");
   auto signed_source = fixture();
   signed_source.set_entry("META-INF/documentsignatures.xml",
                           "<document-signatures/>", "text/xml");

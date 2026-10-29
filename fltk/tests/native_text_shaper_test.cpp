@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_shaper.h"
+#include "native_font_family.h"
 #include "text_documents.h"
 #include <cassert>
 #include <iostream>
@@ -93,6 +94,16 @@ int main(int argc, char **argv) {
     std::cout << data.dump() << '\n';
     return 0;
   }
+  assert((document_font_families("'A, B', \"Hack\", 日本語, monospace") ==
+          TextList{"A, B", "Hack", "日本語", "monospace"}));
+  assert(document_font_families(" , '', \"\" ").empty());
+  rejects([&] { document_font_families("Hack'"); });
+  rejects([&] { document_font_families("\"Hack"); });
+  Text many_families;
+  for (int i = 0; i < 32; ++i)
+    many_families += (i ? ", " : "") + Text("Font") + Text::number(i);
+  assert(document_font_families(many_families).size() == 32);
+  rejects([&] { document_font_families(many_families + ", extra"); });
   auto latin = font("Noto Sans");
   auto ligatures = engine.shape("office", latin);
   coverage(ligatures, 6);
@@ -217,6 +228,28 @@ int main(int argc, char **argv) {
       assert(line.end != 2 && line.end != 3);
   auto empty = engine.shape({}, latin);
   assert(empty.glyphs.empty() && empty.metrics.ascent > 0);
+  // An empty line between styled explicit breaks takes the break's font,
+  // while the terminal empty line retains the paragraph-mark/default font.
+  TextParagraph blanks;
+  blanks.font = font("Hack", 24);
+  blanks.text = "\n\nA";
+  blanks.spans = {{0, 3, font("Hack", 6), {}}};
+  auto blank_shape = engine.prepare(blanks);
+  auto small_empty = engine.shape({}, font("Hack", 6));
+  assert(std::abs(blank_shape.line(0, 0)->metrics.ascent -
+                  small_empty.metrics.ascent) < 1e-8);
+  assert(std::abs(blank_shape.line(1, 1)->metrics.descent -
+                  small_empty.metrics.descent) < 1e-8);
+  assert(std::abs(blank_shape.line(3, 3)->metrics.ascent -
+                  engine.shape({}, blanks.font).metrics.ascent) < 1e-8);
+  auto blank_flow = TextFlow{};
+  blank_flow.paragraphs = {blanks};
+  auto blank_layout = layout_text_box(blank_flow, 200, engine);
+  assert(blank_layout.lines.size() == 3);
+  for (auto &line : blank_layout.lines)
+    assert(std::abs(line.height -
+                    (small_empty.metrics.ascent + small_empty.metrics.descent) *
+                        blanks.line_factor) < 1e-8);
   auto controls = engine.shape(Text::fromUtf8("\u200eA\u200f"), latin);
   coverage(controls, 3);
   TextParagraph soft;
