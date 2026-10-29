@@ -36,6 +36,8 @@ private:
   std::unique_ptr<NativeTextShaper> shaper_;
   uint64_t shaping_revision_ = 0;
   double scroll_ = 0;
+  double page_width_ = 1;
+  std::vector<double> page_offsets_;
   TextEditMap edit_map_;
   struct Stop {
     TextCaret caret;
@@ -48,6 +50,7 @@ private:
   std::vector<Line> lines_;
   std::vector<std::array<size_t, 3>> stop_index_;
   bool editing_ = false, dragging_ = false;
+  int drag_x_ = 0, drag_y_ = 0;
   size_t preferred_page_ = 0, preferred_line_ = 0;
   TextCaret::Affinity affinity_ = TextCaret::Following;
   std::optional<double> preferred_x_;
@@ -57,6 +60,9 @@ private:
   void choose(Stop, bool extend);
   bool navigate(int key, bool control, bool extend);
   void reveal_caret();
+  void stop_drag();
+  double drag_scroll_amount() const;
+  static void drag_scroll(void *);
   std::string render_error_;
   double scale() const;
   double extent() const;

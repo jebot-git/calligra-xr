@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef GL_GLEXT_PROTOTYPES
+#define GL_GLEXT_PROTOTYPES
+#endif
 #include "gpu_text.h"
 #include "gpu_clip.h"
 #include "suite/fltk_appearance.h"
@@ -123,7 +126,9 @@ struct GpuTextCache::Impl {
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_LIGHTING);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Compose coverage into alpha once; opaque paper must stay opaque.
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                        GL_ONE_MINUS_SRC_ALPHA);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glColor4d(color.red / 255., color.green / 255., color.blue / 255.,
               color.alpha);
@@ -192,7 +197,8 @@ void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_LIGHTING);
   glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                      GL_ONE_MINUS_SRC_ALPHA);
   for (const auto &tab : tabs) {
     auto color = tab.color.value_or(fallback);
     glColor4d(color.red / 255., color.green / 255., color.blue / 255.,
@@ -248,7 +254,8 @@ void GpuTextCache::draw_paints(const std::vector<TextPaint> &paints,
   glDisable(GL_DEPTH_TEST);
   glDisable(GL_LIGHTING);
   glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                      GL_ONE_MINUS_SRC_ALPHA);
   double dpi_x = double(host.pixel_w()) / host.w(),
          dpi_y = double(host.pixel_h()) / host.h();
   auto density = [&](bool horizontal) {

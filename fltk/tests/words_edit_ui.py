@@ -316,7 +316,7 @@ try:
             subprocess.run(['/usr/bin/fcitx5-remote', '-s', 'keyboard-us'], env=client, check=True)
             wait(lambda: input_method() == 'keyboard-us')
 
-        def drag(x1, y1, x2, y2):
+        def drag(x1, y1, x2, y2, hold=0, cancel=False):
             point = xd.screen().root.translate_coords(host, 0, 0)
             bx = by = 0
             if args.wayland:
@@ -330,7 +330,22 @@ try:
                     x=point.x+bx+round(x1+(x2-x1)*step/6),
                     y=point.y+by+round(y1+(y2-y1)*step/6))
                 xd.sync(); time.sleep(.04)
+            held = None
+            if hold:
+                time.sleep(.15)
+                before = data()
+                time.sleep(hold)
+                after = data()
+                held = (before['page_layout']['scroll'], after['page_layout']['scroll'],
+                        before['editing']['cursor'], after['editing']['cursor'])
+                if cancel:
+                    key('Escape')
+                    wait(lambda: data()['editing']['anchor'] == data()['editing']['cursor'])
+                    stopped = data()['page_layout']['scroll']
+                    time.sleep(.25)
+                    assert data()['page_layout']['scroll'] == stopped
             xtest.fake_input(xd, X.ButtonRelease, 1); xd.sync(); time.sleep(.2)
+            return held
 
         def capture_window(name):
             geometry = host.get_geometry()
@@ -1044,16 +1059,21 @@ try:
         rtl_body.addElement(ParagraphProperties(writingmode='rl-tb', textalign='start'))
         rtl_body.addElement(TextProperties(fontfamily='Noto Sans Hebrew', fontsize='20pt'))
         doc.styles.addElement(rtl_body)
+        indented = Style(name='HitIndented', family='paragraph', parentstylename=body)
+        indented.addElement(ParagraphProperties(marginleft='120pt'))
+        doc.styles.addElement(indented)
         for i, line in enumerate(page_lines):
-            doc.text.addElement(P(stylename=rtl_body if i == 1 else body, text=line))
+            doc.text.addElement(P(stylename=rtl_body if i == 1 else indented if i == 3 else body, text=line))
         page_text = '\n'.join(page_lines)
         doc.save(str(source))
         with zipfile.ZipFile(source, 'a') as archive:
             archive.writestr('Extras/opaque.bin', b'\0keep\xff')
             original_styles = archive.read('styles.xml')
         report = art / 'page-hit-report.json'
+        selection_capture = art / 'page-alpha.ppm'
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
-                         '--report', report, '--page-layout'], client, 'page-hit')
+                         '--report', report, '--page-layout', '--capture', selection_capture,
+                         '--capture-delay-ms', '5000'], client, 'page-hit')
         wait(lambda: report.exists() and data()['page_layout']['glyphs'] > 0)
         if args.wayland:
             host.set_input_focus(X.RevertToParent, X.CurrentTime)
@@ -1084,6 +1104,16 @@ try:
         assert data()['page_layout']['visible']
         check_text(page_text, 3)
         assert data()['editing']['anchor'] == 3 and not data()['modified']
+        key('a', ('Control_L',))
+        wait(lambda: data()['editing']['anchor'] == 0 and data()['editing']['cursor'] == len(page_text))
+        alpha_file = Path(str(selection_capture)+'.json')
+        wait(lambda: alpha_file.exists())
+        compositing = json.loads(alpha_file.read_text())
+        assert compositing['page_selection'] == [0, len(page_text)], compositing
+        assert compositing['page_min_alpha'] == 255, compositing
+        Image.open(selection_capture).save(art / 'page-alpha.png')
+        key('Home', ('Control_L',)); click(px, py)
+        check_text(page_text, 3)
         key('x')
         check_text(page_text[:3] + 'x' + page_text[3:], 4)
         key('z', ('Control_L',))
@@ -1102,6 +1132,17 @@ try:
         check_text(expected, first_length+1)
         key('Left'); check_text(expected, first_length+2)
         key('Right'); check_text(expected, first_length+1)
+        # Vertical movement must visit the adjacent indented line, then
+        # restore the original horizontal target on the following plain line.
+        key('Down', ('Control_L',))
+        line_starts = [0]
+        for line in expected.split('\n'):
+            line_starts.append(line_starts[-1]+len(line)+1)
+        check_text(expected, line_starts[2])
+        key('Down'); check_text(expected, line_starts[3])
+        key('Down'); check_text(expected, line_starts[4])
+        key('Up'); check_text(expected, line_starts[3])
+        key('Up'); check_text(expected, line_starts[2])
         # Ctrl+End reveals the caret on a distant page. Repagination while
         # typing/undoing there must preserve the viewport rather than jump up.
         key('End', ('Control_L',)); check_text(expected, len(expected))
@@ -1126,6 +1167,35 @@ try:
         drag(round(left+(20+2*12.04)*zoom), py, round(left+(20+5*12.04)*zoom), py)
         wait(lambda: data()['editing']['anchor'] == 2 and data()['editing']['cursor'] == 5)
         capture_window('page-drag-selection')
+        # Hold at the lower edge after the last motion. Repeated timer
+        # scrolling must extend selection even while the pointer is stationary.
+        key('Home', ('Control_L',))
+        held = drag(px, py, px, y+h-3, hold=.8)
+        assert held[1] > held[0]+100 and held[3] > held[2], held
+        assert data()['editing']['anchor'] == 3 and not data()['modified']
+        capture_window('page-stationary-drag')
+        released_scroll = data()['page_layout']['scroll']
+        time.sleep(.25)
+        assert data()['page_layout']['scroll'] == released_scroll
+        key('Escape'); key('Home', ('Control_L',))
+        # Page movement uses the viewport distance before the horizontal
+        # target; upward edge scrolling also stops immediately on Escape.
+        key('Home', ('Control_L',))
+        view = data()['page_layout']
+        virtual_y = view['caret_rect'][1]+view['scroll']
+        key('Page_Down')
+        wait(lambda: data()['editing']['cursor'] > first_length)
+        view = data()['page_layout']
+        assert view['caret_rect'][1]+view['scroll'] > virtual_y+h*.5
+        key('Page_Up')
+        wait(lambda: data()['page_layout']['caret_page'] == 1)
+        key('End', ('Control_L',)); check_text(expected, len(expected))
+        caret = data()['page_layout']['caret_rect']
+        held = drag(round(caret[0]), round(caret[1]+caret[3]/2), px, y+3,
+                    hold=.8, cancel=True)
+        assert held[1] < held[0]-100 and held[3] < held[2], held
+        assert not data()['modified'] and process.poll() is None
+        key('Home', ('Control_L',))
         # Native range painting and formatting retain the same selection.
         key('Home', ('Control_L',)); key('Right', count=2)
         before_selection = capture_window('page-selection-before')
@@ -1276,6 +1346,11 @@ try:
                    'direct_native_page_editing': True,
                    'native_page_readonly': True,
                    'native_page_mouse_drag': True,
+                   'native_page_stationary_drag_scroll': True,
+                   'native_page_selection_opaque_compositing': True,
+                   'native_page_adjacent_vertical_navigation': True,
+                   'native_page_viewport_navigation': True,
+                   'native_page_drag_scroll_escape': True,
                    'native_page_list_editing': not args.page_only,
                    'native_page_escape_and_readonly_global_shortcuts': True,
                    'native_page_ime_preedit_commit_cancel': args.ime,

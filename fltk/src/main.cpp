@@ -43,7 +43,7 @@ std::string column_name(int column)
 }
 struct Options {
     std::string file, report, capture, export_odf, print_pdf, printer;
-    int duration = 0;
+    int duration = 0, capture_delay = 1500;
     bool present = false, pages = false;
 };
 class Office;
@@ -1609,19 +1609,37 @@ public:
         window.draw();
         glFinish();
         int w = window.pixel_w(), h = window.pixel_h();
-        std::vector<unsigned char> pixels(size_t(w) * h * 3);
+        std::vector<unsigned char> pixels(size_t(w) * h * 4);
         glReadBuffer(GL_BACK);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
-        glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
         std::ofstream out(options.capture, std::ios::binary);
         out << "P6\n" << w << ' ' << h << "\n255\n";
-        for (int y = h - 1; y >= 0; --y)
-            out.write(reinterpret_cast<char*>(pixels.data() + size_t(y) * w * 3), w * 3);
+        std::vector<unsigned char> row(size_t(w) * 3);
+        for (int y = h - 1; y >= 0; --y) {
+            for (int x = 0; x < w; ++x)
+                std::copy_n(pixels.data() + (size_t(y) * w + x) * 4, 3, row.data() + size_t(x) * 3);
+            out.write(reinterpret_cast<char*>(row.data()), w * 3);
+        }
         Json metadata = { { "renderer", reinterpret_cast<const char*>(glGetString(GL_RENDERER)) },
             { "gpu_widgets", true }, { "universal_menu", desktop_menu->attached() } };
 #ifdef FLTK_USE_WAYLAND
         metadata["wayland"] = bool(fl_wl_display());
 #endif
+        if (kind == Kind::Words && page_view) {
+            unsigned char minimum = 255;
+            double sx = double(w) / window.w(), sy = double(h) / window.h();
+            int x0 = std::clamp(int(std::ceil(text_pages->x() * sx)), 0, w);
+            int x1 = std::clamp(int(std::floor((text_pages->x() + text_pages->w()) * sx)), 0, w);
+            int y0 = std::clamp(int(std::ceil(text_pages->y() * sy)), 0, h);
+            int y1 = std::clamp(int(std::floor((text_pages->y() + text_pages->h()) * sy)), 0, h);
+            for (int y = y0; y < y1; ++y)
+                for (int x = x0; x < x1; ++x)
+                    minimum = std::min(minimum, pixels[(size_t(h - 1 - y) * w + x) * 4 + 3]);
+            auto range = word_selection();
+            metadata["page_min_alpha"] = unsigned(minimum);
+            metadata["page_selection"] = { range.anchor, range.cursor };
+        }
         std::ofstream(options.capture + ".json") << metadata.dump(2) << '\n';
     }
     static void tick(void* data)
@@ -1695,7 +1713,11 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
                 options.duration = std::stoi(value());
             else if (arg == "--capture")
                 options.capture = value();
-            else if (arg == "--export-odf")
+            else if (arg == "--capture-delay-ms") {
+                options.capture_delay = std::stoi(value());
+                if (options.capture_delay < 1 || options.capture_delay > 600000)
+                    throw std::runtime_error("Capture delay must be between 1 and 600000 milliseconds");
+            } else if (arg == "--export-odf")
                 options.export_odf = value();
             else if (arg == "--print-pdf")
                 options.print_pdf = value();
@@ -1705,7 +1727,7 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
                 options.report = value();
             else if (arg == "--help") {
                 std::cout << "Calligra FLTK [FILE] [--report JSON] [--capture PPM] "
-                             "[--quit-after-ms N] [--page-layout (Words)]\n"
+                             "[--quit-after-ms N] [--capture-delay-ms N] [--page-layout (Words)]\n"
                              "Batch: FILE [--export-odf OUTPUT] [--print-pdf OUTPUT.pdf] [--print-to CUPS_PRINTER]\n";
                 return 0;
             } else if (arg.starts_with("--"))
@@ -1761,7 +1783,7 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
         if (options.pages)
             office.command(PageLayout);
         if (!options.capture.empty())
-            Fl::add_timeout(1.5, [](void* p) { static_cast<Office*>(p)->capture(); }, &office);
+            Fl::add_timeout(options.capture_delay / 1000., [](void* p) { static_cast<Office*>(p)->capture(); }, &office);
         if (options.duration)
             Fl::add_timeout(options.duration / 1000., [](void* p) { static_cast<Office*>(p)->command(Quit); }, &office);
         return Fl::run();

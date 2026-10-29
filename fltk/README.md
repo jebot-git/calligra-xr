@@ -118,6 +118,8 @@ CUPS test queues.
   Underline/strike/highlight and named styles remain unfinished.
   Pages switches to native paginated editing. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
+  Edge-held selection drags keep scrolling until release or Escape. Vertical
+  arrows preserve the horizontal target across indented lines.
   Visual arrows follow grapheme/ligature and bidi positions; Ctrl+arrows move
   by word/paragraph, Ctrl+Home/End reach document boundaries. Typing, clipboard,
   formatting and list commands share the native undo history. Wayland IME

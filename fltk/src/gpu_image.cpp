@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef GL_GLEXT_PROTOTYPES
+#define GL_GLEXT_PROTOTYPES
+#endif
 #include "gpu_image.h"
 #include "native_image_decode.h"
 #include "gpu_clip.h"
@@ -31,7 +34,9 @@ struct State {
     glDisable(GL_LIGHTING);
     glDisable(GL_TEXTURE_RECTANGLE_ARB);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // Compose coverage into alpha once; opaque paper must stay opaque.
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                        GL_ONE_MINUS_SRC_ALPHA);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
   }
   ~State() {

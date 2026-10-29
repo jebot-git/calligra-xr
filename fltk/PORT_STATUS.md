@@ -47,7 +47,11 @@ navigation, vertical and word/paragraph movement, GPU range selection, mouse
 dragging, double-click words and triple-click paragraphs. Typing, clipboard,
 formatting, list actions, paragraph splits/joins and soft breaks share the
 native XML transactions and undo history. Reflow preserves scrolling and
-reveals the caret, including in repeated table instances. Native Wayland Fcitx
+reveals the caret, including in repeated table instances. Vertical arrows visit
+the adjacent visual row before choosing a horizontal stop, preserving the
+preferred x across indented lines. Holding a selection drag at either edge
+continues scrolling until release, Escape or focus loss. Shared GPU compositing
+preserves opaque paper beneath translucent highlights, glyphs and images. Native Wayland Fcitx
 preedit/commit/cancel uses one history transaction and anchors candidates to
 the page caret. Escape cancels composition/selection without closing Words.
 Further native editing polish, performance and default-view integration remain;

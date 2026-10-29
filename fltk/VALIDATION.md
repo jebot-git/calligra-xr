@@ -1419,3 +1419,53 @@ with no normalization or attribute stripping. No system printer is changed.
 Further work includes native default-view integration, drag-scroll repetition,
 typing/reflow performance and more complete layout/formatting fidelity. Words
 remains the priority, followed by Sheets functions; Stage stays last.
+
+
+## Native vertical navigation and edge selection — 2026-10-30
+
+Two real GUI repros failed against the prior release. Down skipped an indented
+paragraph because a combined distance score favored a more distant line with
+an aligned x. A held edge drag stopped extending after pointer motion stopped
+(the observed scroll/cursor remained 49.1875/168). Navigation now chooses the
+visual row before its horizontal stop, retains the preferred x, and uses stable
+row geometry independent of glyph ascents. Page Up/Down prioritizes viewport
+distance. Cached maximum page width and height-prefix offsets remove the scan
+of preceding pages from each caret rectangle calculation, including resize and
+mixed-width master pages.
+
+Selection edge scrolling now repeats on an FLTK timer using the latest pointer
+position. Release, Escape, focus loss, document reset and destruction cancel the
+timer. Private X11, native Wayland/Fcitx and ASan/UBSan GUI flows check both
+scroll directions with a stationary pointer, immediate release/Escape stop,
+indented-line traversal in both directions, preferred-x restoration and
+viewport-sized movement. The existing page input/clipboard/formatting/structure,
+read-only and IME regressions are retained; these focused runs do not repeat the
+legacy flat-editor macro. Split/merged/nested cells with changing page widths
+also retain their pixels, source coverage and edit/save/reopen behavior.
+
+Visual review of the native Wayland stationary-drag capture exposed desktop
+wallpaper bleeding through selected text. A framebuffer alpha probe reproduced
+it with a minimum alpha of 157/255 while the whole source range was selected.
+The shared text, paint, leader and image paths now use separate RGB/alpha
+source-over blend factors, preserving opaque paper beneath translucent colors
+and glyph coverage. The framebuffer capture metadata records the actual source
+selection and minimum page alpha; delayed capture lets the UI flow verify the
+selected frame rather than an earlier unselected one. The fixed selected frame
+retains 255/255 alpha throughout the page viewport on X11, native Wayland and
+ASan/UBSan X11. Semantics follow the
+[Khronos blending equations](https://wikis.khronos.org/opengl/Draw_Buffer_Blend).
+
+The shared suite GUI regression also passes text, table, list, image and
+transformed-shape cases in Words/Sheets/Stage, including transparent images,
+universal menus, history, import and saving. Eleven actual private CUPS jobs
+pass using the previous full editor's formatting snapshots and the current
+native page/IME snapshots, plus the independent Unicode-source fixture. All
+formatted PDF/reopen/CUPS rasters agree; the nine accepted suite baseline pages
+remain byte-identical. Forty retained packages pass their declared ODF schemas
+without rewriting exports or changing system printers.
+
+The 39 core suites pass in Release and ASan/UBSan with core leak checking. GUI
+leak checking remains disabled for third-party libraries. Further Words work
+includes native default-view integration, typing/reflow performance, table-aware
+navigation refinements and broader layout/formatting fidelity, before the next
+Sheets function work. Stage remains last in implementation priority.

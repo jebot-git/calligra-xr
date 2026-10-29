@@ -9,7 +9,7 @@
 namespace DomeOffice {
 TextPageCanvas::TextPageCanvas(int x, int y, int w, int h)
     : Fl_Widget(x, y, w, h), glyphs_(std::make_unique<GpuTextCache>()) {}
-TextPageCanvas::~TextPageCanvas() = default;
+TextPageCanvas::~TextPageCanvas() { stop_drag(); }
 uint64_t TextPageCanvas::rasterizations() const {
   return glyphs_->rasterizations();
 }
@@ -28,6 +28,12 @@ void TextPageCanvas::set_flow(const TextFlow &flow) {
 void TextPageCanvas::set_pagination(TextPagination value) {
   pagination = std::move(value);
   render_error_.clear();
+  page_width_ = 1;
+  page_offsets_.assign(1, 0);
+  for (const auto &page : pagination.pages) {
+    page_width_ = std::max(page_width_, page.style.width);
+    page_offsets_.push_back(page_offsets_.back() + page.style.height);
+  }
   scroll_ = std::clamp(scroll_, 0., std::max(0., extent() - h()));
   lines_.clear();
   for (size_t page = 0; page < pagination.pages.size(); ++page)
@@ -61,7 +67,8 @@ std::optional<size_t> TextPageCanvas::caret_page() const {
   return {};
 }
 void TextPageCanvas::reset_editing() {
-  editing_ = dragging_ = false;
+  stop_drag();
+  editing_ = false;
   preferred_page_ = preferred_line_ = 0;
   affinity_ = TextCaret::Following;
   preferred_x_.reset();
@@ -74,16 +81,11 @@ void TextPageCanvas::selection_changed(bool reveal) {
   redraw();
 }
 double TextPageCanvas::scale() const {
-  double width = 1;
-  for (const auto &page : pagination.pages)
-    width = std::max(width, page.style.width);
-  return std::clamp((w() - 48) / width, .05, 1.5);
+  return std::clamp((w() - 48) / page_width_, .05, 1.5);
 }
 double TextPageCanvas::extent() const {
-  double height = 24, zoom = scale();
-  for (const auto &page : pagination.pages)
-    height += page.style.height * zoom + 24;
-  return height;
+  return 24 + (page_offsets_.empty() ? 0 : page_offsets_.back()) * scale() +
+         pagination.pages.size() * 24;
 }
 void TextPageCanvas::scroll(double amount) {
   scroll_ = std::clamp(scroll_ + amount, 0., std::max(0., extent() - h()));
@@ -223,9 +225,9 @@ void TextPageCanvas::draw() {
   fl_pop_clip();
 }
 TextRect TextPageCanvas::screen_rect(const Stop &stop) const {
-  double zoom = scale(), top = y() + 12 - scroll_;
-  for (size_t i = 0; i < stop.page; ++i)
-    top += pagination.pages[i].style.height * zoom + 24;
+  double zoom = scale(), top = y() + 12 - scroll_ +
+                               page_offsets_.at(stop.page) * zoom +
+                               stop.page * 24;
   double left =
       x() + (w() - pagination.pages.at(stop.page).style.width * zoom) / 2;
   auto r = stop.caret.rect;
@@ -450,28 +452,40 @@ bool TextPageCanvas::navigate(int key, bool control, bool extend) {
   bool down = key == FL_Down || key == FL_Page_Down;
   auto rect = screen_rect(*current);
   double desired = preferred_x_.value_or(rect.x);
+  const double zoom = scale();
+  auto page_top = [&](size_t page) {
+    return y() + 12 - scroll_ + page_offsets_[page] * zoom + page * 24;
+  };
   const auto &current_line =
       pagination.pages[current->page].lines[current->line];
-  double line_top = rect.y + (current_line.y - current->caret.rect.y) * scale();
-  double center = line_top + current_line.height * scale() / 2;
+  double line_top = page_top(current->page) + current_line.y * zoom;
+  double center = line_top + current_line.height * zoom / 2;
   double target_y = center + ((key == FL_Page_Down || key == FL_Page_Up)
                                   ? (down ? 1 : -1) * h() * .85
                                   : 0);
-  double distance = INFINITY;
+  auto distance =
+      std::tuple<double, double, bool, bool>{INFINITY, INFINITY, true, true};
   std::optional<Stop> best;
   for (const auto &l : lines_) {
     if (l.page == current->page && l.index == current->line)
       continue;
+    const auto &candidate_line = pagination.pages[l.page].lines[l.index];
+    double candidate_top = page_top(l.page) + candidate_line.y * zoom;
+    double cy = candidate_top + candidate_line.height * zoom / 2;
+    if ((down && candidate_top <= line_top + 1e-7) ||
+        (!down && candidate_top >= line_top - 1e-7))
+      continue;
+    // Find the adjacent visual row before choosing its horizontal stop.
+    // A large indent must not make an arrow skip an intervening line. Compute
+    // row positions once so different glyph ascents cannot perturb ties.
+    double vertical = key == FL_Page_Down || key == FL_Page_Up
+                          ? std::abs(cy - target_y)
+                          : std::abs(candidate_top - line_top);
     for (const auto &s : l.stops) {
       auto r = screen_rect(s);
-      const auto &candidate_line = pagination.pages[s.page].lines[s.line];
-      double candidate_top =
-          r.y + (candidate_line.y - s.caret.rect.y) * scale();
-      double cy = candidate_top + candidate_line.height * scale() / 2;
-      if ((down && candidate_top <= line_top + 1e-7) ||
-          (!down && candidate_top >= line_top - 1e-7))
-        continue;
-      double d = std::abs(cy - target_y) + 4 * std::abs(r.x - desired);
+      auto d = std::tuple(vertical, std::abs(r.x - desired),
+                          s.caret.rtl != candidate_line.shaped->rtl,
+                          s.caret.affinity != affinity_);
       if (d < distance) {
         distance = d;
         best = s;
@@ -484,9 +498,36 @@ bool TextPageCanvas::navigate(int key, bool control, bool extend) {
   }
   return true;
 }
+void TextPageCanvas::stop_drag() {
+  dragging_ = false;
+  Fl::remove_timeout(drag_scroll, this);
+}
+double TextPageCanvas::drag_scroll_amount() const {
+  if (drag_y_ < y() + 12)
+    return -std::clamp((y() + 12 - drag_y_) * .5, 12., 64.);
+  if (drag_y_ > y() + h() - 12)
+    return std::clamp((drag_y_ - y() - h() + 12) * .5, 12., 64.);
+  return 0;
+}
+void TextPageCanvas::drag_scroll(void *data) {
+  auto &canvas = *static_cast<TextPageCanvas *>(data);
+  if (!canvas.dragging_ || !canvas.visible_r() || !canvas.active_r())
+    return;
+  double amount = canvas.drag_scroll_amount(), before = canvas.scroll_;
+  if (!amount)
+    return;
+  canvas.scroll(amount);
+  if (canvas.scroll_ != before) {
+    if (auto target = canvas.hit(canvas.drag_x_, canvas.drag_y_, true))
+      canvas.choose(*target, true);
+    if (canvas.dragging_)
+      Fl::repeat_timeout(.05, drag_scroll, data);
+  }
+}
 int TextPageCanvas::handle(int event) {
   if (event == FL_FOCUS || event == FL_UNFOCUS) {
     if (event == FL_UNFOCUS) {
+      stop_drag();
       if (cancel_composition)
         cancel_composition();
       fl_reset_spot();
@@ -499,6 +540,7 @@ int TextPageCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_PUSH) {
+    stop_drag();
     if (cancel_composition)
       cancel_composition();
     take_focus();
@@ -537,16 +579,18 @@ int TextPageCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_DRAG && dragging_) {
-    if (Fl::event_y() < y() + 12)
-      scroll(-24);
-    if (Fl::event_y() > y() + h() - 12)
-      scroll(24);
+    drag_x_ = Fl::event_x();
+    drag_y_ = Fl::event_y();
+    Fl::remove_timeout(drag_scroll, this);
+    scroll(drag_scroll_amount());
     if (auto target = hit(Fl::event_x(), Fl::event_y(), true))
       choose(*target, true);
+    if (drag_scroll_amount())
+      Fl::add_timeout(.05, drag_scroll, this);
     return 1;
   }
   if (event == FL_RELEASE) {
-    dragging_ = false;
+    stop_drag();
     return 1;
   }
   if (event == FL_KEYDOWN) {
@@ -556,7 +600,7 @@ int TextPageCanvas::handle(int event) {
     if (key == FL_Escape) {
       if (cancel_composition)
         cancel_composition();
-      dragging_ = false;
+      stop_drag();
       if (selection && select) {
         auto at = selection().cursor;
         select({at, at});
