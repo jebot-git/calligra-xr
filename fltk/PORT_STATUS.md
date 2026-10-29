@@ -197,9 +197,15 @@ nested exit before following content, and outdent before trailing parent text
 remain unsupported and reject atomically. List-formatting controls, broader
 paragraph/mixed-level list edits and general table structure tools remain
 unfinished. Undo restores styled XML,
-selection/caret and saved-state identity. Native commands validate before
-committing; compound frontend text events still need a shared transaction
-boundary. The journal is bounded to 100 commands and 32 MiB
+selection/caret and saved-state identity. Each frontend buffer-edit event now
+has a shared native transaction: selection deletion and insertion form one
+command, and a rejected callback rolls back the entire event without consuming
+redo history. Keyboard, universal-menu and standard context-menu paste defer
+deletion until clipboard delivery; an unavailable/empty clipboard leaves the
+selection intact. Native commands also validate before committing. These
+transactions cover callbacks within one event; drag/drop transfers and longer
+cross-keystroke typing groups still need dedicated behavior and tests.
+The journal is bounded to 100 commands and 32 MiB
 of changed XML bytes; edits larger than that clear history. Each edit currently
 serializes content.xml, so large documents still need incremental operations
 and typing groups. The page view

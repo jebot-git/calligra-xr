@@ -180,18 +180,23 @@ TextDocument::TextDocument()
     package_.body().appendChild(p);
 }
 void TextDocument::load(const Text& p)
-{
+try {
     bool office = FileInfo(p).suffix().compare("docx", CaseInsensitive) == 0;
     OdfPackage candidate(Kind::Words);
     if (office) candidate = import_docx(p);
     else candidate.load(p);
     package_ = std::move(candidate);
     imported_office_ = office;
+    edit_.reset();
     clear_history();
     ++revision_;
+} catch (...) {
+    cancel_edit();
+    throw;
 }
 void TextDocument::save(const Text& p)
 {
+    end_edit();
     if (FileInfo(p).suffix().compare("odt", CaseInsensitive) != 0)
         fail("Words saves only ODT; choose an .odt destination");
     package_.save(p);
@@ -199,8 +204,52 @@ void TextDocument::save(const Text& p)
     saved_state_ = state_;
 }
 Text TextDocument::text() const { return joined(package_.body()); }
-void TextDocument::set_text(const Text& value)
+void TextDocument::begin_edit(TextSelection selection)
 {
+    if (edit_)
+        fail("A text edit is already in progress");
+    auto length = text().size();
+    if (selection.anchor > length || selection.cursor > length)
+        fail("Invalid text selection");
+    edit_.emplace(EditGroup { package_, selection, selection });
+}
+void TextDocument::cancel_edit()
+{
+    if (!edit_ || edit_->cancelled)
+        return;
+    package_ = edit_->original;
+    if (edit_->changed)
+        ++revision_;
+    edit_->changed = false;
+    edit_->cancelled = true;
+}
+std::optional<TextSelection> TextDocument::end_edit(std::optional<TextSelection> next)
+try {
+    if (!edit_)
+        return { };
+    if (edit_->cancelled) {
+        auto selection = edit_->previous;
+        edit_.reset();
+        return selection;
+    }
+    auto selection = next.value_or(edit_->next);
+    auto length = text().size();
+    if (selection.anchor > length || selection.cursor > length)
+        fail("Invalid text selection");
+    auto candidate = package_;
+    auto previous = edit_->previous;
+    package_ = edit_->original;
+    edit_.reset();
+    apply(std::move(candidate), previous, selection);
+    return { };
+} catch (...) {
+    cancel_edit();
+    throw;
+}
+void TextDocument::set_text(const Text& value)
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
     if (read_only())
         fail("This document is read-only");
     if (value == text())
@@ -217,6 +266,9 @@ void TextDocument::set_text(const Text& value)
     candidate.xml = read_document_xml(package_.xml.toByteArray());
     set_paragraphs(candidate.body(), value, flat);
     apply(std::move(candidate), { text().size(), text().size() }, { value.size(), value.size() });
+} catch (...) {
+    cancel_edit();
+    throw;
 }
 void TextDocument::clear_history()
 {
@@ -230,6 +282,15 @@ void TextDocument::apply(OdfPackage candidate, TextSelection previous, TextSelec
     const auto before = package_.xml.toByteArray(), after = candidate.xml.toByteArray();
     if (before == after)
         return;
+    if (edit_) {
+        if (edit_->cancelled)
+            fail("This text edit was cancelled");
+        package_ = std::move(candidate);
+        edit_->next = next;
+        edit_->changed = true;
+        ++revision_;
+        return;
+    }
     size_t prefix = 0, suffix = 0;
     while (prefix < before.size() && prefix < after.size() && before[prefix] == after[prefix])
         ++prefix;
@@ -255,7 +316,9 @@ void TextDocument::apply(OdfPackage candidate, TextSelection previous, TextSelec
 }
 void TextDocument::replace(size_t begin, size_t count, const Text& inserted,
     bool paragraph_breaks, std::optional<TextSelection> previous, std::optional<TextSelection> next)
-{
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
     if (read_only())
         fail("This document is read-only");
     auto before = text();
@@ -275,9 +338,14 @@ void TextDocument::replace(size_t begin, size_t count, const Text& inserted,
         || new_selection.anchor > expected.size() || new_selection.cursor > expected.size())
         fail("Invalid text selection");
     apply(std::move(candidate), old_selection, new_selection);
+} catch (...) {
+    cancel_edit();
+    throw;
 }
 bool TextDocument::list_action(TextSelection selection, WordsListAction action, bool at_start_only)
-{
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
     if (read_only())
         fail("This document is read-only");
     auto before = text();
@@ -293,9 +361,13 @@ bool TextDocument::list_action(TextSelection selection, WordsListAction action, 
     (void)read_text_flow(candidate);
     apply(std::move(candidate), selection, selection);
     return true;
+} catch (...) {
+    cancel_edit();
+    throw;
 }
 std::optional<TextSelection> TextDocument::travel(bool redo)
 {
+    end_edit();
     if (read_only())
         fail("This document is read-only");
     if (redo ? !can_redo() : !can_undo())

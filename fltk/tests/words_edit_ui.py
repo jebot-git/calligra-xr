@@ -21,7 +21,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from odf.opendocument import OpenDocumentText
-from odf.style import (MasterPage, PageLayout, PageLayoutProperties,
+from odf.style import (Map, MasterPage, PageLayout, PageLayoutProperties,
                        ParagraphProperties, Style, TextProperties, ListLevelProperties)
 from odf.table import Table, TableCell, TableColumn, TableRow
 from odf.text import (A, LineBreak, List, ListHeader, ListItem, ListLevelStyleNumber,
@@ -40,7 +40,7 @@ XML = '{http://www.w3.org/XML/1998/namespace}'
 XLINK = '{http://www.w3.org/1999/xlink}'
 
 
-def produce(path):
+def produce(path, conditional=False):
     doc = OpenDocumentText()
     layout = PageLayout(name='Page')
     layout.addElement(PageLayoutProperties(pagewidth='18cm', pageheight='24cm', margin='1cm'))
@@ -51,6 +51,8 @@ def produce(path):
     doc.styles.addElement(body)
     first = Style(name='First', family='paragraph', parentstylename=body, masterpagename='Standard')
     first.addElement(ParagraphProperties(breakbefore='page', marginleft='5pt'))
+    if conditional:
+        first.addElement(Map(condition='table()', applystylename=body))
     doc.styles.addElement(first)
     bold = Style(name='Bold', family='text')
     bold.addElement(TextProperties(fontweight='bold'))
@@ -346,6 +348,90 @@ try:
         original = data()['text']
         assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
         _, original_xml = save('original')
+        # FLTK removes the selection and inserts text in separate callbacks.
+        # They must form one command, including on a failed replacement.
+        go(6)
+        key('Right', ('Shift_L',), count=8)
+        selected = {k: data()['editing'][k] for k in ('anchor', 'cursor')}
+        key('x')
+        check_text(original[:6] + 'x' + original[14:], 7)
+        save('selection-replaced')
+        key('z', ('Control_L',))
+        check_text(original, selected['cursor'])
+        assert data()['editing']['anchor'] == selected['anchor']
+        assert not data()['editing']['can_undo'] and data()['editing']['can_redo']
+        key('y', ('Control_L',))
+        check_text(original[:6] + 'x' + original[14:], 7)
+        assert not data()['modified']
+        key('z', ('Control_L',))
+        check_text(original)
+        assert save('selection-replacement-undone')[1] == original_xml
+        key('a', ('Control_L',))
+        before = data()['editing']
+        key('x')
+        time.sleep(.25)
+        check_text(original, before['cursor'])
+        assert data()['editing']['anchor'] == before['anchor']
+        assert not data()['modified'] and not data()['editing']['can_undo']
+        assert data()['editing']['can_redo']
+        assert save('compound-rejected-first')[1] == original_xml
+        # An unavailable clipboard cannot consume a selection. Once populated,
+        # every paste entry point must reject cross-structure replacement intact.
+        key('v', ('Control_L',))
+        time.sleep(.3)
+        check_text(original, before['cursor'])
+        assert data()['editing']['anchor'] == before['anchor']
+        go(0)
+        key('Right', ('Shift_L',), count=5)
+        key('c', ('Control_L',))
+        def paste(method):
+            if method == 'control':
+                key('v', ('Control_L',))
+            elif method == 'shift-insert':
+                key('Insert', ('Shift_L',))
+            elif method == 'menu':
+                menu_action('Paste')
+            else:
+                # The standard FLTK context menu has Cut, Copy, Paste rows.
+                # Keyboard navigation avoids assumptions about popup geometry.
+                point = xd.screen().root.translate_coords(host, 0, 0)
+                x, y = 95, 77
+                if args.wayland:
+                    box = next(w for w in scene()['windows'] if w['id'] == window['id'])['desktop']
+                    x += int(box['x'])
+                    y += int(box['y'])
+                xtest.fake_input(xd, X.MotionNotify, x=point.x + x, y=point.y + y)
+                xtest.fake_input(xd, X.ButtonPress, 3)
+                xtest.fake_input(xd, X.ButtonRelease, 3)
+                xd.sync()
+                time.sleep(.25)
+                key('Down', count=3)
+                key('Return')
+        for method in ('control', 'shift-insert', 'menu', 'context'):
+            key('a', ('Control_L',))
+            before = data()['editing']
+            paste(method)
+            time.sleep(.3)
+            check_text(original, before['cursor'])
+            assert data()['editing']['anchor'] == before['anchor']
+            assert not data()['modified'] and not data()['editing']['can_undo']
+            assert data()['editing']['can_redo']
+            assert save('compound-paste-rejected-' + method)[1] == original_xml
+        for method in ('control', 'shift-insert', 'menu', 'context'):
+            go(6)
+            key('Right', ('Shift_L',), count=8)
+            paste(method)
+            check_text(original[:6] + 'Start' + original[14:], 11)
+            save('selection-pasted-' + method)
+            key('z', ('Control_L',))
+            check_text(original, 14)
+            assert data()['editing']['anchor'] == 6 and not data()['editing']['can_undo']
+            key('y', ('Control_L',))
+            check_text(original[:6] + 'Start' + original[14:], 11)
+            assert not data()['modified']
+            key('z', ('Control_L',))
+            check_text(original)
+            assert save('selection-paste-undone-' + method)[1] == original_xml
         split = original.index('日本語') + 1
         go(split)
         key('Return')
@@ -646,7 +732,58 @@ try:
         restored = json.loads(reopened.read_text())
         assert restored['text'] == original and not restored['modified']
         assert not restored['editing']['can_undo'] and restored['page_layout']['pages'] == 1
+        # A conditional first-page style rejects paragraph continuation. Here
+        # selection deletion succeeds first, so the later failed Enter callback
+        # must restore that deletion as well as the pre-existing redo branch.
+        source = art / 'conditional.odt'
+        produce(source, conditional=True)
+        report = art / 'conditional-report.json'
+        process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
+                         '--report', report], client, 'conditional')
+        wait(lambda: report.exists())
+        if args.wayland:
+            window = wait(lambda: next((w for w in scene()['windows']
+                                       if 'calligra-words' in w.get('app_id', '').lower()), None))
+            request = urllib.request.Request(f'http://127.0.0.1:{port}/api/action',
+                data=json.dumps({'op': 'focus', 'id': window['id']}).encode(),
+                headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request, timeout=2) as response:
+                response.read()
+            wait(lambda: scene()['focused'] == window['id'])
+        else:
+            host = wait(lambda: next((w for w in xd.screen().root.query_tree().children
+                                     if 'Calligra Words' in str(w.get_wm_name())), None))
+            host.set_input_focus(X.RevertToParent, X.CurrentTime)
+        xd.sync()
+        click(350, 100)
+        with zipfile.ZipFile(source) as archive:
+            original_styles = archive.read('styles.xml')
+        _, conditional_xml = save('conditional-original')
+        go(2)
+        key('x')
+        check_text(original[:2] + 'x' + original[2:], 3)
+        key('z', ('Control_L',))
+        check_text(original, 2)
+        assert data()['editing']['can_redo'] and not data()['modified']
+        go(6)
+        key('Right', ('Shift_L',), count=8)
+        key('Return')
+        time.sleep(.25)
+        check_text(original, 14)
+        assert data()['editing']['anchor'] == 6 and not data()['modified']
+        assert not data()['editing']['can_undo'] and data()['editing']['can_redo']
+        assert save('compound-rejected-late')[1] == conditional_xml
+        key('y', ('Control_L',))
+        check_text(original[:2] + 'x' + original[2:], 3)
+        key('z', ('Control_L',))
+        check_text(original, 2)
+        assert not data()['modified']
+        key('q', ('Control_L',))
+        assert process.wait(timeout=15) == 0
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
+                   'compound_replacement_single_undo': True,
+                   'compound_failure_rollback_and_redo': True,
+                   'paste_keyboard_menu_context_atomic': True,
                    'body_cell_section_split_join': True, 'soft_breaks': True,
                    'styled_xml_undo_redo': True, 'saved_state': True,
                    'selection_restore': True, 'cross_cell_rejection': True,

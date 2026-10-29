@@ -1231,3 +1231,33 @@ uv run --no-project --with lxml python fltk/tests/odf_schema.py \
 The local schema directory uses names such as OpenDocument-v1.2-schema.rng and
 OpenDocument-v1.3-schema.rng. The validator is offline; source URLs and hashes of
 the official schema files are recorded with the local verification artifacts.
+
+## Words compound editing transactions — 2026-10-29
+
+Selection replacement previously issued separate native deletion and insertion
+commands. If deletion was rejected across a section/table boundary, FLTK still
+inserted the new text; if insertion failed after a successful deletion, the
+deleted text and redo branch were lost. Words now defers the history update
+until the complete frontend buffer event succeeds. On failure it restores the
+original package and event selection after FLTK's final caret update. Accepted
+replacements take one Undo. Paste requests from Ctrl+V, Shift+Insert, the
+universal menu and the standard FLTK context menu wait for clipboard delivery
+before removing selected text. Empty clipboard events leave it intact.
+
+The native-words-transactions suite checks Unicode replacement as one command,
+exact styled XML undo/redo, saved-state identities, failure on the first and
+later callbacks, suppression of mutations after cancellation, explicit cancel,
+invalid final selections, bulk/load failure, no-op events, save/history/load
+boundaries and signed-document protection. Exports retain opaque ZIP entries.
+The independent odfpy GUI fixtures check accepted and rejected replacements
+through real keys and all four paste routes. A conditional page style forces
+insertion failure after deletion; text, selection, modified state and a prior
+redo branch must all survive. Existing paragraph/list/layout regressions still
+run. Multi-event drag/drop and cross-keystroke typing coalescing remain outside
+this increment.
+
+All 36 core suites pass in optimized Release and ASan/UBSan (including core
+leak checking). The expanded Words GUI test passes under system FLTK on X11,
+native Wayland, and ASan/UBSan on X11 (third-party GUI leak checking disabled).
+Version-matched official OASIS schemas validate the retained core and GUI
+content.xml/styles.xml exports without rewriting them.

@@ -207,20 +207,38 @@ public:
     unsigned handling = 0;
     std::function<TextSelection()> selection;
     std::optional<TextSelection> before_event;
-    std::function<void()> restore_after_event;
+    std::function<void()> finish_event;
     int handle(int event) override
     {
         if (!handling && selection)
             before_event = selection();
         ++handling;
-        int result = Fl_Text_Editor::handle(event);
-        if (!--handling) {
-            before_event.reset();
-            if (restore_after_event) {
-                auto restore = std::move(restore_after_event);
-                restore_after_event = { };
-                restore();
+        int result;
+        if (event == FL_PUSH && Fl::event_button() == FL_RIGHT_MOUSE) {
+            Fl::focus(this);
+            // Keep the standard FLTK context menu, but defer paste deletion
+            // until clipboard delivery so it belongs to the insertion event.
+            switch (handle_rmb(0)) {
+            case 1:
+                kf_cut(0, this);
+                break;
+            case 2:
+                kf_copy(0, this);
+                break;
+            case 3:
+                Fl::paste(*this, 1);
+                break;
             }
+            result = 1;
+        } else if (event == FL_PASTE && !Fl::event_length()) {
+            result = 1;
+        } else {
+            result = Fl_Text_Editor::handle(event);
+        }
+        if (!--handling) {
+            if (finish_event)
+                finish_event();
+            before_event.reset();
         }
         return result;
     }
@@ -457,6 +475,13 @@ public:
             editor->add_key_binding('z', FL_CTRL | FL_SHIFT, undo_key);
             editor->add_key_binding('y', FL_CTRL, undo_key);
             if (kind == Kind::Words) {
+                static_cast<WordsEditor*>(editor)->finish_event = [this] { finish_word_edit(); };
+                auto paste_key = [](int, Fl_Text_Editor* widget) -> int {
+                    Fl::paste(*widget, 1);
+                    return 1;
+                };
+                editor->add_key_binding('v', FL_CTRL, paste_key);
+                editor->add_key_binding(FL_Insert, FL_SHIFT, paste_key);
                 for (int key : { FL_Enter, FL_KP_Enter })
                     editor->add_key_binding(key, 0, [](int key, Fl_Text_Editor* widget) -> int {
                         auto* office = static_cast<Office*>(widget->user_data());
@@ -504,7 +529,9 @@ public:
                 auto* a = static_cast<Office*>(p);
                 if (a->kind == Kind::Words && !a->updating && a->words) {
                     auto* widget = static_cast<WordsEditor*>(a->editor);
-                    a->words_edit_previous = widget->before_event.value_or(a->word_selection());
+                    a->words_edit_previous = a->word_selection();
+                    if (widget->handling && !a->words->editing())
+                        a->words->begin_edit(widget->before_event.value_or(*a->words_edit_previous));
                 }
             },
             this);
@@ -515,6 +542,8 @@ public:
                     a->modified = true;
                     a->title();
                     if (a->kind == Kind::Words) {
+                        if (a->words->edit_cancelled())
+                            return;
                         try {
                             auto bytes = a->buffer_text();
                             auto begin = Text(bytes.substr(0, position)).size();
@@ -523,18 +552,17 @@ public:
                             a->words->replace(begin, removed, added, !a->soft_break,
                                 a->words_edit_previous, TextSelection { begin + added.size(), begin + added.size() });
                             a->words_edit_previous.reset();
-                            static_cast<WordsEditor*>(a->editor)->before_event.reset();
                             a->modified = a->words->modified();
                             a->title();
                         } catch (const std::exception& e) {
-                            auto selection = a->words_edit_previous.value_or(TextSelection { });
-                            a->fill_buffer(a->words->text());
-                            a->restore_word_selection(selection);
-                            // FLTK finishes its caret update after the buffer callback.
-                            // A rejected edit must restore it once that event completes.
-                            auto* widget = static_cast<WordsEditor*>(a->editor);
-                            if (widget->handling)
-                                widget->restore_after_event = [a, selection] { a->restore_word_selection(selection); };
+                            // A failed compound event is repaired after FLTK finishes
+                            // all of its callbacks and its final caret update.
+                            a->words->cancel_edit();
+                            if (!a->words->editing()) {
+                                auto selection = a->words_edit_previous.value_or(TextSelection { });
+                                a->fill_buffer(a->words->text());
+                                a->restore_word_selection(selection);
+                            }
                             a->words_edit_previous.reset();
                             a->modified = a->words->modified();
                             a->title();
@@ -614,6 +642,26 @@ public:
             else
                 editor->activate();
         }
+    }
+    void finish_word_edit()
+    {
+        if (!words || !words->editing())
+            return;
+        std::optional<TextSelection> cancelled;
+        try {
+            cancelled = words->end_edit(words->edit_cancelled() ? std::nullopt : std::optional(word_selection()));
+        } catch (const std::exception& e) {
+            words->cancel_edit();
+            cancelled = words->end_edit();
+            message(e.what());
+        }
+        if (cancelled) {
+            fill_buffer(words->text());
+            restore_word_selection(*cancelled);
+        }
+        words_edit_previous.reset();
+        modified = words->modified();
+        title();
     }
     bool word_list_action(WordsListAction action, bool key = false)
     {
@@ -1006,9 +1054,12 @@ public:
                     Fl::copy(text.data(), text.size(), 1);
                 }
             } else if (c == Paste) {
-                if (editor && editor->active_r())
-                    Fl_Text_Editor::kf_paste(0, editor);
-                else if (!editor)
+                if (editor && editor->active_r()) {
+                    if (kind == Kind::Words)
+                        Fl::paste(*editor, 1);
+                    else
+                        Fl_Text_Editor::kf_paste(0, editor);
+                } else if (!editor)
                     Fl::paste(*grid, 1);
             } else if (c == Cut) {
                 if (editor && editor->active_r())

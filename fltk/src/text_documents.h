@@ -16,6 +16,13 @@ public:
     void save(const Text&);
     Text text() const;
     void set_text(const Text&);
+    // One frontend event can contain several buffer replacements. Defer history
+    // changes until it succeeds; any failed mutation cancels the entire event.
+    void begin_edit(TextSelection);
+    std::optional<TextSelection> end_edit(std::optional<TextSelection> next = { });
+    void cancel_edit();
+    bool editing() const { return bool(edit_); }
+    bool edit_cancelled() const { return edit_ && edit_->cancelled; }
     // Offsets count Unicode scalars in text(), including paragraph separators.
     void replace(size_t begin, size_t count, const Text& inserted,
         bool paragraph_breaks = true,
@@ -28,7 +35,7 @@ public:
     std::optional<TextSelection> redo();
     bool can_undo() const { return history_index_ != 0; }
     bool can_redo() const { return history_index_ < history_.size(); }
-    bool modified() const { return state_ != saved_state_; }
+    bool modified() const { return state_ != saved_state_ || (edit_ && edit_->changed && !edit_->cancelled); }
     uint64_t revision() const { return revision_; }
     TextFlow flow() const { return read_text_flow(package_); }
     TextPagination paginate(const MeasureText& measure) const { return paginate_text(flow(), measure); }
@@ -47,6 +54,12 @@ private:
     std::vector<Edit> history_;
     size_t history_index_ = 0, history_bytes_ = 0;
     uint64_t state_ = 0, saved_state_ = 0, next_state_ = 1, revision_ = 0;
+    struct EditGroup {
+        OdfPackage original;
+        TextSelection previous, next;
+        bool changed = false, cancelled = false;
+    };
+    std::optional<EditGroup> edit_;
     void apply(OdfPackage, TextSelection, TextSelection);
     std::optional<TextSelection> travel(bool redo);
     void clear_history();
