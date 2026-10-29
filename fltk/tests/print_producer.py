@@ -73,15 +73,16 @@ def verify(binary_dir, directory, cups=None):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     sources=produce(directory/'fixtures');results={}
     env={**os.environ,'LD_LIBRARY_PATH':'/usr/local/lib/domed/bitmap'}
-    env.pop('DISPLAY',None);env.pop('WAYLAND_DISPLAY',None)
+    env.pop('DISPLAY',None);env.pop('WAYLAND_DISPLAY',None);env['FLTK_BACKEND']='wayland'
     if cups:env.update(CUPS_SERVER=cups.server,LC_ALL='C')
     for app,source in sources.items():
         before=hashlib.sha256(source.read_bytes()).hexdigest()
         output=directory/(app+'.pdf');exported=directory/('exported-'+source.name)
         command=[str(Path(binary_dir).resolve()/('calligra-'+app+'-fltk')),str(source),'--export-odf',str(exported),'--print-pdf',str(output)]
         if cups:command+=['--print-to',cups.name]
-        run=subprocess.run(command,env=env,text=True,capture_output=True,check=True)
+        run=subprocess.run(command,env=env,text=True,capture_output=True)
         (directory/(app+'-print.log')).write_text(run.stdout+run.stderr)
+        run.check_returncode()
         assert 'missing glyphs' not in run.stderr,(app,run.stderr)
         reader=PdfReader(output);expected={'words':2,'sheets':5,'stage':2}[app]
         assert len(reader.pages)==expected,(app,len(reader.pages),expected)

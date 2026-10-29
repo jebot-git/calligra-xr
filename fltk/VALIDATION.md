@@ -1099,3 +1099,11 @@ system printer is configured.
 Printing does not commit edits into read-only documents. The GUI path skips
 model mutation for protected/signed input; const print rendering remains
 available while OpenDocument saving continues to preserve read-only protection.
+
+Installed launchers default to Wayland. A final headless Stage test found that
+FLTK's default image driver tried to connect to Wayland while decoding PNG data.
+The batch-only branch now selects the nonconnecting X11 graphics driver for
+CPU image decoding; it never creates a window or opens an X display. GUI paths
+still default to native Wayland. The independent batch test explicitly exports
+FLTK_BACKEND=wayland with both display variables absent to cover this launcher
+case, including Stage image content and CUPS submission.

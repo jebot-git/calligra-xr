@@ -1277,6 +1277,11 @@ int runOffice(DomeOffice::Kind kind, int argc, char** argv)
         }
 
         if (!options.export_odf.empty() || !options.print_pdf.empty() || !options.printer.empty()) {
+            // FLTK's CPU image decoder initializes its default graphics driver.
+            // Its X11 driver can decode without opening a display, whereas a
+            // forced Wayland driver requires a connection even without windows.
+            // This branch creates no windows; interactive launches stay Wayland.
+            setenv("FLTK_BACKEND", "x11", 1);
             if (options.file.empty())
                 throw std::runtime_error("Batch export/printing requires an input document");
             TempDir directory;
