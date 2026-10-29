@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from odf.opendocument import OpenDocumentText, OpenDocumentPresentation, OpenDocumentSpreadsheet
 from odf.style import Style, TextProperties, ParagraphProperties, PageLayout, PageLayoutProperties, MasterPage, TableCellProperties, GraphicProperties
 from odf.text import P
-from odf.table import Table, TableRow, TableCell
+from odf.table import Table, TableColumn, TableRow, TableCell
 from odf.draw import Page, Frame, TextBox, Rect, Image
 from PIL import Image as PillowImage
 from pypdf import PdfReader
@@ -30,7 +30,7 @@ def produce(directory):
     nextpage=Style(name='PrintNext',family='paragraph',parentstylename=body);nextpage.addElement(ParagraphProperties(breakbefore='page'));words.styles.addElement(nextpage)
     words.text.addElement(P(stylename=body,text='PRINT WORDS - PAGE ONE'))
     words.text.addElement(P(stylename=body,text='Unicode: Český 日本語 العربية'))
-    table=Table(name='PrintTable');row=TableRow();table.addElement(row)
+    table=Table(name='PrintTable');table.addElement(TableColumn(numbercolumnsrepeated=2));row=TableRow();table.addElement(row)
     for text,background in [('LEFT CELL','#ffdddd'),('RIGHT CELL','#ddffdd')]:
         style=Style(name=text.replace(' ',''),family='table-cell');style.addElement(TableCellProperties(backgroundcolor=background,border='0.7pt solid #203040',padding='0.1cm'));words.automaticstyles.addElement(style)
         cell=TableCell(stylename=style,valuetype='string');cell.addElement(P(stylename=body,text=text));row.addElement(cell)
@@ -41,6 +41,7 @@ def produce(directory):
     sheets=OpenDocumentSpreadsheet()
     for name in ('First worksheet','Second worksheet'):
         table=Table(name=name);sheets.spreadsheet.addElement(table)
+        table.addElement(TableColumn(numbercolumnsrepeated=7 if name.startswith('First') else 1))
         for r in range(45 if name.startswith('First') else 1):
             row=TableRow();table.addElement(row)
             for c in range(7 if name.startswith('First') else 1):
