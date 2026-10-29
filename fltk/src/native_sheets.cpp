@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_sheets.h"
+#include "native_engineering.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -126,7 +127,7 @@ std::optional<Value> calendar_value(const Text &input) {
 double number(const Value &v) {
   if (v.isArray())
     return number(v.scalar());
-  if (v.kind == Value::Number)
+  if (v.isNumber())
     return v.number;
   if (v.kind == Value::Boolean)
     return v.boolean ? 1 : 0;
@@ -850,7 +851,7 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
   return failure;
 }
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto &name = e->name;
+  const auto name = engineering_name(e->name);
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -886,6 +887,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     add("ROWS COLUMNS TRANSPOSE MDETERM MINVERSE", 1, 1);
     add("MMULT", 2, 2);
     add("SUMPRODUCT", 1, 255);
+    for (const auto &[name, arity] : engineering_signatures())
+      out[name] = arity;
     return out;
   }();
   auto signature = signatures.find(name);
@@ -903,7 +906,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "INDEX",   "OFFSET",  "INDIRECT",    "ROW",       "COLUMN",
       "SHEET",   "SHEETS",  "ROWS",        "COLUMNS",   "MATCH",
       "LOOKUP",  "VLOOKUP", "HLOOKUP",     "TRANSPOSE", "SUMPRODUCT",
-      "MMULT",   "MDETERM", "MINVERSE"};
+      "MMULT",   "MDETERM", "MINVERSE",    "IMSUM",     "IMPRODUCT"};
   bool caller_array_context = array_context;
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name));
@@ -1043,6 +1046,31 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         }
       return Value::array(rows, columns, std::move(result));
     }
+  }
+  if (engineering_signatures().contains(name)) {
+    std::vector<Value> args;
+    if (name == "IMSUM" || name == "IMPRODUCT") {
+      for (const auto &expression : e->args) {
+        bool collection = false;
+        auto values = flatten(expression, &collection);
+        for (const auto &value : values)
+          if (!collection ||
+              (value.kind != Value::Empty && value.kind != Value::Boolean))
+            args.push_back(value);
+        if (args.size() > 1000000)
+          return error("#LIMIT!");
+      }
+      if (args.empty())
+        args.push_back(Value());
+      // Aggregates accept many values from one range, beyond the syntactic
+      // argument-count limit; package them as a single native array.
+      auto rows = args.size();
+      return engineering_function(name,
+                                  {Value::array(rows, 1, std::move(args))});
+    }
+    for (size_t i = 0; i < count; ++i)
+      args.push_back(arg(i));
+    return engineering_function(name, args);
   }
   if (name == "ROWS" || name == "COLUMNS") {
     if (auto region = area(e->args[0]))

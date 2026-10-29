@@ -5,11 +5,13 @@
 #include <cmath>
 namespace DomeOffice {
 struct NativeValue {
-  enum Kind { Empty, Number, Boolean, String, Error, Array };
+  enum Kind { Empty, Number, Boolean, String, Error, Array, Complex };
   Kind kind = Empty;
   enum NumberFormat { General, Date, Duration };
   NumberFormat format = General;
   double number = 0;
+  double imaginary = 0;
+  char complex_suffix = 'i';
   bool boolean = false;
   bool incomplete = false;
   Text string;
@@ -29,6 +31,22 @@ struct NativeValue {
     NativeValue v;
     v.kind = Boolean;
     v.boolean = b;
+    return v;
+  }
+  static NativeValue complex(double real, double imag, char suffix = 'i') {
+    if (!std::isfinite(real) || !std::isfinite(imag))
+      return error("#NUM!");
+    NativeValue v;
+    v.kind = Complex;
+    v.number = real;
+    v.imaginary = imag;
+    v.complex_suffix = suffix;
+    if (real == 0)
+      real = 0;
+    if (imag == 0)
+      imag = 0;
+    v.string = Text::number(real, 'g', 17) + (imag < 0 ? Text() : Text("+")) +
+               Text::number(imag, 'g', 17) + Text(1, char32_t(suffix));
     return v;
   }
   static NativeValue error(const Text &s, bool incomplete = false) {
@@ -67,7 +85,8 @@ struct NativeValue {
     return result;
   }
   NativeValue scalar() const { return isArray() ? at(0, 0) : *this; }
-  bool isNumber() const { return kind == Number; }
+  bool isNumber() const { return kind == Number || kind == Complex; }
+  bool isComplex() const { return kind == Complex; }
   bool isBoolean() const { return kind == Boolean; }
   bool isError() const { return kind == Error; }
   double asFloat() const { return number; }

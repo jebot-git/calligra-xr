@@ -223,6 +223,30 @@ a total limit of one million matrix result cells per workbook. Single-cell
 array formulas also keep array evaluation for their input ranges. This follows
 the [SpreadsheetML formula model](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.spreadsheet.cellformula).
 
+The engineering module implements the retained upstream group of 50 functions:
+`BASE`, `DECIMAL`, the twelve binary/octal/hex/decimal conversions, `DELTA`,
+`GESTEP`, `ERF`/`ERFC`, four Bessel functions, `CONVERT`, `COMPLEX`, and all 26
+`IM*` operations. Legacy LibreOffice analysis aliases and applicable Excel
+`_xlfn.` names resolve to the same implementations. Complex values retain real
+and imaginary coefficients and an `i`/`j` suffix through references and arrays.
+`IMSUM`/`IMPRODUCT` consume complete ranges; scalar operations map array inputs.
+Ordinary real-valued arithmetic uses the real coefficient, following the retained
+Calligra value converter. `ISNUMBER` recognizes the distinct complex type;
+`ISTEXT` does not. ODF has no complex cache type, so complex formula results save
+as text and regain their calculation type when their formulas are reevaluated.
+
+`CONVERT` supports the 13 upstream dimensions, case-sensitive aliases, SI prefixes
+on metric units, binary prefixes on information units, squared/cubed prefixes
+and affine temperature scales (including prefixed Kelvin). Exact unit symbols
+win over possible prefix interpretations. Factors follow ODF definitions with
+modern physical constants; inaccurate inherited mass/energy/volume factors are
+corrected. Astronomical units use the modern IAU parsec and Julian year. The
+reference test explicitly distinguishes IT BTU from rounded ISO BTU. Compatibility
+extensions retain one-argument `BASE` and two-argument `ERFC`. Invalid complex
+text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` returns
+`#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
+errors; special-function non-convergence cannot terminate the application.
+
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,
 logical and type tests, rounding, powers/logarithms/trigonometry, basic text

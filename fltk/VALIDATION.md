@@ -287,3 +287,38 @@ and ODP/PPTX to Stage. Its merge was checked for idempotence, legacy preference
 cleanup and preservation of unrelated MIME preferences. The release staging
 helper validates the generated desktop entries, installed executable launch,
 library resolution and absence of QtGui/QtWidgets dependencies before sudo.
+
+
+## Native engineering functions — 2026-10-29
+
+The native engineering module ports all 50 names and 39 analysis aliases from
+`sheets/functions/engineering.cpp`, without Qt/KDE dependencies or a Python runtime.
+The 19 Release document suites and 19 ASan/UBSan document suites pass. The 1,640 numerical
+reference cases include 131 literal retained upstream cases, 244 SciPy Bessel
+cases, 964 cmath complex cases, 30 high-precision mpmath error-function cases,
+166 unit cases checked with Pint/physical definitions, 57 signed/base boundary
+cases, nine invalid-domain checks and all 39 legacy aliases derived directly from
+upstream registrations. `fltk/tests/engineering_reference.py` records per-category
+counts and failures as JSON; dependencies are test-only.
+
+The unit reference uncovered rounded/wrong legacy mass, energy and volume factors.
+Exact inch/pound/gravity definitions now fix pennyweight, measurement and registered
+tons, foot-pounds, calories, horsepower and associated conversions. Modern Julian
+light-year/IAU parsec definitions and CODATA atomic mass are used. Sources:
+[ODF 1.4 formula specification](https://docs.oasis-open.org/office/OpenDocument/v1.4/os/part4-formula/OpenDocument-v1.4-os-part4-formula.html),
+[NIST conversion tables](https://www.nist.gov/pml/special-publication-811/nist-guide-si-appendix-b-conversion-factors/nist-guide-si-appendix-b9)
+and [Microsoft unit names](https://support.microsoft.com/en-us/excel/functions/convert-function).
+The reference maps BTU to Pint's `Btu_it`, matching ODF's International Table unit;
+Pint's plain `Btu` instead denotes the rounded ISO factor. This is an intentional
+accuracy improvement, not bit-for-bit retention of the old coefficients.
+
+`engineering_producer.py` loads independently produced odfpy and openpyxl documents,
+checking legacy/Excel namespaces, dependent complex/numeric values and unsupported
+calculation status without changing the source. The GUI smoke suite edits a
+real ODS input, checks the complex/absolute/unit/radix/Bessel dependents with
+keyboard navigation, exercises undo/redo, saves, inspects the actual ODF typed
+caches and reopens the workbook. Shared array/coercion and prior Words/Stage
+regressions remain part of the broader validation. Passing these checks establishes
+this module's tested behavior, not full spreadsheet or office-suite parity.
+Diagnostic JSON snapshots now replace their destination atomically; concurrent
+GUI readers cannot observe an empty or partially rewritten report.

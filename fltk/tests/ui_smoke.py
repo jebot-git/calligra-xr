@@ -132,6 +132,41 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             assert xlsx.read_bytes()==original
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             print('PASS: XLSX matrix import, keyboard edit, dependent recalculation and typed ODS result caches',flush=True)
+        doc=fixtures/'engineering.ods';report=art/'engineering.json';capture=art/'engineering.ppm'
+        subprocess.run([str(args.test_bin_dir/'calligra-native-engineering-test'),'--fixture',str(doc)],env=env,check=True)
+        report.unlink(missing_ok=True);capture.unlink(missing_ok=True)
+        with (art/'engineering.log').open('w') as log:
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-sheets-fltk'),str(doc),'--report',str(report),'--capture',str(capture)],env=env,stdout=log,stderr=log)
+            def data():return json.loads(report.read_text())
+            wait(lambda:report.exists());host=wait(lambda:window('sheets'))
+            def cells(expected):
+                # Select A1 in the grid and follow the real keyboard navigation.
+                click(host,110,140)
+                for _ in range(data()['cell']['column']-1):key('Left')
+                wait(lambda:data()['cell']['column']==1 and data()['cell']['row']==1)
+                for col,value in enumerate(expected,1):
+                    wait(lambda:data()['cell']['column']==col and data()['cell']['value']==value)
+                    if col<len(expected):key('Right')
+            cells(['3','3+4j','5','300','F','7'])
+            click(host,110,127);click(host,410,74);key('a',('Control_L',));text('0');key('Return')
+            cells(['0','0+4j','4','0','C','4','0'])
+            key('z',('Control_L',));cells(['3','3+4j','5','300','F','7'])
+            key('y',('Control_L',));cells(['0','0+4j','4','0','C','4','0'])
+            key('s',('Control_L',));wait(lambda:not data()['modified'])
+            with zipfile.ZipFile(doc) as archive:
+                content=ET.fromstring(archive.read('content.xml'))
+                table='{urn:oasis:names:tc:opendocument:xmlns:table:1.0}'
+                office='{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+                saved=next(content.iter(table+'table-row')).findall(table+'table-cell')
+                assert saved[1].get(office+'value-type')=='string' and saved[1].get(office+'string-value')=='0+4j'
+                for col,value in [(2,'4'),(3,'0'),(5,'4'),(6,'0')]:
+                    assert saved[col].get(office+'value-type')=='float' and saved[col].get(office+'value')==value
+            wait(lambda:capture.exists())
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            process=subprocess.Popen([str(args.bin_dir.resolve()/'calligra-sheets-fltk'),str(doc),'--report',str(report)],env=env,stdout=log,stderr=log)
+            wait(lambda:window('sheets'));host=window('sheets');cells(['0','0+4j','4','0','C','4','0'])
+            key('q',('Control_L',));assert process.wait(timeout=10)==0
+            print('PASS: engineering formulas, typed complex/dependent recalculation, keyboard undo/redo, save caches and reopen',flush=True)
         subprocess.run([str(args.test_bin_dir/'calligra-fltk-office-test'),'--fixtures',str(fixtures)],env=env,check=True)
         for app,source_ext,dest_ext in [('words','docx','odt'),('stage','pptx','odp')]:
             source=fixtures/f'import.{source_ext}';before=source.read_bytes()

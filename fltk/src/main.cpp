@@ -1064,7 +1064,16 @@ public:
                              {"overflow_frames", text.overflow_frames},
                              {"viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()}}};
         }
-        std::ofstream(options.report) << data.dump(2) << '\n';
+        // Readers must see one complete snapshot while the UI refreshes it.
+        TempFile temporary(Text(options.report + ".XXXXXX"));
+        if (!temporary.open())
+            return;
+        temporary.close();
+        std::ofstream output(utf8(temporary.fileName()));
+        output << data.dump(2) << '\n';
+        output.close();
+        if (output)
+            ::rename(utf8(temporary.fileName()).c_str(), options.report.c_str());
     }
     void capture()
     {

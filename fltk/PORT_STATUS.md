@@ -31,6 +31,13 @@ fixed ODF/XLSX matrix-block recalculation and cached-result saving. Calculation 
 separates unsupported operations from ordinary errors, including through error
 handlers and dependencies. The smaller catalogue is listed in README.md. Unknown
 functions return errors and their existing package caches remain intact.
+The engineering module now covers all 50 retained upstream engineering names,
+including complex arithmetic, units, Bessel/error functions and base conversion.
+Complex results retain both coefficients in the native model and save ODF caches
+as strings. Independent SciPy, cmath, mpmath and Pint references, the retained
+upstream cases, external ODF/XLSX producers and real keyboard edit/save/reopen
+checks cover this module. This adds one module to the smaller native catalogue;
+the original statistical/financial catalogue and complete model remain unported.
 Passing the retained document and GUI tests does not establish full function
 or office-suite parity. The assessment below distinguishes implemented native
 behavior from the remaining full port.

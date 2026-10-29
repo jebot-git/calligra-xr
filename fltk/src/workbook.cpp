@@ -304,7 +304,10 @@ void Workbook::save(const Text& path)
         if (it.value().startsWith('='))
             element.setAttributeNS(TABLE, "table:formula", "of:" + Formula::encode(it.value()));
         Text text = display(s, c, r);
-        if (value.isNumber() && value.format != NativeValue::General) {
+        if (value.isComplex()) {
+            element.setAttributeNS(OFFICE, "office:value-type", "string");
+            element.setAttributeNS(OFFICE, "office:string-value", value.display());
+        } else if (value.isNumber() && value.format != NativeValue::General) {
             bool date = value.format == NativeValue::Date;
             element.setAttributeNS(OFFICE, "office:value-type", date ? "date" : "time");
             element.setAttributeNS(OFFICE, date ? "office:date-value" : "office:time-value", value.string);
