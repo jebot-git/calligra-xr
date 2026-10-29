@@ -324,6 +324,10 @@ try:
                 key('Right', count=position)
             wait(lambda: data()['editing']['cursor'] == position)
 
+        def select_all():
+            key('a', ('Control_L',))
+            wait(lambda: data()['editing']['anchor'] == 0 and data()['editing']['cursor'] == len(data()['text']))
+
         def check_text(expected, cursor=None):
             wait(lambda: data()['text'] == expected and
                  (cursor is None or data()['editing']['cursor'] == cursor))
@@ -348,6 +352,132 @@ try:
         original = data()['text']
         assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
         _, original_xml = save('original')
+
+        def type_text(value):
+            for char in value:
+                name = {' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus'}.get(char, char)
+                key(name, ('Shift_L',) if char.isupper() or char == '#' else ())
+
+        def field(x, y, value):
+            click(x, y)
+            key('a', ('Control_L',))
+            key('BackSpace')
+            type_text(value)
+
+        def panel_origin(width, height):
+            w, h = data()['window_size']
+            return max(0, (w-width)//2), max(0, (h-height)//2)
+
+        def text_properties(root):
+            return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
+                    for e in root.iter(STYLE+'style')}
+
+        # Formatting is a native XML command with the same range and checkpoint
+        # semantics as text editing, including mixed/inherited source styles.
+        go(6)
+        key('Right', ('Shift_L',), count=5)
+        key('b', ('Control_L',))  # Existing selected word is bold: turn it off.
+        wait(lambda: data()['modified'])
+        check_text(original, 11)
+        root, normal_xml = save('format-normal')
+        assert any(p is not None and p.get(FO+'font-weight') == '400'
+                   for p in text_properties(root).values())
+        key('z', ('Control_L',))
+        check_text(original, 11)
+        assert data()['editing']['anchor'] == 6
+        assert save('format-normal-undone')[1] == original_xml
+        key('y', ('Control_L',))
+        assert save('format-normal-redone')[1] == normal_xml
+        key('z', ('Control_L',))
+        assert save('format-normal-restored')[1] == original_xml
+        key('i', ('Control_L',))
+        wait(lambda: data()['modified'])
+        root, italic_xml = save('format-italic')
+        assert any(p is not None and p.get(FO+'font-style') == 'italic'
+                   for p in text_properties(root).values())
+        key('z', ('Control_L',))
+        assert save('format-italic-undone')[1] == original_xml
+
+        key('d', ('Control_L',))
+        wait(lambda: data()['format_dialog'])
+        x, y = panel_origin(560, 350)
+        field(x+250, y+65, 'Hack')
+        field(x+190, y+105, '22')
+        click(x+220, y+145); key('Up'); key('Return')  # Bold: Yes -> No
+        click(x+220, y+185); key('Down'); key('Return')  # Italic: No -> Yes
+        field(x+220, y+225, '#b02040')
+        capture_window('character-dialog')
+        click(x+480, y+315)
+        wait(lambda: not data()['format_dialog'] and data()['modified'])
+        root, font_xml = save('format-font')
+        assert any(p is not None and p.get(FO+'font-size') == '22pt' and
+                   p.get(FO+'font-family') == 'Hack' and p.get(FO+'color') == '#b02040' and
+                   p.get(FO+'font-weight') == '400' and p.get(FO+'font-style') == 'italic'
+                   for p in text_properties(root).values())
+        view_labels('character-formatted-layout')
+        # Cancel and unchanged Apply must not consume an undo entry or redo.
+        menu_action('Font…'); wait(lambda: data()['format_dialog'])
+        field(x+190, y+105, '30')
+        key('Escape'); wait(lambda: not data()['format_dialog'])
+        assert not data()['modified'] and save('format-font-cancelled')[1] == font_xml
+        key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+        click(x+480, y+315); wait(lambda: not data()['format_dialog'])
+        assert not data()['modified'] and save('format-font-unchanged')[1] == font_xml
+        key('z', ('Control_L',))
+        assert save('format-font-undone')[1] == original_xml
+        key('y', ('Control_L',)); assert save('format-font-redone')[1] == font_xml
+        key('z', ('Control_L',)); assert save('format-font-restored')[1] == original_xml
+
+        # Alignment shortcuts and a paragraph dialog retain the current range.
+        go(original.index('Section alpha')+2)
+        key('e', ('Control_L',))
+        wait(lambda: data()['modified'])
+        root, centered_xml = save('format-center')
+        assert any(e.get(FO+'text-align') == 'center' for e in root.iter(STYLE+'paragraph-properties'))
+        key('z', ('Control_L',)); assert save('format-center-undone')[1] == original_xml
+        menu_action('Paragraph…'); wait(lambda: data()['format_dialog'])
+        x, y = panel_origin(700, 470)
+        click(x+220, y+65); key('Up', count=3); key('Return')  # Start -> Center
+        click(x+220, y+290); key('Down'); key('Return')  # Keep together: Yes
+        click(x+600, y+290); key('Down'); key('Return')  # Keep with next: Yes
+        field(x+185, y+110, '24')
+        field(x+575, y+110, '12')
+        field(x+185, y+155, '-6')
+        field(x+575, y+155, '1.5')
+        field(x+185, y+200, '9')
+        field(x+575, y+200, '11')
+        capture_window('paragraph-dialog')
+        click(x+620, y+435)
+        wait(lambda: not data()['format_dialog'] and data()['modified'])
+        root, para_xml = save('format-paragraph')
+        assert any(e.get(FO+'margin-left') == '24pt' and e.get(FO+'margin-right') == '12pt' and
+                   e.get(FO+'text-indent') == '-6pt' and e.get(FO+'line-height') == '150%' and
+                   e.get(FO+'text-align') == 'center' and e.get(FO+'keep-together') == 'always' and
+                   e.get(FO+'keep-with-next') == 'always'
+                   for e in root.iter(STYLE+'paragraph-properties'))
+        view_labels('paragraph-formatted-layout')
+        key('z', ('Control_L',)); assert save('format-paragraph-undone')[1] == original_xml
+        key('y', ('Control_L',)); assert save('format-paragraph-redone')[1] == para_xml
+        key('z', ('Control_L',)); assert save('format-paragraph-restored')[1] == original_xml
+
+        # With a caret, format only future typing. Navigation ends that format.
+        go(2)
+        key('b', ('Control_L',))
+        wait(lambda: data()['editing']['typing_format'])
+        assert not data()['modified']
+        key('x'); check_text(original[:2]+'x'+original[2:], 3)
+        root, typed_xml = save('format-typed')
+        assert any(p is not None and p.get(FO+'font-weight') == '700'
+                   for p in text_properties(root).values())
+        key('z', ('Control_L',)); check_text(original, 2)
+        assert save('format-typed-undone')[1] == original_xml
+        key('y', ('Control_L',)); check_text(original[:2]+'x'+original[2:], 3)
+        assert save('format-typed-redone')[1] == typed_xml
+        key('z', ('Control_L',)); check_text(original, 2)
+        assert save('format-typed-restored')[1] == original_xml
+        key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
+        key('Right'); wait(lambda: not data()['editing']['typing_format'])
+        assert not data()['modified']
         # FLTK removes the selection and inserts text in separate callbacks.
         # They must form one command, including on a failed replacement.
         go(6)
@@ -366,7 +496,7 @@ try:
         key('z', ('Control_L',))
         check_text(original)
         assert save('selection-replacement-undone')[1] == original_xml
-        key('a', ('Control_L',))
+        select_all()
         before = data()['editing']
         key('x')
         time.sleep(.25)
@@ -408,7 +538,7 @@ try:
                 key('Down', count=3)
                 key('Return')
         for method in ('control', 'shift-insert', 'menu', 'context'):
-            key('a', ('Control_L',))
+            select_all()
             before = data()['editing']
             paste(method)
             time.sleep(.3)
@@ -781,6 +911,9 @@ try:
         key('q', ('Control_L',))
         assert process.wait(timeout=15) == 0
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
+                   'native_character_paragraph_formatting': True,
+                   'format_dialog_cancel_noop_undo': True,
+                   'caret_typing_format': True,
                    'compound_replacement_single_undo': True,
                    'compound_failure_rollback_and_redo': True,
                    'paste_keyboard_menu_context_atomic': True,

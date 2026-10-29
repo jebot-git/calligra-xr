@@ -1261,3 +1261,53 @@ leak checking). The expanded Words GUI test passes under system FLTK on X11,
 native Wayland, and ASan/UBSan on X11 (third-party GUI leak checking disabled).
 Version-matched official OASIS schemas validate the retained core and GUI
 content.xml/styles.xml exports without rewriting them.
+
+## Words character and paragraph formatting — 2026-10-29
+
+Words now applies local native ODF text/paragraph styles through FLTK and the
+universal Format menu. Character controls cover bold, italic, family, size and
+color; paragraph controls cover alignment, margins/indent, spacing, keep rules,
+page-before and widow/orphan limits. Mixed dialog fields stay unchanged unless
+the user chooses a value. A caret holds a transient typing patch; empty
+paragraph defaults persist in ODF after Enter or deletion. Event cancellation
+restores the typing patch with the document. Formatting keeps text, links,
+metadata, source paragraph IDs and archive entries. Simple direct spans are
+split/merged through reusable styles instead of acquiring unbounded wrappers.
+Common and automatic styles, family/name collisions and namespace aliases keep
+their scope. Output lengths use decimal lexical forms, including small values.
+
+The native-words-format suite adds Unicode ranges, inherited/mixed weights,
+cell-inherited fonts, metadata/link preservation, repeated toggles, paragraph
+ranges, caret/empty-paragraph defaults, saved XML undo/redo, malformed input,
+read-only protection and compound rollback. Strict schema checks cover retained
+exports against their actual ODF version. The expanded odfpy keyboard fixture
+uses both character shortcuts, Font and Paragraph dialogs, choices and numeric
+fields, alignment, cancellation/unchanged Apply, native page rendering and
+caret typing. UI checks exposed and fixed a menu-label slash interpreted as a
+submenu, a modal D-Bus menu reply delay, and FLTK Select All leaving an interior
+insertion caret that could truncate native selection restoration. Dialogs now
+open after the menu reply; Select All uses an endpoint, and context ranges are
+normalized. Tests wait for the reported full selection before editing it.
+
+All 37 core suites pass in optimized Release and ASan/UBSan with core leak
+checking. The editor remains a plain text input buffer with a separate rich
+Pages view. Direct paginated editing, more formatting properties and complete
+style/layout fidelity are still required. Source semantics follow the
+[ODF 1.3 text/span and style model](https://docs.oasis-open.org/office/OpenDocument/v1.3/OpenDocument-v1.3-part3-schema.html);
+exports are also checked against the version-matched OASIS schemas.
+
+The final UI checks pass on system-FLTK X11, native Wayland and ASan/UBSan X11
+(with third-party GUI leak detection disabled), along with the shared suite GUI
+regressions. The font fixture uses the installed Hack italic face so the print
+check can verify the actual embedded face. `words_format_print.py` takes the
+retained UI snapshots, checks colored 22-point glyph pixels and the embedded
+italic font, verifies paragraph geometry, exports/reopens ODF and compares all
+rendered pages to the actual CUPS captures. Its six private CUPS jobs include
+the unchanged three-application baseline. The nine baseline raster pages remain
+byte-identical to the accepted reference; no system printer is changed.
+
+```sh
+uv run --no-project --with odfpy --with Pillow --with pypdf python \
+  fltk/tests/words_format_print.py --ui-artifacts /path/to/words-ui \
+  --artifacts /new/print-results --bin-dir /usr/local/bin
+```

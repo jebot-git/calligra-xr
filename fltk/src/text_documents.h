@@ -4,6 +4,7 @@
 #include "odf_package.h"
 #include "native_presentation.h"
 #include "native_words_edit.h"
+#include "native_words_format.h"
 namespace DomeOffice {
 struct TextSelection {
     size_t anchor = 0, cursor = 0;
@@ -31,6 +32,11 @@ public:
     // Changes whole list items (including their descendants) without changing
     // paragraph text. Keyboard Tab applies only at paragraph/range boundaries.
     bool list_action(TextSelection, WordsListAction, bool at_start_only = false);
+    WordsFormatInfo format_info(TextSelection) const;
+    bool format_characters(TextSelection, const WordsCharacterFormat&);
+    bool format_paragraphs(TextSelection, const WordsParagraphFormat&);
+    void clear_typing_format() { typing_format_.reset(); }
+    bool has_typing_format() const { return bool(typing_format_); }
     std::optional<TextSelection> undo();
     std::optional<TextSelection> redo();
     bool can_undo() const { return history_index_ != 0; }
@@ -54,9 +60,15 @@ private:
     std::vector<Edit> history_;
     size_t history_index_ = 0, history_bytes_ = 0;
     uint64_t state_ = 0, saved_state_ = 0, next_state_ = 1, revision_ = 0;
+    struct TypingFormat {
+        size_t position;
+        WordsCharacterFormat format;
+    };
+    std::optional<TypingFormat> typing_format_;
     struct EditGroup {
         OdfPackage original;
         TextSelection previous, next;
+        std::optional<TypingFormat> typing;
         bool changed = false, cancelled = false;
     };
     std::optional<EditGroup> edit_;

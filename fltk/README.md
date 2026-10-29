@@ -104,6 +104,16 @@ CUPS test queues.
   restores these formatting-only changes and their selections. Cross-cell/
   unrelated-list joins, complex paragraph-level list moves and list-formatting
   controls remain restricted or unfinished.
+  Format → Character adds bold/italic (Ctrl+B/I), family, size and color;
+  Ctrl+D opens the Font dialog. A selection formats existing runs; a caret
+  formats future typing, with saved defaults for empty paragraphs.
+  Format → Paragraph edits alignment, point-based margins/indent and spacing,
+  line-height multipliers, keeps, page-before and widow/orphan limits.
+  Ctrl+L/E/R/J aligns left/center/right/justified. Mixed or unchanged dialog
+  fields preserve their source values, and native undo restores the styled XML.
+  The edit buffer stays plain text; Pages and print output display formatting.
+  Underline/strike/highlight, named styles and direct paginated editing remain
+  unfinished.
   Pages switches to the native page-flow view;
   Edit returns to text editing, and double-clicking a rendered line opens its
   paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.

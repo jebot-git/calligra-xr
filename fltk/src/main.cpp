@@ -2,6 +2,7 @@
 #include "native_limits.h"
 #include "native_print.h"
 #include "print_dialog.h"
+#include "format_dialog.h"
 #include "suite/desktop-menu.h"
 #include "suite/gpu-window.h"
 #include "text_documents.h"
@@ -75,7 +76,15 @@ enum Command {
     About,
     PageLayout,
     ListIndent,
-    ListOutdent
+    ListOutdent,
+    CharacterFormat,
+    ParagraphFormat,
+    Bold,
+    Italic,
+    AlignLeft,
+    AlignCenter,
+    AlignRight,
+    AlignJustify
 };
 class Grid : public Fl_Table {
     std::map<std::pair<int, int>, std::string> painted;
@@ -208,10 +217,15 @@ public:
     std::function<TextSelection()> selection;
     std::optional<TextSelection> before_event;
     std::function<void()> finish_event;
+    std::function<void(int)> start_event;
     int handle(int event) override
     {
-        if (!handling && selection)
-            before_event = selection();
+        if (!handling) {
+            if (start_event)
+                start_event(event);
+            if (selection)
+                before_event = selection();
+        }
         ++handling;
         int result;
         if (event == FL_PUSH && Fl::event_button() == FL_RIGHT_MOUSE) {
@@ -277,6 +291,8 @@ public:
     int canvas_x = 0, canvas_y = 0, canvas_w = 0, canvas_h = 0;
     std::optional<TextSelection> words_edit_previous;
     bool soft_break = false;
+    bool formatting_dialog = false;
+    int queued_format = 0;
     struct CellEdit {
         int sheet, col, row;
         Text old_value, new_value;
@@ -314,6 +330,14 @@ public:
         add("&Edit/Select &all", FL_CTRL + 'a', SelectAll);
         if (kind == Kind::Words) {
             add("&View/&Page layout", 0, PageLayout);
+            add("&Format/Character/&Font…", FL_CTRL + 'd', CharacterFormat);
+            add("&Format/Character/&Bold", FL_CTRL + 'b', Bold);
+            add("&Format/Character/&Italic", FL_CTRL + 'i', Italic);
+            add("&Format/&Paragraph…", 0, ParagraphFormat);
+            add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
+            add("&Format/Alignment/&Center", FL_CTRL + 'e', AlignCenter);
+            add("&Format/Alignment/&Right", FL_CTRL + 'r', AlignRight);
+            add("&Format/Alignment/&Justify", FL_CTRL + 'j', AlignJustify);
             add("&Format/List/&Indent", 0, ListIndent);
             add("&Format/List/&Outdent", 0, ListOutdent);
         }
@@ -476,10 +500,33 @@ public:
             editor->add_key_binding('y', FL_CTRL, undo_key);
             if (kind == Kind::Words) {
                 static_cast<WordsEditor*>(editor)->finish_event = [this] { finish_word_edit(); };
+                static_cast<WordsEditor*>(editor)->start_event = [this](int event) {
+                    if (!words)
+                        return;
+                    int key = Fl::event_key();
+                    if (event == FL_PUSH || (event == FL_KEYDOWN && (key == FL_Left || key == FL_Right || key == FL_Up || key == FL_Down || key == FL_Home || key == FL_End || key == FL_Page_Up || key == FL_Page_Down)))
+                        words->clear_typing_format();
+                };
+                for (int key : { 'b', 'i', 'd', 'l', 'e', 'r', 'j' }) {
+                    editor->add_key_binding(key, FL_CTRL, [](int key, Fl_Text_Editor* widget) -> int {
+                        auto* office = static_cast<Office*>(widget->user_data());
+                        office->command(key == 'b' ? Bold : key == 'i' ? Italic
+                                : key == 'd'                           ? CharacterFormat
+                                : key == 'l'                           ? AlignLeft
+                                : key == 'e'                           ? AlignCenter
+                                : key == 'r'                           ? AlignRight
+                                                                       : AlignJustify);
+                        return 1;
+                    });
+                }
                 auto paste_key = [](int, Fl_Text_Editor* widget) -> int {
                     Fl::paste(*widget, 1);
                     return 1;
                 };
+                editor->add_key_binding('a', FL_CTRL, [](int, Fl_Text_Editor* widget) -> int {
+                    static_cast<Office*>(widget->user_data())->command(SelectAll);
+                    return 1;
+                });
                 editor->add_key_binding('v', FL_CTRL, paste_key);
                 editor->add_key_binding(FL_Insert, FL_SHIFT, paste_key);
                 for (int key : { FL_Enter, FL_KP_Enter })
@@ -595,6 +642,7 @@ public:
     ~Office()
     {
         Fl::remove_timeout(tick, this);
+        Fl::remove_timeout(format_timeout, this);
         desktop_menu.reset();
         if (editor)
             editor->buffer(nullptr);
@@ -663,6 +711,62 @@ public:
         modified = words->modified();
         title();
     }
+    static void format_timeout(void* p)
+    {
+        auto* office = static_cast<Office*>(p);
+        auto action = Command(office->queued_format);
+        office->queued_format = 0;
+        if (office->window.shown())
+            office->guard([&] { office->word_format(action); });
+    }
+    void word_format(Command action)
+    {
+        if (kind != Kind::Words || !words)
+            return;
+        if (page_view) {
+            message("Switch to Edit to choose text or a paragraph to format");
+            return;
+        }
+        auto selection = word_selection();
+        auto info = words->format_info(selection);
+        WordsCharacterFormat character;
+        WordsParagraphFormat paragraph;
+        if (action == Bold)
+            character.weight = info.bold.value_or(false) ? 400 : 700;
+        else if (action == Italic)
+            character.italic = !info.character.italic.value_or(false);
+        else if (action >= AlignLeft && action <= AlignJustify)
+            paragraph.alignment = action == AlignLeft ? "left" : action == AlignCenter ? "center"
+                : action == AlignRight                                                 ? "right"
+                                                                                       : "justify";
+        else {
+            formatting_dialog = true;
+            try {
+                if (action == CharacterFormat) {
+                    auto value = character_format_dialog(window, info.character, info.bold);
+                    if (value)
+                        character = *value;
+                } else {
+                    auto value = paragraph_format_dialog(window, info.paragraph);
+                    if (value)
+                        paragraph = *value;
+                }
+            } catch (...) {
+                formatting_dialog = false;
+                throw;
+            }
+            formatting_dialog = false;
+        }
+        if (!character.empty())
+            words->format_characters(selection, character);
+        if (!paragraph.empty())
+            words->format_paragraphs(selection, paragraph);
+        restore_word_selection(selection);
+        modified = words->modified();
+        title();
+        if (!character.empty() || !paragraph.empty())
+            message(selection.anchor == selection.cursor && !character.empty() ? "Typing format updated; Pages shows document formatting" : "Formatting updated; Pages shows document formatting");
+    }
     bool word_list_action(WordsListAction action, bool key = false)
     {
         if (kind != Kind::Words)
@@ -691,8 +795,14 @@ public:
         int cursor = editor ? std::clamp(editor->insert_position(), 0, int(bytes.size())) : 0;
         int first = 0, last = 0;
         int anchor = cursor;
-        if (buffer.selection_position(&first, &last))
+        if (buffer.selection_position(&first, &last)) {
+            // FLTK permits an insertion caret inside a separately selected
+            // range (Select All and the context menu both do this). Native
+            // selections represent the full range through its two endpoints.
+            if (cursor != first && cursor != last)
+                cursor = last;
             anchor = cursor == first ? last : first;
+        }
         return { Text(bytes.substr(0, std::clamp(anchor, 0, int(bytes.size())))).size(), Text(bytes.substr(0, cursor)).size() };
     }
     void restore_word_selection(TextSelection selection)
@@ -952,7 +1062,7 @@ public:
     }
     void command(int c)
     {
-        if (printing && c != Quit) return;
+        if ((printing || formatting_dialog || queued_format) && c != Quit) return;
         guard([&] {
             if (canvas && canvas->dragging()) canvas->finish_drag();
             if (c == New) {
@@ -1012,6 +1122,12 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
+            } else if (c == CharacterFormat || c == ParagraphFormat) {
+                // Return the D-Bus menu reply before entering the modal loop.
+                queued_format = c;
+                Fl::add_timeout(0, format_timeout, this);
+            } else if (c >= Bold && c <= AlignJustify) {
+                word_format(Command(c));
             } else if (c == ListIndent || c == ListOutdent) {
                 if (!word_list_action(c == ListIndent ? WordsListAction::Indent : WordsListAction::Outdent))
                     message("Place the cursor in a list item");
@@ -1071,7 +1187,10 @@ public:
                     commit_cell();
                 }
             } else if (c == SelectAll) {
-                if (editor)
+                if (editor && kind == Kind::Words) {
+                    editor->insert_position(buffer.length());
+                    Fl_Text_Editor::kf_select_all(0, editor);
+                } else if (editor)
                     buffer.select(0, buffer.length());
             } else if (c == AddSheet) {
                 commit_cell();
@@ -1172,6 +1291,7 @@ public:
                 { { "service", desktop_menu->serviceName() }, { "path", desktop_menu->objectPath() },
                     { "attached", desktop_menu->attached() } } } };
         data["print_dialog"] = printing;
+        data["format_dialog"] = formatting_dialog;
         data["window_size"] = { window.w(), window.h() };
         if (kind == Kind::Sheets) {
             data["cell"] = { { "sheet", sheet }, { "row", grid->selected_row + 1 },
@@ -1184,7 +1304,7 @@ public:
         if (kind == Kind::Words) {
             auto selection = word_selection();
             data["editing"] = { { "anchor", selection.anchor }, { "cursor", selection.cursor },
-                { "can_undo", words->can_undo() }, { "can_redo", words->can_redo() }, { "revision", words->revision() } };
+                { "can_undo", words->can_undo() }, { "can_redo", words->can_redo() }, { "revision", words->revision() }, { "typing_format", words->has_typing_format() } };
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
             Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array();
             size_t table_paints = 0;

@@ -188,6 +188,7 @@ try {
     package_ = std::move(candidate);
     imported_office_ = office;
     edit_.reset();
+    typing_format_.reset();
     clear_history();
     ++revision_;
 } catch (...) {
@@ -211,13 +212,14 @@ void TextDocument::begin_edit(TextSelection selection)
     auto length = text().size();
     if (selection.anchor > length || selection.cursor > length)
         fail("Invalid text selection");
-    edit_.emplace(EditGroup { package_, selection, selection });
+    edit_.emplace(EditGroup { package_, selection, selection, typing_format_ });
 }
 void TextDocument::cancel_edit()
 {
     if (!edit_ || edit_->cancelled)
         return;
     package_ = edit_->original;
+    typing_format_ = edit_->typing;
     if (edit_->changed)
         ++revision_;
     edit_->changed = false;
@@ -266,6 +268,7 @@ try {
     candidate.xml = read_document_xml(package_.xml.toByteArray());
     set_paragraphs(candidate.body(), value, flat);
     apply(std::move(candidate), { text().size(), text().size() }, { value.size(), value.size() });
+    typing_format_.reset();
 } catch (...) {
     cancel_edit();
     throw;
@@ -330,6 +333,17 @@ try {
     OdfPackage candidate = package_;
     candidate.xml = read_document_xml(package_.xml.toByteArray());
     replace_words_text(candidate, begin, count, inserted, paragraph_breaks);
+    auto typing = typing_format_;
+    if (typing) {
+        if (typing->position >= begin && typing->position <= begin + count) {
+            if (!inserted.empty())
+                format_words_characters(candidate, begin, begin + inserted.size(), typing->format);
+            typing->position = begin + inserted.size();
+            if (inserted.empty() || (paragraph_breaks && inserted.endsWith('\n')))
+                format_words_characters(candidate, typing->position, typing->position, typing->format);
+        } else
+            typing.reset();
+    }
     if (joined(candidate.body()) != expected)
         fail("Text edit does not match the document structure");
     auto old_selection = previous.value_or(TextSelection { begin + count, begin + count });
@@ -338,6 +352,7 @@ try {
         || new_selection.anchor > expected.size() || new_selection.cursor > expected.size())
         fail("Invalid text selection");
     apply(std::move(candidate), old_selection, new_selection);
+    typing_format_ = std::move(typing);
 } catch (...) {
     cancel_edit();
     throw;
@@ -365,8 +380,73 @@ try {
     cancel_edit();
     throw;
 }
+WordsFormatInfo TextDocument::format_info(TextSelection selection) const
+{
+    auto result = read_words_format(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
+    if (selection.anchor == selection.cursor && typing_format_ && typing_format_->position == selection.cursor) {
+        result.character.overlay(typing_format_->format);
+        if (typing_format_->format.weight)
+            result.bold = *typing_format_->format.weight >= 600;
+    }
+    return result;
+}
+bool TextDocument::format_characters(TextSelection selection, const WordsCharacterFormat& format)
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
+    if (read_only())
+        fail("This document is read-only");
+    validate_words_format(format);
+    if (selection.anchor > text().size() || selection.cursor > text().size())
+        fail("Invalid text selection");
+    if (format.empty())
+        return false;
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(package_.xml.toByteArray());
+    auto before = text();
+    bool changed = format_words_characters(candidate, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), format);
+    if (joined(candidate.body()) != before)
+        fail("Character formatting would change document text");
+    if (changed) {
+        (void)read_text_flow(candidate);
+        apply(std::move(candidate), selection, selection);
+    }
+    if (selection.anchor == selection.cursor) {
+        if (!typing_format_ || typing_format_->position != selection.cursor)
+            typing_format_ = TypingFormat { selection.cursor, { } };
+        typing_format_->format.overlay(format);
+    } else
+        typing_format_.reset();
+    return changed;
+} catch (...) {
+    cancel_edit();
+    throw;
+}
+bool TextDocument::format_paragraphs(TextSelection selection, const WordsParagraphFormat& format)
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
+    if (read_only())
+        fail("This document is read-only");
+    if (selection.anchor > text().size() || selection.cursor > text().size())
+        fail("Invalid text selection");
+    OdfPackage candidate = package_;
+    candidate.xml = read_document_xml(package_.xml.toByteArray());
+    auto before = text();
+    if (!format_words_paragraphs(candidate, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), format))
+        return false;
+    if (joined(candidate.body()) != before)
+        fail("Paragraph formatting would change document text");
+    (void)read_text_flow(candidate);
+    apply(std::move(candidate), selection, selection);
+    return true;
+} catch (...) {
+    cancel_edit();
+    throw;
+}
 std::optional<TextSelection> TextDocument::travel(bool redo)
 {
+    typing_format_.reset();
     end_edit();
     if (read_only())
         fail("This document is read-only");
