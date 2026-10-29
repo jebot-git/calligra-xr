@@ -381,8 +381,7 @@ struct NativeTablePaginator::Impl {
     return out;
   }
 };
-std::optional<size_t> text_paragraph_at(const TextPage &page, double x,
-                                        double y) {
+std::optional<size_t> text_line_at(const TextPage &page, double x, double y) {
   if (!std::isfinite(x) || !std::isfinite(y))
     return {};
   auto contains = [&](const TextRect &r) {
@@ -396,10 +395,11 @@ std::optional<size_t> text_paragraph_at(const TextPage &page, double x,
       cell = &candidate;
   std::optional<size_t> source;
   double distance = std::numeric_limits<double>::infinity();
-  for (const auto &line : page.lines) {
+  for (size_t index = 0; index < page.lines.size(); ++index) {
+    const auto &line = page.lines[index];
     if (!cell) {
       if (!line.clip && y >= line.y && y < line.y + line.height)
-        return line.paragraph;
+        return index;
       continue;
     }
     // The smallest containing cell wins for nested tables. Its source lines
@@ -420,10 +420,16 @@ std::optional<size_t> text_paragraph_at(const TextPage &page, double x,
     double d = y < top ? top - y : y >= bottom ? y - bottom : 0;
     if (d < distance) {
       distance = d;
-      source = line.paragraph;
+      source = index;
     }
   }
   return source;
+}
+std::optional<size_t> text_paragraph_at(const TextPage &page, double x,
+                                        double y) {
+  auto line = text_line_at(page, x, y);
+  return line ? std::optional<size_t>(page.lines[*line].paragraph)
+              : std::nullopt;
 }
 NativeTablePaginator::NativeTablePaginator(const TextFlow &flow,
                                            const TextBlock &block,

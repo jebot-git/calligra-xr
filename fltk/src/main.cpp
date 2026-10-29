@@ -413,13 +413,16 @@ public:
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
             text_pages = new TextPageCanvas(28, 66, 1044, 668);
             text_pages->hide();
-            text_pages->edit_paragraph = [this](size_t paragraph) {
+            text_pages->edit_position = [this](size_t paragraph, size_t scalar) {
                 guard([&] {
                     auto flow = words->flow();
                     size_t offset = 0;
                     for (size_t i = 0; i < paragraph; ++i)
                         offset += flow.paragraphs.at(i).text.toUtf8().size() + 1;
+                    offset += flow.paragraphs.at(paragraph).text.left(scalar).toUtf8().size();
                     command(PageLayout);
+                    buffer.unselect();
+                    words->clear_typing_format();
                     editor->insert_position(int(offset));
                     editor->show_insert_position();
                     editor->take_focus();

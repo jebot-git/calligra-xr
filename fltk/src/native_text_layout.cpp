@@ -1519,6 +1519,9 @@ struct TabFormatter {
       if (shaping) {
         out.shape = std::make_shared<ShapedText>();
         out.shape->rtl = rtl;
+        out.shape->empty_offset = begin < clusters.size()
+                                      ? clusters[begin].begin
+                                      : paragraph.text.size();
         out.shape->metrics.width = width;
       }
       for (auto &field : fields) {
@@ -1533,9 +1536,10 @@ struct TabFormatter {
             glyph.x += x;
             out.shape->glyphs.push_back(std::move(glyph));
           }
-          out.shape->clusters.insert(out.shape->clusters.end(),
-                                     field.shape->clusters.begin(),
-                                     field.shape->clusters.end());
+          for (auto cluster : field.shape->clusters) {
+            cluster.x += x;
+            out.shape->clusters.push_back(std::move(cluster));
+          }
         }
         for (size_t i = field.begin; i < field.end; ++i)
           out.positions[i] =
@@ -1556,7 +1560,10 @@ struct TabFormatter {
           out.shape->clusters.push_back(
               {c->begin,
                c->end,
-               {advance, c->metrics.ascent, c->metrics.descent}});
+               {advance, c->metrics.ascent, c->metrics.descent},
+               tab.x1,
+               rtl,
+               {{c->begin, rtl ? 1. : 0.}, {c->end, rtl ? 0. : 1.}}});
           out.shape->metrics.ascent =
               std::max(out.shape->metrics.ascent, c->metrics.ascent);
           out.shape->metrics.descent =
@@ -1897,6 +1904,8 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
     if (shape && rtl) {
       for (auto &glyph : shape->glyphs)
         glyph.x -= width - line.width;
+      for (auto &cluster : shape->clusters)
+        cluster.x -= width - line.width;
       for (auto &tab : line.tabs) {
         tab.x1 -= width - line.width;
         tab.x2 -= width - line.width;
@@ -1937,13 +1946,17 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
               spaces.insert(glyph.begin);
           if (!spaces.empty()) {
             double extra = internal / spaces.size(), offset = 0;
+            std::map<size_t, double> shifts;
             for (size_t n = 0; n < shape->glyphs.size(); ++n) {
               auto &glyph = shape->glyphs[n];
               if (glyph.begin <= source) {
+                shifts.try_emplace(glyph.begin, rtl ? growth : 0);
                 if (rtl)
                   glyph.x += growth;
                 continue;
               }
+              shifts.try_emplace(glyph.begin,
+                                 offset + (centered && !rtl ? -growth : 0));
               glyph.x += offset + (centered && !rtl ? -growth : 0);
               if (spaces.contains(glyph.begin) &&
                   (n + 1 == shape->glyphs.size() ||
@@ -1952,9 +1965,13 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
                 offset += extra;
               }
             }
-            for (auto &cluster : shape->clusters)
+            for (auto &cluster : shape->clusters) {
+              if (auto shift = shifts.find(cluster.begin);
+                  shift != shifts.end())
+                cluster.x += shift->second;
               if (spaces.contains(cluster.begin))
                 cluster.metrics.width += extra;
+            }
             shape->metrics.width += growth;
             expanded = true;
           }
@@ -2028,8 +2045,10 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
                            ? 0
                            : std::max(0., limit - line.width) / spaces.size(),
                offset = 0;
+        std::map<size_t, double> shifts;
         for (size_t n = 0; n < shape->glyphs.size(); ++n) {
           auto &glyph = shape->glyphs[n];
+          shifts.try_emplace(glyph.begin, offset);
           glyph.x += offset;
           if (spaces.contains(glyph.begin) &&
               (n + 1 == shape->glyphs.size() ||
@@ -2039,9 +2058,12 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
           }
         }
         shape->metrics.width += offset;
-        for (auto &cluster : shape->clusters)
+        for (auto &cluster : shape->clusters) {
+          if (auto shift = shifts.find(cluster.begin); shift != shifts.end())
+            cluster.x += shift->second;
           if (spaces.contains(cluster.begin))
             cluster.metrics.width += extra;
+        }
         if (!spaces.empty())
           line.width = limit;
       } else {
@@ -2082,6 +2104,18 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
           tab.strokes.size() + (tab.leader ? tab.leader->glyphs.size() : 0);
     if (leader_pieces > 2000000)
       fail("Paragraph tab leaders exceed native limit");
+    if (shape)
+      for (const auto &tab : line.tabs) {
+        auto cluster = std::lower_bound(
+            shape->clusters.begin(), shape->clusters.end(), tab.source,
+            [](const ShapedCluster &c, size_t source) {
+              return c.begin < source;
+            });
+        if (cluster != shape->clusters.end() && cluster->begin == tab.source) {
+          cluster->x = tab.x1;
+          cluster->metrics.width = tab.x2 - tab.x1;
+        }
+      }
     line.shaped = std::move(shape);
     lines.push_back({std::move(line), hard});
     i = end;

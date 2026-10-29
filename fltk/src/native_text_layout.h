@@ -279,6 +279,20 @@ Text read_source_list_style(const OdfPackage &, const XmlElement &);
 // Returns the original source paragraph, including repeated header instances.
 // Empty cells without a source paragraph do not invent an editing position.
 std::optional<size_t> text_paragraph_at(const TextPage &, double x, double y);
+std::optional<size_t> text_line_at(const TextPage &, double x, double y);
+struct TextCaret {
+  size_t paragraph = 0, offset = 0;
+  // At bidi/line boundaries the same source offset has two visual locations.
+  enum Affinity { Following, Preceding } affinity = Following;
+  bool rtl = false;
+  TextRect rect;
+};
+struct TextCaretHit {
+  size_t line = 0;
+  TextCaret caret;
+};
+std::vector<TextCaret> text_line_carets(const TextLine &);
+std::optional<TextCaretHit> text_caret_at(const TextPage &, double x, double y);
 TextPagination paginate_text(const TextFlow &, const MeasureText &);
 TextPagination paginate_text(const TextFlow &, class NativeTextShaper &);
 } // namespace DomeOffice

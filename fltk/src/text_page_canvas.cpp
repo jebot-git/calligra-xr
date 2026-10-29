@@ -150,7 +150,7 @@ int TextPageCanvas::handle(int event) {
   }
   if (event == FL_PUSH) {
     take_focus();
-    if (Fl::event_clicks() && edit_paragraph) {
+    if (Fl::event_clicks() && edit_position) {
       double top = y() + 12 - scroll_, zoom = scale();
       for (const auto &page : pagination.pages) {
         double left = x() + (w() - page.style.width * zoom) / 2;
@@ -158,8 +158,8 @@ int TextPageCanvas::handle(int event) {
         double py = (Fl::event_y() - top) / zoom;
         if (px >= 0 && px < page.style.width && py >= 0 &&
             py < page.style.height)
-          if (auto paragraph = text_paragraph_at(page, px, py)) {
-            edit_paragraph(*paragraph);
+          if (auto hit = text_caret_at(page, px, py)) {
+            edit_position(hit->caret.paragraph, hit->caret.offset);
             return 1;
           }
         top += page.style.height * zoom + 24;

@@ -23,6 +23,13 @@ struct ShapedGlyph {
 struct ShapedCluster {
   size_t begin = 0, end = 0;
   TextMetrics metrics;
+  double x = 0; // Visual pen origin, independent of glyph ink offsets.
+  bool rtl = false;
+  struct Caret {
+    size_t offset = 0;
+    double fraction = 0; // Position across this cluster's visual advance.
+  };
+  std::vector<Caret> carets; // Unicode grapheme boundaries in logical order.
 };
 struct ShapedText {
   TextMetrics metrics;
@@ -30,6 +37,7 @@ struct ShapedText {
   size_t missing_glyphs = 0;
   std::vector<ShapedGlyph> glyphs;
   std::vector<ShapedCluster> clusters; // Logical order, full source coverage.
+  size_t empty_offset = 0;
 };
 struct GlyphBitmap {
   int width = 0, height = 0, left = 0, top = 0;

@@ -1340,3 +1340,30 @@ visible runs/breaks 6pt) must produce exactly the same pixels as a uniform 6pt
 reference. Export/reopen and CUPS capture pixels must also agree. The original
 nine Words/Sheets/Stage baseline pages remain byte-identical. Schema checks use
 the actual ODF version and do not rewrite exports to pass validation.
+
+## Native page caret positions — 2026-10-29
+
+Native shaping now retains visual cluster origins, direction and Unicode
+extended-grapheme stops. Single-glyph ligatures use matching GDEF caret data;
+missing, mismatched or unusable data falls back to equal grapheme advances.
+The Noto Sans ffi test distinguishes its real 315/631 design-unit positions per 1000-unit em
+from equal thirds. Tests also cover combining/Indic/emoji sequences, bidi
+boundary affinity, wrapping, blank lines and tab-containing blank paragraphs.
+Layout carries these positions through RTL trailing-space offsets, each tab
+alignment and justification. Native page hit testing retains original source
+identity across repeated table instances and respects cell clips.
+
+Double-clicking Pages now enters Edit at the clicked scalar position instead
+of the paragraph start. Real system-FLTK X11, native Wayland and ASan/UBSan X11
+checks exercise a multibyte source position, insertion, undo/redo and saving.
+The Wayland harness waits for initial resizing and sends a true rapid double
+click; two slower single-click helper calls did not meet its double-click
+threshold. Right-cell and split/merged/nested-cell UI regressions also pass.
+
+All 38 core suites pass in optimized Release and ASan/UBSan with core leak
+checking. GUI sanitizer leak checking remains disabled for third-party GUI
+libraries. Eight private CUPS jobs pass, formatted exports/reopens match their
+captures, and the original nine baseline PNGs remain byte-identical. Saved
+packages are validated offline against their actual ODF version's schema.
+The page canvas still does not accept text or paint an editing selection;
+these caret/source APIs are the foundation for that next Words increment.

@@ -9,6 +9,7 @@
 #include <cmath>
 #include <hb-ft.h>
 #include <hb.h>
+#include <hb-ot.h>
 #include <set>
 #include <tuple>
 #include <unicode/ubidi.h>
@@ -272,6 +273,7 @@ struct ShapingParagraph::Impl {
   std::vector<UChar> direction_text;
   std::vector<int32_t> to16;
   std::vector<size_t> from16;
+  std::vector<size_t> graphemes{0};
   Bidi bidi;
   struct Segment {
     size_t begin, end;
@@ -346,6 +348,7 @@ struct ShapingParagraph::Impl {
     for (int32_t end = ubrk_next(iter.get()); end != UBRK_DONE;
          start = end, end = ubrk_next(iter.get())) {
       size_t a = from16[start], b = from16[end];
+      graphemes.push_back(b);
       while (span + 1 < p.spans.size() && p.spans[span].end <= a)
         ++span;
       TextFont font = p.spans.empty() ? p.font : p.spans[span].font;
@@ -428,17 +431,23 @@ struct ShapingParagraph::Impl {
           g.x += whole.metrics.width;
           whole.glyphs.push_back(std::move(g));
         }
-        whole.clusters.insert(whole.clusters.end(), part->clusters.begin(),
-                              part->clusters.end());
+        for (auto cluster : part->clusters) {
+          cluster.x += whole.metrics.width;
+          whole.clusters.push_back(std::move(cluster));
+        }
         whole.metrics.width += part->metrics.width;
         whole.metrics.ascent =
             std::max(whole.metrics.ascent, part->metrics.ascent);
         whole.metrics.descent =
             std::max(whole.metrics.descent, part->metrics.descent);
         whole.missing_glyphs += part->missing_glyphs;
-        if (i < scalars.size())
-          whole.clusters.push_back(
-              {i, i + 1, {0, part->metrics.ascent, part->metrics.descent}});
+        if (i < scalars.size()) {
+          ShapedCluster c{
+              i, i + 1, {0, part->metrics.ascent, part->metrics.descent}};
+          c.x = whole.metrics.width;
+          c.carets = {{i, 0}, {i + 1, 0}};
+          whole.clusters.push_back(std::move(c));
+        }
         begin = i + 1;
       }
     whole.rtl = ubidi_getParaLevel(bidi.get()) & 1;
@@ -448,6 +457,7 @@ struct ShapingParagraph::Impl {
       fail("Invalid native shaping line extent");
     auto output = std::make_shared<ShapedText>();
     output->rtl = ubidi_getParaLevel(bidi.get()) & 1;
+    output->empty_offset = begin;
     if (begin == end) {
       const TextFont *font = &paragraph.font;
       if (begin < scalars.size()) {
@@ -507,7 +517,12 @@ struct ShapingParagraph::Impl {
               buffer.get(), hb_language_from_string(
                                 segment->font.language.toUtf8().c_str(), -1));
         if (scalars[lo] == '\t') {
-          logical[lo] = {lo, hi, {0, ascent, descent}};
+          logical[lo] = {lo,
+                         hi,
+                         {0, ascent, descent},
+                         output->metrics.width,
+                         rtl,
+                         {{lo, rtl ? 1. : 0.}, {hi, rtl ? 0. : 1.}}};
           continue; // Position-dependent tab expansion belongs to native
                     // layout.
         }
@@ -525,6 +540,7 @@ struct ShapingParagraph::Impl {
         for (auto it = boundaries.begin(); std::next(it) != boundaries.end();
              ++it)
           logical[*it] = {*it, *std::next(it), {0, ascent, descent}};
+        std::map<size_t, std::pair<unsigned, unsigned>> glyph_ranges;
         for (unsigned i = 0; i < length; ++i) {
           size_t source = begin + info[i].cluster;
           auto next = boundaries.upper_bound(source);
@@ -533,6 +549,12 @@ struct ShapingParagraph::Impl {
           double advance = positions[i].x_advance * unit;
           if (advance < 0)
             fail("Unsupported negative horizontal font advance");
+          auto [range, inserted] = glyph_ranges.try_emplace(source, i, i + 1);
+          range->second.second = i + 1;
+          if (inserted) {
+            logical[source].x = output->metrics.width;
+            logical[source].rtl = rtl;
+          }
           output->glyphs.push_back(
               {segment->face, info[i].codepoint, source, *next,
                output->metrics.width + positions[i].x_offset * unit,
@@ -549,6 +571,57 @@ struct ShapingParagraph::Impl {
           cluster.metrics.width += advance;
           cluster.metrics.ascent = std::max(cluster.metrics.ascent, ascent);
           cluster.metrics.descent = std::max(cluster.metrics.descent, descent);
+        }
+        for (auto &[source, range] : glyph_ranges) {
+          auto &cluster = logical[source];
+          auto first =
+              std::lower_bound(graphemes.begin(), graphemes.end(), source);
+          auto last = std::upper_bound(first, graphemes.end(), cluster.end);
+          size_t stops = size_t(last - first);
+          std::vector<double> internal;
+          // GDEF positions describe a single ligature glyph, not an arbitrary
+          // multi-glyph cluster. Missing/mismatched data uses equal grapheme
+          // advances. Combining sequences never acquire interior stops.
+          if (stops > 2 && range.second == range.first + 1 &&
+              *first == source && *(last - 1) == cluster.end &&
+              cluster.metrics.width > 0) {
+            unsigned count = 0;
+            unsigned total = hb_ot_layout_get_ligature_carets(
+                native.hb, rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR,
+                info[range.first].codepoint, 0, &count, nullptr);
+            if (total == stops - 2) {
+              std::vector<hb_position_t> caret_positions(total);
+              count = total;
+              hb_ot_layout_get_ligature_carets(
+                  native.hb, rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR,
+                  info[range.first].codepoint, 0, &count,
+                  caret_positions.data());
+              if (count == total) {
+                for (auto value : caret_positions)
+                  internal.push_back((value + positions[range.first].x_offset) *
+                                     unit / cluster.metrics.width);
+                std::sort(internal.begin(), internal.end());
+                if (std::any_of(internal.begin(), internal.end(),
+                                [](double x) {
+                                  return !std::isfinite(x) || x <= 0 || x >= 1;
+                                }) ||
+                    std::adjacent_find(internal.begin(), internal.end()) !=
+                        internal.end())
+                  internal.clear();
+                if (rtl)
+                  std::reverse(internal.begin(), internal.end());
+              }
+            }
+          }
+          for (auto it = first; it != last; ++it) {
+            size_t index = size_t(it - first);
+            double fraction = stops > 1 ? double(index) / (stops - 1) : 0;
+            if (rtl)
+              fraction = 1 - fraction;
+            if (!internal.empty() && index > 0 && index + 1 < stops)
+              fraction = internal[index - 1];
+            cluster.carets.push_back({*it, fraction});
+          }
         }
       }
     }

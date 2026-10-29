@@ -274,7 +274,7 @@ try:
             host.set_input_focus(X.RevertToParent, X.CurrentTime)
         xd.sync()
 
-        def click(x, y):
+        def click(x, y, count=1):
             point = xd.screen().root.translate_coords(host, 0, 0)
             if args.wayland:
                 box = next(w for w in scene()['windows'] if w['id'] == window['id'])['desktop']
@@ -283,11 +283,14 @@ try:
             xtest.fake_input(xd, X.MotionNotify, x=point.x + x, y=point.y + y)
             xd.sync()
             time.sleep(.15)
-            xtest.fake_input(xd, X.ButtonPress, 1)
-            xd.sync()
-            time.sleep(.05)
-            xtest.fake_input(xd, X.ButtonRelease, 1)
-            xd.sync()
+            for index in range(count):
+                xtest.fake_input(xd, X.ButtonPress, 1)
+                xd.sync()
+                time.sleep(.05)
+                xtest.fake_input(xd, X.ButtonRelease, 1)
+                xd.sync()
+                if index + 1 < count:
+                    time.sleep(.06)
             time.sleep(.2)
 
         click(350, 100)
@@ -968,10 +971,70 @@ try:
         assert not data()['modified']
         key('q', ('Control_L',))
         assert process.wait(timeout=15) == 0
+        # A native page click must preserve a scalar insertion position when
+        # entering the UTF-8 editor, rather than jump to the paragraph start.
+        source = art / 'page-hit.odt'
+        doc = OpenDocumentText()
+        page = PageLayout(name='HitPage')
+        page.addElement(PageLayoutProperties(pagewidth='400pt', pageheight='400pt', margin='20pt'))
+        doc.automaticstyles.addElement(page)
+        doc.masterstyles.addElement(MasterPage(name='Standard', pagelayoutname=page))
+        body = Style(name='HitBody', family='paragraph')
+        body.addElement(TextProperties(fontfamily='Hack', fontsize='20pt'))
+        doc.styles.addElement(body)
+        page_text = 'Český á office'
+        doc.text.addElement(P(stylename=body, text=page_text))
+        doc.save(str(source))
+        with zipfile.ZipFile(source, 'a') as archive:
+            archive.writestr('Extras/opaque.bin', b'\0keep\xff')
+            original_styles = archive.read('styles.xml')
+        report = art / 'page-hit-report.json'
+        process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
+                         '--report', report, '--page-layout'], client, 'page-hit')
+        wait(lambda: report.exists() and data()['page_layout']['glyphs'] > 0)
+        if args.wayland:
+            host.set_input_focus(X.RevertToParent, X.CurrentTime)
+            xd.sync()
+            wait(lambda: xd.get_input_focus().focus == host)
+            window = wait(lambda: next((w for w in scene()['windows']
+                                       if 'calligra-words' in w.get('app_id', '').lower()), None))
+            request = urllib.request.Request(f'http://127.0.0.1:{port}/api/action',
+                data=json.dumps({'op': 'focus', 'id': window['id']}).encode(),
+                headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request, timeout=2) as response:
+                response.read()
+            wait(lambda: scene()['focused'] == window['id'])
+        else:
+            host = wait(lambda: next((w for w in xd.screen().root.query_tree().children
+                                     if 'Calligra Words' in str(w.get_wm_name())), None))
+            host.set_input_focus(X.RevertToParent, X.CurrentTime)
+        xd.sync()
+        time.sleep(.4)  # Wait for the compositor's initial size configure/report.
+        x, y, w, h = data()['page_layout']['viewport']
+        zoom = max(.05, min(1.5, (w - 48) / 400))
+        left = x + (w - 400 * zoom) / 2
+        # Hack is monospaced, with about 12pt advance at 20pt. At offset 3,
+        # the leading Č has already made the UTF-8 byte offset differ.
+        px, py = round(left + (20 + 3 * 12.04) * zoom), round(y + 12 + 32 * zoom)
+        click(px, py, count=2)
+        wait(lambda: not data()['page_layout']['visible'])
+        check_text(page_text, 3)
+        assert data()['editing']['anchor'] == 3 and not data()['modified']
+        key('x')
+        check_text(page_text[:3] + 'x' + page_text[3:], 4)
+        key('z', ('Control_L',))
+        check_text(page_text, 3)
+        assert not data()['modified']
+        key('y', ('Control_L',))
+        check_text(page_text[:3] + 'x' + page_text[3:], 4)
+        save('page-hit-saved')
+        key('q', ('Control_L',))
+        assert process.wait(timeout=15) == 0
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
                    'native_character_paragraph_formatting': True,
                    'font_validation_and_inline_correction': True,
                    'select_all_clears_typing_format': True,
+                   'native_page_click_scalar_position': True,
                    'format_dialog_cancel_noop_undo': True,
                    'caret_typing_format': True,
                    'compound_replacement_single_undo': True,

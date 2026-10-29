@@ -94,17 +94,19 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             target=next(c for c in cells if c['page']==0 and c['row']==1 and c['column']==1)
             px=left+(target['x']+10)*zoom;py=top+(target['y']+10)*zoom
             click(host,int(px),int(py));click(host,int(px),int(py))
-            wait(lambda:not state()['visible']);text('Marked ')
-            wait(lambda:'L01\nMarked R01' in data()['text'])
+            wait(lambda:not state()['visible'])
+            assert data()['editing']['cursor'] == len(data()['text'].split('R01')[0]) + 1
+            text('Marked ')
+            wait(lambda:'L01\nRMarked 01' in data()['text'])
             key('z',('Control_L',));wait(lambda:'Marked ' not in data()['text'])
-            key('y',('Control_L',));wait(lambda:'L01\nMarked R01' in data()['text'])
+            key('y',('Control_L',));wait(lambda:'L01\nRMarked 01' in data()['text'])
             key('s',('Control_L',));wait(lambda:not data()['modified'])
             with zipfile.ZipFile(doc) as saved:
                 xml=ET.fromstring(saved.read('content.xml'));ns={'t':'urn:oasis:names:tc:opendocument:xmlns:table:1.0','p':'urn:oasis:names:tc:opendocument:xmlns:text:1.0'}
                 rows=xml.findall('.//t:table-row',ns);assert len(rows)==19
                 rowcells=rows[1].findall('t:table-cell',ns)
                 assert ''.join(rowcells[0].itertext())=='L01'
-                assert ''.join(rowcells[1].itertext()).startswith('Marked')
+                assert ''.join(rowcells[1].itertext()).startswith('RMarked')
                 for name,value in original.items():
                     if name!='content.xml':assert saved.read(name)==value,name
             click(host,610,25);wait(lambda:state()['visible'] and state()['pages']==3)
@@ -114,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
             key('q',('Control_L',));assert process.wait(timeout=10)==0
             reopen=art/'table-pages-reopen.json'
             subprocess.run([str(args.bin_dir.resolve()/'calligra-words-fltk'),str(doc),'--page-layout','--report',str(reopen),'--quit-after-ms','1800'],env=env,stdout=log,stderr=log,check=True)
-            final=json.loads(reopen.read_text());assert final['page_layout']['pages']==3 and 'L01\nMarked R01' in final['text'],final
+            final=json.loads(reopen.read_text());assert final['page_layout']['pages']==3 and 'L01\nRMarked 01' in final['text'],final
             print('PASS: Words native table pages, repeated headers, GPU cell pixels, right-cell selection and edit/undo/save/reopen',flush=True)
     finally:
         if process and process.poll() is None:process.kill();process.wait()

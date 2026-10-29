@@ -8,7 +8,7 @@ namespace DomeOffice {
 class TextPageCanvas : public Fl_Widget {
 public:
   TextPagination pagination;
-  std::function<void(size_t)> edit_paragraph;
+  std::function<void(size_t, size_t)> edit_position;
   TextPageCanvas(int x, int y, int w, int h);
   ~TextPageCanvas() override;
   void set_flow(const TextFlow &);

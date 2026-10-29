@@ -43,6 +43,12 @@ undo/redo and saved-state tracking. The edit buffer remains plain text; the
 Pages view and print output show document formatting. Direct paginated rich
 editing and the additional formatting/layout requirements below remain open.
 
+Native Words page hit testing now resolves a grapheme-safe character position,
+including ligature interiors, bidi affinity, tab gaps and justified text. A
+double-click enters the plain text editor at that source position, including
+repeated table instances. This is a foundation for direct paginated editing;
+the page canvas still does not accept text or draw an editing selection.
+
 The default Words/Sheets/Stage document, XML/package and spreadsheet calculation
 paths now use native C++20, libxml2, libzip and the installed system FLTK. They
 require no Qt or KDE headers/libraries. The upstream Qt/KDE build remains an
