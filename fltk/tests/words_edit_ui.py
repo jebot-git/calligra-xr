@@ -24,7 +24,8 @@ from odf.opendocument import OpenDocumentText
 from odf.style import (MasterPage, PageLayout, PageLayoutProperties,
                        ParagraphProperties, Style, TextProperties)
 from odf.table import Table, TableCell, TableRow
-from odf.text import A, LineBreak, List, ListItem, P, S, Section, Span, Tab
+from odf.text import (A, LineBreak, List, ListHeader, ListItem, ListLevelStyleNumber,
+                      ListStyle, P, S, Section, Span, Tab)
 from PIL import Image
 from Xlib import X, XK, display
 from Xlib.error import XError
@@ -84,11 +85,51 @@ def produce(path):
     cell.addElement(P(stylename=body, text='Other cell'))
     row.addElement(cell)
     doc.text.addElement(table)
-    listing = List()
-    item = ListItem()
-    item.addElement(P(text='List item'))
+    numbers = ListStyle(name='Numbers')
+    numbers.addElement(ListLevelStyleNumber(level=1, numformat='1', numsuffix='.'))
+    numbers.addElement(ListLevelStyleNumber(level=2, numformat='a', numsuffix=')', displaylevels=2))
+    doc.styles.addElement(numbers)
+    roman = ListStyle(name='Roman')
+    roman.addElement(ListLevelStyleNumber(level=1, numformat='I', numsuffix='.'))
+    doc.styles.addElement(roman)
+    listing = List(stylename=numbers)
+    listing.setAttrNS(XML[1:-1], 'id', 'numbered-list')
+    header = ListHeader()
+    header.addElement(P(stylename=body, text='List header'))
+    listing.addElement(header)
+    item = ListItem(startvalue=4)
+    item.setAttrNS(XML[1:-1], 'id', 'numbered-item')
+    p = P(stylename=body, text='List ')
+    span = Span(stylename=bold, text='item')
+    span.setAttrNS(XML[1:-1], 'id', 'list-run')
+    p.addElement(span)
+    item.addElement(p)
+    item.addElement(P(stylename=body, text='List continuation'))
+    nested = List()
+    child = ListItem()
+    child.addElement(P(stylename=body, text='Nested item'))
+    nested.addElement(child)
+    item.addElement(nested)
+    listing.addElement(item)
+    item = ListItem(styleoverride='Roman')
+    item.addElement(P(stylename=body, text='Next item'))
     listing.addElement(item)
     doc.text.addElement(listing)
+    joining = List(stylename=numbers)
+    joining.setAttrNS(XML[1:-1], 'id', 'joining-list')
+    item = ListItem(styleoverride='Roman')
+    item.addElement(P(stylename=body, text='Join one'))
+    joining.addElement(item)
+    item = ListItem()
+    item.addElement(P(stylename=body, text='Join two'))
+    item.addElement(P(stylename=body, text='Join continuation'))
+    nested = List()
+    child = ListItem()
+    child.addElement(P(stylename=body, text='Join nested'))
+    nested.addElement(child)
+    item.addElement(nested)
+    joining.addElement(item)
+    doc.text.addElement(joining)
     doc.save(str(path))
     with zipfile.ZipFile(path, 'a') as archive:
         archive.writestr('Extras/opaque.bin', b'\0keep\xff')
@@ -245,6 +286,13 @@ try:
 
         click(350, 100)
 
+        def capture_window(name):
+            geometry = host.get_geometry()
+            snap = host.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
+            picture = Image.frombytes('RGB', (geometry.width, geometry.height), snap.data, 'raw', 'BGRX')
+            picture.save(art / (name + '.png'))
+            return picture
+
         def go(position):
             key('Home', ('Control_L',))
             if position:
@@ -273,7 +321,7 @@ try:
             return root, xml
 
         original = data()['text']
-        assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList item'
+        assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
         _, original_xml = save('original')
         split = original.index('日本語') + 1
         go(split)
@@ -350,11 +398,73 @@ try:
         key('z', ('Control_L',))
         check_text(original, boundary)
         assert not data()['modified']
+        # An apparently adjacent newline can cross a nested-list boundary.
+        nested = original.index('Nested item')
+        go(nested)
+        key('BackSpace')
+        check_text(original, nested)
+        assert not data()['modified']
         listing = original.index('List item') + 4
         go(listing)
         key('Return')
+        listed = original[:listing] + '\n' + original[listing:]
+        check_text(listed, listing + 1)
+        root, listed_xml = save('list-split')
+        main_list = root.find('.//' + TEXT + 'list')
+        items = main_list.findall(TEXT + 'list-item')
+        assert len(items) == 3 and len(root.findall('.//' + TEXT + 'list-item')) == 7
+        assert items[0].get(XML + 'id') == 'numbered-item' and items[0].get(TEXT + 'start-value') == '4'
+        assert items[1].get(XML + 'id') is None and items[1].get(TEXT + 'start-value') is None
+        assert len(items[1].findall(TEXT + 'p')) == 2 and items[1].find(TEXT + 'list') is not None
+        click(round(610 * data()['window_size'][0] / 1100), 26)
+        wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
+        assert [label['text'] for label in data()['page_layout']['list_labels']] == ['4.', '5.', '5.a)', 'VI.', 'I.', '2.', '2.a)']
+        time.sleep(.4)
+        capture_window('list-split-layout')
+        click(round(610 * data()['window_size'][0] / 1100), 26)
+        wait(lambda: not data()['page_layout']['visible'])
+        go(listing + 1)
+        key('BackSpace')
         check_text(original, listing)
-        assert not data()['modified']
+        save('list-joined')
+        key('z', ('Control_L',))
+        check_text(listed)
+        assert save('list-join-undone')[1] == listed_xml
+        key('z', ('Control_L',))
+        check_text(original)
+        assert save('list-split-undone')[1] == checkpoint_xml
+        heading = original.index('List header') + 4
+        go(heading)
+        key('Return')
+        check_text(original[:heading] + '\n' + original[heading:], heading + 1)
+        root, _ = save('list-header-split')
+        main_list = root.find('.//' + TEXT + 'list')
+        assert plain(main_list.find(TEXT + 'list-header').find(TEXT + 'p')) == 'List'
+        assert plain(main_list.findall(TEXT + 'list-item')[0].find(TEXT + 'p')) == ' header'
+        key('z', ('Control_L',))
+        check_text(original)
+        assert save('list-header-undone')[1] == checkpoint_xml
+        joining = original.index('Join two')
+        go(joining)
+        key('BackSpace')
+        joined = original[:joining - 1] + original[joining:]
+        check_text(joined, joining - 1)
+        root, _ = save('override-items-joined')
+        joined_list = next(e for e in root.iter(TEXT + 'list') if e.get(XML + 'id') == 'joining-list')
+        items = joined_list.findall(TEXT + 'list-item')
+        assert len(items) == 1 and items[0].get(TEXT + 'style-override') == 'Roman'
+        assert items[0].find(TEXT + 'list').get(TEXT + 'style-name') == 'Numbers'
+        assert len(items[0].findall(TEXT + 'p')) == 2
+        click(round(610 * data()['window_size'][0] / 1100), 26)
+        wait(lambda: data()['page_layout']['visible'] and data()['page_layout']['glyphs'] > 0)
+        assert [label['text'] for label in data()['page_layout']['list_labels']][-2:] == ['I.', 'I.a)']
+        time.sleep(.4)
+        capture_window('override-join-layout')
+        click(round(610 * data()['window_size'][0] / 1100), 26)
+        wait(lambda: not data()['page_layout']['visible'])
+        key('z', ('Control_L',))
+        check_text(original, joining)
+        assert save('override-join-undone')[1] == checkpoint_xml
         go(0)
         key('Right', ('Shift_L',), count=3)
         wait(lambda: data()['editing']['anchor'] == 0 and data()['editing']['cursor'] == 3)
@@ -374,11 +484,9 @@ try:
         layout_report = data()['page_layout']
         assert not layout_report['render_error'] and layout_report['table_cells']
         assert layout_report['pages'] == 1, layout_report
+        assert [label['text'] for label in layout_report['list_labels']] == ['4.', '4.a)', 'V.', 'I.', '2.', '2.a)']
         time.sleep(.4)
-        geometry = host.get_geometry()
-        snap = host.get_image(0, 0, geometry.width, geometry.height, X.ZPixmap, 0xffffffff)
-        picture = Image.frombytes('RGB', (geometry.width, geometry.height), snap.data, 'raw', 'BGRX')
-        picture.save(art / 'layout.png')
+        picture = capture_window('layout')
         assert sum(min(pixel) > 235 for pixel in picture.get_flattened_data()) > 10000
         maps = Path(f'/proc/{process.pid}/maps').read_text()
         assert 'libQt' not in maps
@@ -396,7 +504,11 @@ try:
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
                    'body_cell_section_split_join': True, 'soft_breaks': True,
                    'styled_xml_undo_redo': True, 'saved_state': True,
-                   'selection_restore': True, 'cross_cell_and_list_rejection': True,
+                   'selection_restore': True, 'cross_cell_rejection': True,
+                   'list_item_split_join': True,
+                   'list_numbering_reflow': True, 'nested_list_retention': True,
+                   'list_header_split': True,
+                   'inherited_sublist_style_after_join': True,
                    'archive_retention': True, 'save_reopen': True,
                    'page_layout': layout_report, 'qt_loaded': False}
         (art / 'results.json').write_text(json.dumps(results, indent=2) + '\n')

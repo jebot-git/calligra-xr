@@ -273,6 +273,9 @@ TextBoxLayout layout_text_box(const TextFlow &, double width,
 TextBoxLayout layout_text_box(const TextFlow &, double width,
                               class NativeTextShaper &);
 TextFlow read_text_flow(const OdfPackage &);
+// Resolve a Words source list/item style, including inherited/paragraph
+// defaults, before moving nested content into a different item context.
+Text read_source_list_style(const OdfPackage &, const XmlElement &);
 // Returns the original source paragraph, including repeated header instances.
 // Empty cells without a source paragraph do not invent an editing position.
 std::optional<size_t> text_paragraph_at(const TextPage &, double x, double y);

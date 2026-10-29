@@ -2130,6 +2130,51 @@ TextFlow OdfTextReader::frame(const XmlElement &container,
   return std::move(reader.flow);
 }
 
+Text read_source_list_style(const OdfPackage &package, const XmlElement &item) {
+  if (package.kind() != Kind::Words || item.namespaceURI() != TEXT ||
+      (item.localName() != "list-item" && item.localName() != "list-header" &&
+       item.localName() != "list" &&
+       item.localName() != "numbered-paragraph") ||
+      item.ownerDocument().documentElement() != package.xml.documentElement())
+    fail("List style query requires an original Words source list or item");
+  Reader reader;
+  auto styles = package.entry("styles.xml");
+  if (!styles.empty())
+    reader.scan(read_document_xml(styles), true);
+  reader.scan(package.xml);
+  std::vector<XmlElement> path;
+  for (auto node = item; node.isElement(); node = node.parentNode()) {
+    if (path.size() >= 256)
+      fail("Excessive list source depth");
+    path.push_back(node);
+  }
+  Text style;
+  bool inherited = false;
+  for (auto it = path.rbegin(); it != path.rend(); ++it) {
+    auto node = *it;
+    if (node.namespaceURI() == TABLE || node.namespaceURI() == DRAW) {
+      style.clear();
+      inherited = false;
+    } else if (node.namespaceURI() == TEXT) {
+      if (node.localName() == "list" ||
+          node.localName() == "numbered-paragraph") {
+        auto name = node.attributeNS(TEXT, "style-name");
+        if (name.empty() && inherited)
+          name = style;
+        if (name.empty())
+          name = reader.default_list_style(node);
+        style = name;
+        inherited = true;
+      } else if (node.localName() == "list-item" ||
+                 node.localName() == "list-header") {
+        style = node.attributeNS(TEXT, "style-override", style);
+        inherited = true;
+      }
+    }
+  }
+  return style;
+}
+
 TextFlow read_text_flow(const OdfPackage &package) {
   if (package.kind() != Kind::Words)
     fail("Text flow requires a Words document");

@@ -1150,3 +1150,36 @@ those old paragraph/page-break structures, so that operation no longer stands
 in for editing the existing paragraphs. Full rich editing, structural list/table
 tools, typing groups and incremental XML operations remain unfinished, along
 with the Words layout work listed in PORT_STATUS.md.
+
+## Words list paragraph editing — 2026-10-29
+
+Words now splits paragraphs into sibling list items and joins compatible
+adjacent items in the same list. A split retains the original item's ID and
+restart; new items retain its style override while receiving new numbering.
+Following unselected paragraphs/sub-lists travel with the suffix. Header
+continuations become numbered items without changing the original header.
+Joins retain the first item's numbering and the final item's trailing blocks,
+and discard removed producer label caches. The native reader resolves each
+inherited sub-list style before a move; named/paragraph-derived styles stay
+explicit in their new scope, and an unnamed native default is materialized when
+needed. This prevents a destination item's override from restyling the moved
+sub-list. Hidden/nested intervening structures
+are rejected rather than consumed by the flattened editing view. Structural
+list changes run the native flow validator before committing, including checks
+for overflow in consecutive or continued counters.
+
+The new native-words-lists suite checks rich Unicode runs, header/continuation
+splits, multiple pasted breaks, style overrides/restarts, nested suffixes,
+same-cell list edits, joins, continued counters, exact XML undo/redo and atomic
+rejection of invisible structures/counter overflow. The odfpy keyboard fixture
+now contains a header, restarted numbered items, an unnumbered paragraph,
+styled inline text, a nested list and a Roman style override. It independently
+inspects the saved XML and generated page labels after Enter/Backspace, checks
+undo checkpoints and nested-list boundary rejection, then saves/reopens the
+paginated result. All 34 core suites pass in Release and ASan/UBSan, including
+leak checking for the core suites. The source and expanded fixture follow
+[ODF 1.4 list/item/header and continuation semantics](https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part3-schema.pdf).
+
+Empty-item exit, list indent/outdent and formatting controls remain the next
+Words editing requirements; this increment does not complete structural lists
+or advance Stage implementation.

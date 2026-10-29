@@ -96,7 +96,10 @@ CUPS test queues.
   distinguishes Enter from Shift+Enter soft breaks, and saves ODT. Native XML
   undo/redo restores formatting, selection/caret and saved-state identity.
   Paragraph continuations follow next styles and avoid repeating forced page
-  breaks. Cross-container joins and new list items remain restricted.
+  breaks. Enter creates list items, and Backspace/Delete can join compatible
+  items in the same list. Nested suffixes, style overrides and restarts retain
+  their scope. Cross-cell/unrelated-list joins remain restricted; empty-item
+  exit, indent/outdent and list-formatting tools are unfinished.
   Pages switches to the native page-flow view;
   Edit returns to text editing, and double-clicking a rendered line opens its
   paragraph in the editor. Page Up/Down, Home/End and the wheel navigate pages.

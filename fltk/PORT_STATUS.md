@@ -17,8 +17,15 @@ styled paragraph splits/joins in the body, sections and individual table cells,
 explicit soft breaks (Shift+Enter), XML undo/redo and saved-state/selection
 restoration. Paragraph continuation follows next-style declarations and clears
 inherited forced page/master assignments while retaining other formatting.
-Cross-container joins, structural list edits and unsupported embedded-object
-paragraphs are rejected without changing the document.
+Cross-container joins and unsupported embedded-object paragraphs are rejected
+without changing the document.
+
+List paragraph editing now creates real sibling items on Enter, including from
+a list header or an additional unnumbered paragraph. Following paragraphs and
+nested lists move with the suffix. New items inherit style overrides without
+copying restart values or XML identities. Backspace/Delete can join adjacent
+items of the same list while retaining the final item's trailing content;
+generated and continued counters are validated before the change commits.
 
 The default Words/Sheets/Stage document, XML/package and spreadsheet calculation
 paths now use native C++20, libxml2, libzip and the installed system FLTK. They
@@ -163,9 +170,14 @@ deleting that break preserves the paragraph. Existing span/link styles,
 whitespace controls and unique XML identities are retained; equivalent adjacent
 runs are compacted so typing does not accumulate one span per key. Paragraph
 continuations retain formatting without repeating a forced page/master break.
-Joins across cells/list items/frames, new structural list items, conditional
+Within a list, Enter creates a sibling item and adjacent compatible items can
+be joined. A header stays unnumbered when its continuation becomes an item;
+style overrides and explicit restarts retain their appropriate source scope.
+Joins across cells, unrelated/nested lists, headers or frames, conditional
 styles requiring unsupported continuation rewriting and paragraphs containing
-embedded objects are intentionally restricted. Undo restores styled XML,
+embedded objects are intentionally restricted. Empty-item exit, list
+indent/outdent, list-formatting controls and general table structure tools are
+still unfinished. Undo restores styled XML,
 selection/caret and saved-state identity; a rejected edit leaves the model,
 history and caret intact. The journal is bounded to 100 commands and 32 MiB
 of changed XML bytes; edits larger than that clear history. Each edit currently
@@ -195,7 +207,8 @@ GIFs use their first frame. Other image formats and full SVG fidelity remain
 unported. Named ODF 1.4 number
 formats, extended locale/spell-out numbering and outline/field numbering still
 need work. Missing continuation targets are diagnosed and restarted. Full
-structural list editing remains incomplete; existing
+structural list editing remains incomplete beyond paragraph/item splits and
+compatible joins; existing
 list XML and styles are retained during supported text edits.
 
 Paragraph tabs now have a native style/model/display path shared by Words and

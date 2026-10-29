@@ -166,7 +166,12 @@ int main(int argc, char **argv) {
   assert(book.text() == before && !book.modified());
   assert(content(book, saved) == checkpoint);
   auto list = find(book, "List item") + 4;
-  rejects([&] { book.replace(list, 0, "\n"); });
+  book.replace(list, 0, "\n");
+  assert(book.text() == before.left(list) + "\n" + before.mid(list));
+  book.save(saved);
+  inspected.load(saved);
+  assert(inspected.xml.elementsByTagNameNS(TEXT, "list-item").size() == 2);
+  assert(book.undo());
   assert(book.text() == before);
   // next-style-name follows the retained KoTextEditor newline behavior.
   auto heading = find(book, "Heading text") + 7;

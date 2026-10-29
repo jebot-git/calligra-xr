@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_edit.h"
+#include "native_text_layout.h"
 #include <functional>
 namespace DomeOffice {
 namespace {
@@ -279,6 +280,152 @@ Text continuation_style(OdfPackage &package, const XmlElement &source) {
   props.setAttributeNS(FO, "fo:break-before", "auto");
   return generated;
 }
+bool text_element(XmlElement node, const Text &name) {
+  return node.isElement() && node.namespaceURI() == TEXT &&
+         node.localName() == name;
+}
+Text default_list_style(OdfPackage &package) {
+  auto root = package.xml.documentElement();
+  std::set<Text> names;
+  for (auto style : root.elementsByTagNameNS(TEXT, "list-style"))
+    names.insert(style.attributeNS(STYLE, "name"));
+  auto bytes = package.entry("styles.xml");
+  if (!bytes.empty()) {
+    auto styles = read_document_xml(bytes);
+    for (auto style : styles.elementsByTagNameNS(TEXT, "list-style"))
+      names.insert(style.attributeNS(STYLE, "name"));
+  }
+  size_t number = 1;
+  Text name;
+  do {
+    name = "WordsListDefault" + Text::number(number++);
+  } while (names.contains(name));
+  auto automatic = child(root, OFFICE, "automatic-styles");
+  if (automatic.isNull()) {
+    automatic = package.xml.createElementNS(OFFICE, "office:automatic-styles");
+    root.insertBefore(automatic, child(root, OFFICE, "body"));
+  }
+  auto style = package.xml.createElementNS(TEXT, "text:list-style");
+  style.setAttributeNS(STYLE, "style:name", name);
+  auto level =
+      package.xml.createElementNS(TEXT, "text:list-level-style-number");
+  level.setAttributeNS(TEXT, "text:level", "1");
+  level.setAttributeNS(STYLE, "style:num-format", "1");
+  level.setAttributeNS(STYLE, "style:num-suffix", ".");
+  auto props =
+      package.xml.createElementNS(STYLE, "style:list-level-properties");
+  props.setAttributeNS(TEXT, "text:space-before", "0pt");
+  props.setAttributeNS(TEXT, "text:min-label-width", "18pt");
+  level.appendChild(props);
+  style.appendChild(level);
+  automatic.appendChild(style);
+  return name;
+}
+// Joining adjacent list items retains the first item's identity/numbering and
+// the last item's trailing blocks. Do not flatten a nested list or a header
+// hidden between the selected source paragraphs.
+bool join_items(OdfPackage &package, const std::vector<Block> &all,
+                size_t first, size_t last) {
+  auto parent = all[first].node.parentNode();
+  auto end_parent = all[last].node.parentNode();
+  if (parent == end_parent)
+    return false;
+  auto list = parent.parentNode();
+  if (!text_element(parent, "list-item") || !text_element(list, "list") ||
+      !text_element(end_parent, "list-item") || end_parent.parentNode() != list)
+    fail("Paragraph joins cannot cross table cells, lists or frames");
+  std::set<const void *> affected;
+  for (size_t i = first; i <= last; ++i) {
+    auto item = all[i].node.parentNode();
+    if (!text_element(item, "list-item") || item.parentNode() != list)
+      fail("Paragraph joins cannot remove nested lists or other structures");
+    affected.insert(item.identity());
+  }
+  std::vector<XmlElement> items;
+  bool found_end = false;
+  for (auto node = parent; !node.isNull(); node = node.nextSibling()) {
+    if (!node.isElement())
+      continue;
+    if (!text_element(node, "list-item") || !affected.contains(node.identity()))
+      fail("Paragraph joins cannot remove a list header or an empty structure");
+    items.push_back(node);
+    if (node == end_parent) {
+      found_end = true;
+      break;
+    }
+  }
+  if (!found_end)
+    fail("List items are not in document order");
+  bool selected = false, finished = false;
+  for (auto item : items)
+    for (auto node = item.firstChild(); !node.isNull();
+         node = node.nextSibling()) {
+      if (node == all[first].node)
+        selected = true;
+      if (selected && !finished && node.isElement() && !paragraph(node) &&
+          !text_element(node, "number"))
+        fail("Paragraph joins cannot remove nested lists or other structures");
+      if (node == all[last].node)
+        finished = true;
+    }
+  auto source_style = read_source_list_style(package, end_parent);
+  Text native_default;
+  if (source_style != read_source_list_style(package, parent))
+    for (auto node = all[last].node.nextSibling(); !node.isNull();
+         node = node.nextSibling())
+      if (text_element(node, "list") &&
+          node.attributeNS(TEXT, "style-name").empty()) {
+        // Retain the old item's inherited sub-list style after its blocks move.
+        // An unnamed native default needs an explicit style in its new scope.
+        auto style = read_source_list_style(package, node);
+        if (style.empty()) {
+          if (native_default.empty())
+            native_default = default_list_style(package);
+          style = native_default;
+        }
+        node.setAttributeNS(TEXT, "text:style-name", style);
+      }
+  for (size_t i = 1; i < items.size(); ++i) {
+    auto item = items[i];
+    while (!item.firstChild().isNull()) {
+      auto node = item.firstChild();
+      // text:number is a producer's cached label, not editable document text.
+      if (text_element(node, "number"))
+        item.removeChild(node);
+      else
+        parent.appendChild(node);
+    }
+    list.removeChild(item);
+  }
+  return true;
+}
+// Each inserted paragraph break starts a sibling item. Unselected following
+// paragraphs/sub-lists travel with the final suffix, preserving source order.
+void split_items(XmlElement item, const std::vector<XmlElement> &paragraphs) {
+  if (paragraphs.size() < 2)
+    return;
+  auto list = item.parentNode();
+  if (!text_element(list, "list"))
+    fail("List item has no containing list");
+  auto tail = paragraphs.back().nextSibling();
+  auto previous = item;
+  for (size_t i = 1; i < paragraphs.size(); ++i) {
+    auto next = item.ownerDocument().createElementNS(TEXT, "text:list-item");
+    copy_attributes(item, next, [](const XmlNode::Attribute &a) {
+      auto local = a.name.mid(a.name.indexOf(':') + 1);
+      return !(a.uri == XML && local == "id") &&
+             !(a.uri == TEXT && local == "start-value");
+    });
+    next.appendChild(paragraphs[i]);
+    list.insertAfter(next, previous);
+    previous = next;
+  }
+  while (!tail.isNull()) {
+    auto next = tail.nextSibling();
+    previous.appendChild(tail);
+    tail = next;
+  }
+}
 } // namespace
 void replace_words_text(OdfPackage &package, size_t begin, size_t count,
                         const Text &inserted, bool paragraph_breaks) {
@@ -299,9 +446,11 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     return all.size() - 1;
   };
   size_t first = locate(begin), last = locate(begin + count);
+  for (size_t i = first; i <= last; ++i)
+    supported(all[i].node);
+  bool changed_list = join_items(package, all, first, last);
   auto parent = all[first].node.parentNode();
   for (size_t i = first; i <= last; ++i) {
-    supported(all[i].node);
     if (all[i].node.parentNode() != parent)
       fail("Paragraph joins cannot cross table cells, list items or frames");
   }
@@ -310,10 +459,6 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     if (n.isElement() && !paragraph(n))
       fail("Paragraph joins cannot remove intervening document structures");
   bool splitting = paragraph_breaks && inserted.contains('\n');
-  if (splitting && parent.namespaceURI() == TEXT &&
-      (parent.localName() == "list-item" ||
-       parent.localName() == "list-header"))
-    fail("Creating a new list item requires the structural list editor");
   TextList parts = splitting ? inserted.split('\n') : TextList{inserted};
   auto path = insertion_path(all[first].node, begin - all[first].start);
   std::vector<XmlElement> replacements;
@@ -358,5 +503,13 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     parent.insertBefore(p, all[first].node);
   for (size_t i = first; i <= last; ++i)
     parent.removeChild(all[i].node);
+  if (text_element(parent, "list-item") ||
+      text_element(parent, "list-header")) {
+    split_items(parent, replacements);
+    // A new item can overflow a continued/consecutive counter elsewhere in
+    // the document. Validate the candidate before TextDocument commits it.
+    if (changed_list || replacements.size() > 1)
+      (void)read_text_flow(package);
+  }
 }
 } // namespace DomeOffice
