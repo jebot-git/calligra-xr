@@ -17,6 +17,7 @@
 #include <FL/Fl_SVG_Image.H>
 #include <FL/Fl_Table.H>
 #include <FL/Fl_Text_Editor.H>
+#include <FL/fl_draw.H>
 #include <FL/platform.H>
 #include <fstream>
 #include <functional>
@@ -72,12 +73,38 @@ enum Command {
     PageLayout
 };
 class Grid : public Fl_Table {
+    std::map<std::pair<int, int>, std::string> painted;
+
 public:
     std::function<std::string(int, int)> text;
+    std::function<NativeValue(int, int)> value;
     std::function<void(int, int)> select;
     std::function<void(const std::string&)> paste;
     std::function<void()> edit;
     int selected_row = 0, selected_col = 0;
+    std::optional<std::string> painted_value(int row, int col) const
+    {
+        auto found = painted.find({ row, col });
+        return found == painted.end() ? std::nullopt : std::optional(found->second);
+    }
+    std::string fitted_text(int row, int col, int width)
+    {
+        auto full = text(row, col);
+        auto cell = value(row, col).scalar();
+        if (cell.kind != NativeValue::Number || cell.format != NativeValue::General || fl_width(full.c_str()) <= width)
+            return full;
+        for (int precision = 14; precision >= 1; --precision) {
+            auto candidate = utf8(Text::number(cell.number, 'g', precision));
+            if (fl_width(candidate.c_str()) <= width)
+                return candidate;
+        }
+        // A clipped exponent changes the apparent magnitude. Indicate an
+        // insufficient width while retaining the full value for copying/editing.
+        std::string overflow;
+        while (overflow.size() < 64 && fl_width((overflow + '#').c_str()) <= width)
+            overflow += '#';
+        return overflow;
+    }
     Grid(int x, int y, int w, int h)
         : Fl_Table(x, y, w, h)
     {
@@ -109,6 +136,7 @@ public:
     void draw_cell(TableContext context, int row, int col, int x, int y, int w, int h) override
     {
         if (context == CONTEXT_STARTPAGE) {
+            painted.clear();
             fl_font(dx::font, dx::size);
             return;
         }
@@ -123,7 +151,9 @@ public:
         fl_rect(x, y, w, h);
         fl_color(selected ? fl_contrast(FL_FOREGROUND_COLOR, FL_SELECTION_COLOR) : FL_FOREGROUND_COLOR);
         std::string value
-            = header ? (context == CONTEXT_ROW_HEADER ? std::to_string(row + 1) : column_name(col)) : text(row, col);
+            = header ? (context == CONTEXT_ROW_HEADER ? std::to_string(row + 1) : column_name(col)) : fitted_text(row, col, w - 12);
+        if (!header)
+            painted[{ row, col }] = value;
         fl_draw(value.c_str(), x + 6, y + 2, w - 12, h - 4,
             header ? FL_ALIGN_CENTER : FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_CLIP);
         fl_pop_clip();
@@ -292,6 +322,7 @@ public:
                 this);
             grid = new Grid(12, 98, 1076, 638);
             grid->text = [this](int r, int c) { return utf8(workbook->display(sheet, c + 1, r + 1)); };
+            grid->value = [this](int r, int c) { return workbook->value(sheet, c + 1, r + 1); };
             grid->select = [this](int r, int c) { guard([&] { select_cell(r, c); }); };
             grid->edit = [this] {
                 formula->take_focus();
@@ -942,11 +973,13 @@ public:
             { "desktop_menu",
                 { { "service", desktop_menu->serviceName() }, { "path", desktop_menu->objectPath() },
                     { "attached", desktop_menu->attached() } } } };
-        if (kind == Kind::Sheets)
+        if (kind == Kind::Sheets) {
             data["cell"] = { { "sheet", sheet }, { "row", grid->selected_row + 1 },
                 { "column", grid->selected_col + 1 }, { "input", formula->value() },
                 { "value", utf8(workbook->display(sheet, grid->selected_col + 1, grid->selected_row + 1)) } };
-        else
+            if (auto painted = grid->painted_value(grid->selected_row, grid->selected_col))
+                data["cell"]["painted_value"] = *painted;
+        } else
             data["text"] = buffer_text();
         if (kind == Kind::Words) {
             size_t shaped_lines = 0, glyphs = 0, missing = 0;

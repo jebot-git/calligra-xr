@@ -11,6 +11,7 @@
 // sheets/functions/financial.cpp. No original Qt value or calculation classes
 // participate in this module.
 #include "native_financial.h"
+#include "native_financial_dates.h"
 #include <limits>
 namespace DomeOffice {
 const NativeSignatures &financial_signatures() {
@@ -25,14 +26,15 @@ const NativeSignatures &financial_signatures() {
       {"CONTINUOUS", {3, 3}},   {"FV_ANNUITY", {3, 3}},  {"PV_ANNUITY", {3, 3}},
       {"LEVEL_COUPON", {5, 5}}, {"ZERO_COUPON", {3, 3}}, {"SLN", {3, 3}},
       {"SYD", {4, 4}},          {"DB", {4, 5}},          {"DDB", {4, 5}},
-      {"VDB", {5, 7}},          {"DOLLARDE", {2, 2}},    {"DOLLARFR", {2, 2}}};
+      {"VDB", {5, 7}},          {"DOLLARDE", {2, 2}},    {"DOLLARFR", {2, 2}},
+      {"XIRR", {2, 3}},         {"XNPV", {3, 3}}};
   return values;
 }
 Text financial_name(const Text &name) {
   static const Text prefix = "COM.SUN.STAR.SHEET.ADDIN.ANALYSIS.GET";
-  static const std::set<Text> aliases = {"CUMIPMT",    "CUMPRINC", "DOLLARDE",
-                                         "DOLLARFR",   "DURATION", "EFFECT",
-                                         "FVSCHEDULE", "NOMINAL"};
+  static const std::set<Text> aliases = {
+      "CUMIPMT", "CUMPRINC",   "DOLLARDE", "DOLLARFR", "DURATION",
+      "EFFECT",  "FVSCHEDULE", "NOMINAL",  "XIRR",     "XNPV"};
   if (name.startsWith(prefix)) {
     auto base = name.mid(prefix.size());
     if (aliases.contains(base))
@@ -271,12 +273,15 @@ NativeValue financial_function(const Text &input,
       args.size() > signature->second.second)
     fail("#VALUE!");
   size_t records = 0;
+  size_t record_limit = (name == "XIRR" || name == "XNPV") ? 2000003 : 1000000;
   for (const auto &arg : args) {
     size_t size = arg.isArray() && arg.items ? arg.items->size() : 1;
-    if (size > 1000000 - records)
+    if (size > record_limit - records)
       throw V::error("#LIMIT!", true);
     records += size;
   }
+  if (name == "XIRR" || name == "XNPV")
+    return financial_date_function(name, args);
   // Standard DURATION is the date/coupon overload; until its calendar model
   // is ported it must remain incomplete so supported source caches survive.
   if (name == "DURATION" && args.size() != 3)

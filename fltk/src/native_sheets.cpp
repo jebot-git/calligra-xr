@@ -314,12 +314,6 @@ class Parser {
       size_t row_width = 0;
       do {
         auto item = parse(0);
-        bool constant = item->kind == Node::Literal ||
-                        (item->kind == Node::Unary &&
-                         (item->name == "+" || item->name == "-") &&
-                         item->args[0]->kind == Node::Literal);
-        if (!constant)
-          fail();
         out->args.push_back(item);
         ++row_width;
         if (take(','))
@@ -812,6 +806,10 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
   case Node::Range:
     return array_context ? materialize(*area(e)) : intersect(*area(e));
   case Node::Array: {
+    // Retained Calligra formulas allow scalar expressions in array entries,
+    // including DATE calls and cell references. A multi-cell result remains
+    // a nested array and is rejected by the typed-array constructor.
+    FlagScope elements(array_context, true);
     std::vector<Value> data;
     data.reserve(e->args.size());
     for (const auto &item : e->args)
@@ -908,7 +906,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "SHEET",   "SHEETS",  "ROWS",        "COLUMNS",   "MATCH",
       "LOOKUP",  "VLOOKUP", "HLOOKUP",     "TRANSPOSE", "SUMPRODUCT",
       "MMULT",   "MDETERM", "MINVERSE",    "IMSUM",     "IMPRODUCT",
-      "IRR",     "MIRR",    "FVSCHEDULE"};
+      "IRR",     "MIRR",    "FVSCHEDULE",  "XIRR",      "XNPV"};
   bool caller_array_context = array_context;
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name));

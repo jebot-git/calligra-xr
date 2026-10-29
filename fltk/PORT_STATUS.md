@@ -36,12 +36,16 @@ including complex arithmetic, units, Bessel/error functions and base conversion.
 Complex results retain both coefficients in the native model and save ODF caches
 as strings. Independent SciPy, cmath, mpmath and Pint references, the retained
 upstream cases, external ODF/XLSX producers and real keyboard edit/save/reopen
-checks cover this module. A native financial module now covers 33 annuity,
+checks cover this module. A native financial module now covers 35 annuity,
 amortization, periodic cash-flow, depreciation and related names. It shares
 stable near-zero-rate calculations, preserves sparse sequence semantics and
 checks convergence/work limits. The original fractional VDB algorithms and
-three-argument DURATION extension are retained. Calendar-dependent coupon/bond
-functions, irregular-date cash flows, euro conversion, the remaining
+three-argument DURATION extension are retained. XIRR/XNPV now use native date
+conversion, paired cash flows, stable scaled sums and safeguarded log-rate
+solving. Both Excel epochs are covered by independent documents. Scalar array
+entries also accept the expressions used by retained Calligra date formulas.
+Real numeric grid labels now fit their column without clipping an exponent.
+Calendar-dependent coupon/bond functions, euro conversion, the remaining
 statistical catalogue and complete model remain unported. Standard coupon
 DURATION stays incomplete so its original caches survive saving.
 Passing the retained document and GUI tests does not establish full function

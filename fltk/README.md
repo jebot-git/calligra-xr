@@ -224,6 +224,9 @@ OpenFormula column/row separators in saved ODF. Scalar functions and arithmetic
 map arrays element by element. Ordinary range expressions use scalar
 intersection; range-consuming functions and fixed matrix formulas evaluate
 complete arrays, including nested scalar functions.
+The retained Calligra extension also permits scalar expressions and references
+inside array entries, including `DATE(...)`. Nested/multi-cell array entries
+report a value error instead of silently choosing an element.
 
 Reference and lookup functions include CHOOSE, INDEX, MATCH, LOOKUP,
 VLOOKUP/HLOOKUP, OFFSET, INDIRECT, ROW/COLUMN, ROWS/COLUMNS and SHEET/SHEETS.
@@ -271,12 +274,12 @@ text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` retu
 `#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
 errors; special-function non-convergence cannot terminate the application.
 
-The native financial module implements 33 names: `PMT`, `PV`, `FV`, `NPER`,
+The native financial module implements 35 names: `PMT`, `PV`, `FV`, `NPER`,
 `RATE`, `IPMT`, `PPMT`, `ISPMT`, `CUMIPMT`, `CUMPRINC`, `NPV`, `IRR`, `MIRR`,
 `FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, legacy three-argument
 `DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
-`LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`
-and `DOLLARFR`. Loan functions share stable annuity calculations, including
+`LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`,
+`DOLLARFR`, `XIRR` and `XNPV`. Loan functions share stable annuity calculations, including
 zero/near-zero rates, and cumulative interest uses a closed sum. Iterative
 return/rate solvers have bounded work and report non-convergence as a cell
 error. Fractional VDB boundaries retain the original calculation behavior.
@@ -286,8 +289,19 @@ sequences; direct scalar arguments follow numeric conversion. Scalar financial
 functions map typed arrays. Applicable legacy analysis, Excel `_xlfn.` and
 `COM.MICROSOFT.` names resolve to the same implementations.
 
-Calendar-dependent bond/coupon functions, irregular-date cash flows and legacy
-euro conversions remain unported. In particular, standard five/six-argument
+`XIRR`/`XNPV` retain cash/date pairing and combine equal-date flows. Dates use
+the native Gregorian calendar and common serial epoch, with imported 1900/1904
+Excel dates normalized before calculation. ISO date text is accepted, and
+fractional serial days are truncated. The solver works in log-rate space with
+a contracting bracket and bounded Newton steps; zero leading flows and extreme
+date spans do not change its root. Array shape differences retain row-wise
+pairing; invalid dates, mismatched counts and non-convergence return cell errors.
+Real numeric grid labels reduce precision to fit the column, retaining their
+exponent; insufficient widths show overflow markers. Copying and editing retain
+the full value. Complete number/style/locale formatting remains unported.
+
+Calendar-dependent bond/coupon functions and legacy euro conversions remain
+unported. In particular, standard five/six-argument
 `DURATION` remains incomplete and preserves its original cached result; it is
 distinct from the retained three-argument Calligra extension. The supported
 periodic functions do not establish full financial-module fidelity.

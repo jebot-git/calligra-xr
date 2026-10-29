@@ -569,3 +569,56 @@ uv run --with numpy-financial --with odfpy --with openpyxl --with Pillow --with 
 Coupon/bond/date-basis behavior, irregular-date cash flows, euro conversions and
 the remaining original calculation/model/format catalogue remain unfinished.
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-financial-20261029/`.
+
+## Native irregular cash flows and numeric labels — 2026-10-29
+
+XIRR/XNPV now use native Gregorian dates, matched cash/date entries and stable
+exponentially scaled sums. A shared converter accepts native serial dates and
+ISO date/date-time text over years 1–9999 and truncates fractional serial days.
+Equal-date cash flows combine before evaluation; exact cancellation cannot
+manufacture a return rate. XIRR uses a log-rate solve with a contracting bracket,
+safeguarded Newton steps, finite iteration and term budgets. Leading zero flows
+and dates near the supported calendar limits are covered. The full source
+calculation-settings/locale/date-basis model remains unfinished.
+
+`dated_cashflow_reference.py` checks 685 cases against retained Calligra cases,
+independent SciPy bracketed roots and high-precision mpmath sums. Coverage
+includes negative returns, shuffled and duplicate dates, leap years, different
+array shapes, multiple roots selected by a guess, long spans and legacy/Excel
+namespaces. Both Release and ASan/UBSan runs pass. The existing 1,978 periodic
+financial comparisons still pass in each build; the registered financial group
+now contains 35 names. Contracts are referenced to
+[OpenFormula 1.4 sections 6.12.51–52](https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part4-formula.pdf).
+
+The retained date corpus exposed the parser's literal-only array restriction.
+Array entries now accept scalar expressions and references, including DATE
+calls, with normal dependency/error handling. Nested and multi-cell entries
+produce a value error. This is a retained Calligra extension; the independent
+XLSX producer instead uses the standard CHOOSE array construction. ODS and
+both 1900/1904 XLSX producers check exact normalized serial dates, recalculation,
+dependent values, saved caches and unchanged source files. XLSX import can
+normalize date-only labels to midnight ISO date-times; both representations
+are checked against the same exact serial date.
+
+`dated_cashflow_ui.py` follows the displayed results through a positive-to-negative
+return change, keyboard undo/redo, save and reopen. Unchanged package members
+and caches for unported bond calculations survive. Visual inspection exposed
+clipped numeric exponents: real numeric grid labels now reduce precision to fit,
+or show overflow markers. The QA report records the string actually painted by
+the grid; GUI checks compare that label's numeric magnitude with the full value.
+The full value remains available for copying and editing. Complete original
+number/style/locale and complex-number formatting is still unfinished.
+
+All 26 core suites pass in Release and ASan/UBSan with core leak checking. Both
+dedicated GUI checks pass; GUI leak checking excludes third-party toolkit
+allocations. Private native Wayland checks use system FLTK, with no Qt mapped.
+GTK3 remains dynamically loaded through system decorations. Software OpenGL
+tests do not establish hardware performance or spatial XR fidelity.
+
+```sh
+uv run --with scipy --with mpmath python3 fltk/tests/dated_cashflow_reference.py
+uv run --with scipy --with odfpy --with openpyxl python3 fltk/tests/dated_cashflow_producer.py /tmp/calligra-dated
+uv run --with scipy --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/dated_cashflow_ui.py
+```
+
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-dated-cashflows-20261029/`.

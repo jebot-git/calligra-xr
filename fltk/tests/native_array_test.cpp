@@ -54,7 +54,11 @@ int main() {
   scalar("=SUM({1,2;3,4})", "10");
   scalar("=SUM({1,2}+{3;4})", "#VALUE!");
   scalar("=SUM({1,2;3})", "#PARSE!");
-  scalar("=SUM({A1,2})", "#PARSE!");
+  scalar("=SUM({A1,2})", "12");
+  matrix("={A1+1,SUM(A1:A2),DATE(2024,1,1)}", 1, 3, {11, 30, 45292});
+  scalar("=SUM({A1:A2,2})", "#VALUE!");
+  scalar("=SUM({{1,2},3})", "#VALUE!");
+  scalar("=SUM({IF(TRUE,10,1/0),2})", "12");
   auto division = eval("={1,2;3,4}/{1,0;0,2}");
   assert(division.isArray() && division.at(0, 0).number == 1 &&
          division.at(1, 1).number == 2);
