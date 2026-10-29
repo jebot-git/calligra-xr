@@ -78,7 +78,7 @@ def verify(path,test_bin_dir,directory,money=1000):
     for column,(got,want) in enumerate(zip(rows[0],expected(money)),1):
         if column in dates:
             assert got['display'] in (want,want+'T00:00:00.000Z'),(path,column,got,want)
-            assert got['value']==(DATES[column-2]-dt.date(1899,12,30)).days,(path,column,got)
+            assert got['value']==(DATES[column-2]-(dt.date(1904,1,1) if path.suffix=='.xlsx' and '1904' in path.stem else dt.date(1899,12,30))).days,(path,column,got)
         elif isinstance(want,str):assert got['display']==want,(path,column,got,want)
         else:assert got['kind']==1 and math.isclose(got['value'],want,rel_tol=5e-12,abs_tol=1e-8),(path,column,got,want)
         assert got['incomplete']==(column in incomplete),(column,got)

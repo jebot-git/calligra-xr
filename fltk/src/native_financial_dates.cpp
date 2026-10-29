@@ -55,7 +55,8 @@ struct Flows {
   Real norm = 0;
   bool positive = false, negative = false;
 };
-Flows flows(const V &values, const V &dates, bool numeric_sequence) {
+Flows flows(const V &values, const V &dates, bool numeric_sequence,
+            const NativeCalculationSettings &settings) {
   std::vector<Real> amounts;
   for (const auto &v : items(values)) {
     if (v.isError())
@@ -72,7 +73,7 @@ Flows flows(const V &values, const V &dates, bool numeric_sequence) {
   auto date_items = items(dates);
   if (amounts.empty() || amounts.size() != date_items.size())
     fail("#NUM!");
-  const auto first = calendar_date(date_items.front());
+  const auto first = calendar_date(date_items.front(), settings);
   Flows out;
   for (auto amount : amounts)
     out.norm = std::max(out.norm, std::abs(amount));
@@ -80,7 +81,7 @@ Flows flows(const V &values, const V &dates, bool numeric_sequence) {
   // exactly; their cancellation must not manufacture a spurious IRR.
   std::map<int, Sum> by_day;
   for (size_t i = 0; i < amounts.size(); ++i) {
-    auto day = calendar_date(date_items[i]);
+    auto day = calendar_date(date_items[i], settings);
     int delta = int((day - first).count());
     if (delta < 0)
       fail("#NUM!");
@@ -198,15 +199,16 @@ Real xirr(const Flows &flows, Real guess) {
   fail("#NUM!");
 }
 } // namespace
-NativeValue financial_date_function(const Text &name,
-                                    const std::vector<V> &args) try {
+NativeValue
+financial_date_function(const Text &name, const std::vector<V> &args,
+                        const NativeCalculationSettings &settings) try {
   bool irr = name == "XIRR";
   if (name != "XIRR" && name != "XNPV")
     return V::error("#NAME?", true);
   if ((irr && (args.size() < 2 || args.size() > 3)) ||
       (!irr && args.size() != 3))
     fail("#VALUE!");
-  auto data = flows(args[irr ? 0 : 1], args[irr ? 1 : 2], irr);
+  auto data = flows(args[irr ? 0 : 1], args[irr ? 1 : 2], irr, settings);
   if (irr)
     return V::numeric(
         double(xirr(data, args.size() == 3 ? scalar(args[2]) : .1L)));

@@ -130,14 +130,16 @@ bool bond_function_name(const Text &name) {
          name == "DURATION_ADD" || name == "MDURATION";
 }
 NativeValue bond_function(const Text &name,
-                          const std::vector<NativeValue> &args) try {
+                          const std::vector<NativeValue> &args,
+                          const NativeCalculationSettings &settings) try {
   if (!bond_function_name(name))
     return V::error("#NAME?", true);
   bool valuation = name == "PRICE" || name == "YIELD";
   size_t required = valuation ? 6 : 5;
   if (args.size() < required || args.size() > required + 1)
     fail("#VALUE!");
-  auto settlement = calendar_date(args[0]), maturity = calendar_date(args[1]);
+  auto settlement = calendar_date(args[0], settings),
+       maturity = calendar_date(args[1], settings);
   Real coupon_rate = numeric(args[2]), rate_or_price = numeric(args[3]);
   Real redemption = valuation ? numeric(args[4]) : 100;
   Real frequency = std::trunc(numeric(args[required - 1]));

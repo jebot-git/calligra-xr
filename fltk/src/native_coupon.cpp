@@ -74,11 +74,11 @@ bool logical(const V &v) {
   }
   return numeric(v) != 0;
 }
-V date_result(sys_days date) {
+V date_result(sys_days date, const NativeCalculationSettings &settings) {
   auto d = year_month_day(date);
   if (int(d.year()) < 1 || int(d.year()) > 9999)
     fail("#NUM!");
-  auto out = V::numeric((date - sys_days(year(1899) / 12 / 30)).count());
+  auto out = V::numeric((date - settings.reference_date()).count());
   out.format = V::Date;
   char text[32];
   std::snprintf(text, sizeof text, "%04d-%02u-%02u", int(d.year()),
@@ -116,12 +116,14 @@ bool coupon_function_name(const Text &name) {
          name == "COUPNCD" || name == "COUPNUM" || name == "COUPPCD";
 }
 NativeValue coupon_function(const Text &name,
-                            const std::vector<NativeValue> &args) try {
+                            const std::vector<NativeValue> &args,
+                            const NativeCalculationSettings &settings) try {
   if (!coupon_function_name(name))
     return V::error("#NAME?", true);
   if (args.size() < 3 || args.size() > (name == "COUPNUM" ? 5 : 4))
     fail("#VALUE!");
-  auto settlement = calendar_date(args[0]), maturity = calendar_date(args[1]);
+  auto settlement = calendar_date(args[0], settings),
+       maturity = calendar_date(args[1], settings);
   auto frequency = std::trunc(numeric(args[2]));
   auto basis = args.size() > 3 ? std::trunc(numeric(args[3])) : 0;
   if (frequency < 1 || frequency > 12 || basis < 0 || basis > 5)
@@ -129,7 +131,8 @@ NativeValue coupon_function(const Text &name,
   auto period = coupon_period(settlement, maturity, int(frequency), int(basis),
                               args.size() < 5 || logical(args[4]));
   if (name == "COUPNCD" || name == "COUPPCD")
-    return date_result(name == "COUPNCD" ? period.next : period.previous);
+    return date_result(name == "COUPNCD" ? period.next : period.previous,
+                       settings);
   return V::numeric(double(name == "COUPNUM"     ? period.remaining
                            : name == "COUPDAYS"  ? period.days
                            : name == "COUPDAYBS" ? period.before

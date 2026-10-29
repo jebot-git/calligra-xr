@@ -20,6 +20,9 @@ public:
     void add_sheet(const Text& name);
     int rows(int sheet) const;
     int columns(int sheet) const;
+    const NativeCalculationSettings &calculation_settings() const {
+      return map_->calculation_settings();
+    }
     bool imported_xlsx() const { return imported_xlsx_; }
     bool read_only() const { return package_.read_only() || protected_; }
 
@@ -32,7 +35,7 @@ private:
     bool protected_ = false;
     bool imported_xlsx_ = false;
     void load_package(OdfPackage candidate);
-    void initialize();
+    void initialize(NativeCalculationSettings settings = {});
     void recalculate();
 };
 } // namespace DomeOffice

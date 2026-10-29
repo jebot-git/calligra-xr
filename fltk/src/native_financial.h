@@ -4,5 +4,6 @@
 namespace DomeOffice {
 const NativeSignatures &financial_signatures();
 Text financial_name(const Text &);
-NativeValue financial_function(const Text &, const std::vector<NativeValue> &);
+NativeValue financial_function(const Text &, const std::vector<NativeValue> &,
+                               const NativeCalculationSettings & = {});
 } // namespace DomeOffice

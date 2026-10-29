@@ -4,5 +4,6 @@
 namespace DomeOffice {
 bool amortization_function_name(const Text &);
 NativeValue amortization_function(const Text &,
-                                  const std::vector<NativeValue> &);
+                                  const std::vector<NativeValue> &,
+                                  const NativeCalculationSettings & = {});
 } // namespace DomeOffice

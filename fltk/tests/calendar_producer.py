@@ -62,7 +62,7 @@ def verify(path,test_bin_dir,directory,cash=1000):
         elif isinstance(want,str):assert got['display']==want,(path,column,got,want)
         else:assert got['kind']==1 and math.isclose(got['value'],want,rel_tol=3e-12,abs_tol=1e-10),(path,column,got,want)
         assert got['incomplete']==(column in incomplete),(column,got)
-    for row,date in zip(rows,DATES):assert row[0]['value']==(date-dt.date(1899,12,30)).days
+    for row,date in zip(rows,DATES):assert row[0]['value']==(date-(dt.date(1904,1,1) if path.suffix=='.xlsx' and '1904' in path.stem else dt.date(1899,12,30))).days
     office='{urn:oasis:names:tc:opendocument:xmlns:office:1.0}';table='{urn:oasis:names:tc:opendocument:xmlns:table:1.0}'
     with zipfile.ZipFile(saved) as z:
         root=ET.fromstring(z.read('content.xml'));cells=next(root.iter(table+'table-row')).findall(table+'table-cell')

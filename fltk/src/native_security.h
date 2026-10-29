@@ -3,5 +3,6 @@
 #include "native_sheets.h"
 namespace DomeOffice {
 bool security_function_name(const Text &);
-NativeValue security_function(const Text &, const std::vector<NativeValue> &);
+NativeValue security_function(const Text &, const std::vector<NativeValue> &,
+                              const NativeCalculationSettings & = {});
 } // namespace DomeOffice

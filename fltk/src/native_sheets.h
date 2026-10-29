@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "native_calculation_settings.h"
 #include "native_limits.h"
 #include "native_types.h"
 #include <cmath>
@@ -120,7 +121,8 @@ class SheetEngine {
   std::unique_ptr<Impl> impl_;
 
 public:
-  SheetEngine();
+  explicit SheetEngine(NativeCalculationSettings settings = {});
+  const NativeCalculationSettings &calculation_settings() const;
   ~SheetEngine();
   int count() const;
   NativeSheet *sheet(int s) const;

@@ -3,5 +3,6 @@
 #include "native_sheets.h"
 namespace DomeOffice {
 NativeValue financial_date_function(const Text &,
-                                    const std::vector<NativeValue> &);
+                                    const std::vector<NativeValue> &,
+                                    const NativeCalculationSettings & = {});
 } // namespace DomeOffice

@@ -7,8 +7,9 @@ namespace DomeOffice {
 bool amortization_function_name(const Text &name) {
   return name == "AMORLINC" || name == "AMORDEGRC";
 }
-NativeValue amortization_function(const Text &name,
-                                  const std::vector<NativeValue> &args) try {
+NativeValue
+amortization_function(const Text &name, const std::vector<NativeValue> &args,
+                      const NativeCalculationSettings &settings) try {
   using namespace FinancialValues;
   if (!amortization_function_name(name))
     return V::error("#NAME?", true);
@@ -19,7 +20,8 @@ NativeValue amortization_function(const Text &name,
       fail("#VALUE!");
   Real cost = number(args[0]), salvage = number(args[3]);
   Real period = std::trunc(number(args[4])), rate = number(args[5]);
-  auto purchase = calendar_date(args[1]), end = calendar_date(args[2]);
+  auto purchase = calendar_date(args[1], settings),
+       end = calendar_date(args[2], settings);
   int basis = args.size() > 6 ? integer(args[6], 0, 4) : 0;
   if (cost < 0 || salvage < 0 || period < 0 || rate < 0)
     fail("#VALUE!");

@@ -980,3 +980,55 @@ accrued-interest and historical conversion values selected by keyboard. Process
 maps use system FLTK and no Qt; GTK3 remains dynamically loaded by libdecor.
 Software GL is not hardware/spatial XR validation. Installation remains separately
 verified against the exact stage, without restarting active sessions.
+
+## Workbook-owned date calculation context — 2026-10-29
+
+The native evaluator now takes an explicit per-engine reference date. ODF
+`table:calculation-settings/table:null-date` is loaded before cell parsing and
+applies to date literals/datetimes, DATE, YEAR/MONTH/DAY, YEARFRAC/DAYS360 and
+all dated financial families, including mixed serial/ISO cash-flow arrays and
+typed coupon results. Engines own immutable copies; evaluating or loading another
+workbook cannot change an existing workbook's epoch. Missing/invalid date
+settings follow the retained loader's default fallback. Other settings and
+unknown metadata are preserved, without claiming that their behavior is ported.
+
+XLSX 1904 imports now generate a 1904-01-01 null date. Previously only styled
+date cells were rebased, leaving unformatted serials and formula constants in a
+different epoch. Raw serials, DATE results and styled dates now agree, including
+after ODS save/reopen. Default/1900 import normalization and its unsupported
+phantom/early-date cases are unchanged. Negative serials are valid when their
+civil date remains within years 1–9999. Date extraction also accepts ISO strings.
+Complete original DATE normalization, locale parsing, Boolean/empty coercion,
+reference-year handling and the remaining calculation settings are still work
+for the full engine port.
+
+The 31 Release and ASan/UBSan CTest suites pass, with leak detection enabled for
+core tests. The new suite interleaves default and five other engine epochs,
+checks every dated function family, numeric/civil mixtures, typed output,
+range errors, invalid settings, independently open documents, saved caches,
+unsupported-cache retention and reset on reload. Independent odfpy/openpyxl
+producers add seven ODS epochs (years 1–9999) and both XLSX date systems, with
+Python Gregorian/date and explicit financial references. All nine documents
+pass in both builds, including saved metadata/cache inspection and full model
+comparison after reopen. The previous 17 producer documents and 36,139 numeric
+references also pass in each build, retaining the previously documented nine
+calendar deviations and bond/Excel convention differences.
+
+`calculation_settings_ui.py` edits the principal in an ODS workbook whose epoch
+is 2000-01-01, visits all 21 calculated cells, verifies actual painted numeric
+labels, undo/redo, save/reopen, typed coupon dates and unchanged unrelated ZIP
+members. Release and sanitizer flows pass. The initial new producer expectation
+omitted first-period rounding in AMORDEGRC; it was corrected to the retained
+algorithm before the final passing runs. GUI leak checks remain disabled for
+third-party runtime allocations; core leak checks remain enabled.
+
+References: [ODF 1.4 Part 3 §9.4.2](https://docs.oasis-open.org/office/OpenDocument/part3-schema/OpenDocument-v1.4-os-part3-schema.html),
+retained `CalculationSettings`, `SheetsOdfDoc` and `Value::asDate` implementations.
+Reproduce the new independent documents and GUI flow with:
+
+```sh
+uv run --with odfpy --with openpyxl python3 fltk/tests/calculation_settings_producer.py /tmp/calligra-date-context
+uv run --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/calculation_settings_ui.py
+```
+
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-date-context-20261029/`.

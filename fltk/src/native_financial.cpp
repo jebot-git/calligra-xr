@@ -326,7 +326,8 @@ double variable_sum(double cost, double salvage, double life, double remaining,
 }
 } // namespace
 NativeValue financial_function(const Text &input,
-                               const std::vector<NativeValue> &args) try {
+                               const std::vector<NativeValue> &args,
+                               const NativeCalculationSettings &settings) try {
   const auto name = financial_name(input);
   auto signature = financial_signatures().find(name);
   if (signature == financial_signatures().end())
@@ -343,15 +344,15 @@ NativeValue financial_function(const Text &input,
     records += size;
   }
   if (name == "XIRR" || name == "XNPV")
-    return financial_date_function(name, args);
+    return financial_date_function(name, args, settings);
   if (coupon_function_name(name))
-    return coupon_function(name, args);
+    return coupon_function(name, args, settings);
   if (bond_function_name(name) && (name != "DURATION" || args.size() != 3))
-    return bond_function(name, args);
+    return bond_function(name, args, settings);
   if (security_function_name(name))
-    return security_function(name, args);
+    return security_function(name, args, settings);
   if (amortization_function_name(name))
-    return amortization_function(name, args);
+    return amortization_function(name, args, settings);
   if (euro_function_name(name))
     return euro_function(name, args);
   auto n = [&](size_t index, Real fallback = 0) {
@@ -360,7 +361,8 @@ NativeValue financial_function(const Text &input,
   auto result = [](Real value) { return V::numeric(double(value)); };
   if (name == "ACCRINTM" || name == "DISC" || name == "INTRATE" ||
       name == "PRICEDISC" || name == "RECEIVED" || name == "YIELDDISC") {
-    auto start = calendar_date(args[0]), end = calendar_date(args[1]);
+    auto start = calendar_date(args[0], settings),
+         end = calendar_date(args[1], settings);
     const char *invalid = name == "DISC" ? "#NUM!" : "#VALUE!";
     auto basis = std::trunc(n(4));
     if (basis < 0 || basis > 4 || start > end ||

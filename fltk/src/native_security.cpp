@@ -33,7 +33,8 @@ bool security_function_name(const Text &name) {
          name == "TBILLPRICE" || name == "TBILLYIELD";
 }
 NativeValue security_function(const Text &name,
-                              const std::vector<NativeValue> &args) try {
+                              const std::vector<NativeValue> &args,
+                              const NativeCalculationSettings &settings) try {
   using namespace FinancialValues;
   using namespace std::chrono;
   if (!security_function_name(name))
@@ -43,10 +44,11 @@ NativeValue security_function(const Text &name,
   if (name == "ACCRINT") {
     if (args.size() < 6 || args.size() > 7)
       fail("#VALUE!");
-    auto issue = calendar_date(args[0]), settlement = calendar_date(args[2]);
+    auto issue = calendar_date(args[0], settings),
+         settlement = calendar_date(args[2], settings);
     // The retained six/seven-argument algorithm validates but does not use
     // the first-interest date to divide the interval into coupon periods.
-    (void)calendar_date(args[1]);
+    (void)calendar_date(args[1], settings);
     int frequency = integer(args[5], 1, 12);
     int basis = args.size() > 6 ? integer(args[6], 0, 4) : 0;
     Real rate = n(3), par = n(4);
@@ -57,7 +59,8 @@ NativeValue security_function(const Text &name,
   if (name == "TBILLEQ" || name == "TBILLPRICE" || name == "TBILLYIELD") {
     if (args.size() != 3)
       fail("#VALUE!");
-    auto start = calendar_date(args[0]), end = calendar_date(args[1]);
+    auto start = calendar_date(args[0], settings),
+         end = calendar_date(args[1], settings);
     Real value = n(2);
     if (value <= 0)
       fail("#VALUE!");
@@ -89,8 +92,9 @@ NativeValue security_function(const Text &name,
   size_t required = odd ? 7 : 5;
   if (args.size() < required || args.size() > required + 1)
     fail("#VALUE!");
-  auto settlement = calendar_date(args[0]), maturity = calendar_date(args[1]);
-  auto issue = calendar_date(args[2]);
+  auto settlement = calendar_date(args[0], settings),
+       maturity = calendar_date(args[1], settings);
+  auto issue = calendar_date(args[2], settings);
   int basis = args.size() > required ? integer(args[required], 0, 4) : 0;
   Real rate = n(3), quote = n(4);
   if (settlement >= maturity || rate < 0)

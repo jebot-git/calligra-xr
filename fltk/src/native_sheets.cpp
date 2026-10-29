@@ -83,7 +83,8 @@ struct DepthGuard {
 Value numeric(double n) {
   return std::isfinite(n) ? Value::numeric(n) : error("#NUM!");
 }
-std::optional<Value> calendar_value(const Text &input) {
+std::optional<Value> calendar_value(const Text &input,
+                                    const NativeCalculationSettings &settings) {
   if (input.size() > 128)
     return {};
   bool iso_date = input.size() >= 10 && input[4] == '-' && input[7] == '-';
@@ -95,9 +96,8 @@ std::optional<Value> calendar_value(const Text &input) {
   if (day.valid || time.valid) {
     if (!day.valid)
       day = time.day;
-    auto serial = (std::chrono::sys_days(day.day) -
-                   std::chrono::sys_days(std::chrono::year(1899) / 12 / 30))
-                      .count();
+    auto serial =
+        (std::chrono::sys_days(day.day) - settings.reference_date()).count();
     Value value =
         numeric(serial + (time.valid ? time.time.ms / 86400000.0 : 0));
     value.format = Value::Date;
@@ -532,6 +532,7 @@ struct SheetEngine::Impl {
     Expr expression;
   };
   SheetEngine *owner;
+  const NativeCalculationSettings settings;
   std::vector<std::unique_ptr<NativeSheet>> sheets;
   std::map<Address, Cell> cells;
   std::map<Text, Expr> names;
@@ -545,7 +546,8 @@ struct SheetEngine::Impl {
   mutable Address current{0, 1, 1};
   mutable bool array_context = false;
   mutable bool calculation_incomplete = false;
-  explicit Impl(SheetEngine *p) : owner(p) {}
+  explicit Impl(SheetEngine *p, NativeCalculationSettings context)
+      : owner(p), settings(context) {}
   int sheet_index(const Text &name) const {
     for (auto &s : sheets)
       if (s->name.compare(name, CaseInsensitive) == 0)
@@ -1055,7 +1057,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     std::vector<Value> args;
     for (size_t i = 0; i < count; ++i)
       args.push_back(arg(i));
-    return calendar_function(name, args);
+    return calendar_function(name, args, settings);
   }
   if (financial_signatures().contains(name)) {
     std::vector<Value> args;
@@ -1083,7 +1085,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       } else
         args.push_back(values.front());
     }
-    return financial_function(name, args);
+    return financial_function(name, args, settings);
   }
   if (engineering_signatures().contains(name)) {
     std::vector<Value> args;
@@ -1723,18 +1725,11 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         std::chrono::months(month - 1);
     auto date = std::chrono::sys_days(base / std::chrono::day(1)) +
                 std::chrono::days(day - 1);
-    double serial =
-        (date - std::chrono::sys_days(std::chrono::year(1899) / 12 / 30))
-            .count();
+    double serial = (date - settings.reference_date()).count();
     return numeric(serial);
   }
   if (name == "YEAR" || name == "MONTH" || name == "DAY") {
-    double serial = n(0);
-    if (serial < 0 || serial > 2958465)
-      return error("#NUM!");
-    auto date = std::chrono::year_month_day(
-        std::chrono::sys_days(std::chrono::year(1899) / 12 / 30) +
-        std::chrono::days(int(serial)));
+    auto date = std::chrono::year_month_day(calendar_date(arg(0), settings));
     return numeric(name == "YEAR"    ? int(date.year())
                    : name == "MONTH" ? unsigned(date.month())
                                      : unsigned(date.day()));
@@ -1755,7 +1750,11 @@ Value SheetEngine::Impl::function(const Expr &e) const {
   }
   return error("#NAME?");
 }
-SheetEngine::SheetEngine() : impl_(std::make_unique<Impl>(this)) {}
+SheetEngine::SheetEngine(NativeCalculationSettings settings)
+    : impl_(std::make_unique<Impl>(this, settings)) {}
+const NativeCalculationSettings &SheetEngine::calculation_settings() const {
+  return impl_->settings;
+}
 SheetEngine::~SheetEngine() = default;
 int SheetEngine::count() const { return impl_->sheets.size(); }
 NativeSheet *SheetEngine::sheet(int s) const {
@@ -1806,7 +1805,7 @@ void SheetEngine::set(int s, int c, int r, const Text &value, bool literal) {
     cell.scalar =
         !literal && valid && std::isfinite(n) ? numeric(n) : Value(value);
     if (!literal && !valid)
-      if (auto calendar = calendar_value(value))
+      if (auto calendar = calendar_value(value, impl_->settings))
         cell.scalar = *calendar;
   }
   impl_->cells[{s, r, c}] = std::move(cell);

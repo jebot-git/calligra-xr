@@ -294,8 +294,12 @@ functions map typed arrays. Applicable legacy analysis, Excel `_xlfn.` and
 `COM.MICROSOFT.` names resolve to the same implementations.
 
 `XIRR`/`XNPV` retain cash/date pairing and combine equal-date flows. Dates use
-the native Gregorian calendar and common serial epoch, with imported 1900/1904
-Excel dates normalized before calculation. ISO date text is accepted, and
+the native Gregorian calendar and an explicit workbook-owned serial epoch. ODF
+`table:null-date` applies to imported dates, `DATE`, date extraction, calendar
+functions and all dated financial families. XLSX 1904 imports retain 1904-01-01
+as their ODF null date, so raw serials and formula constants agree with styled
+date cells. Default/1900 imports retain the existing 1899-12-30 normalization
+and early-Excel-date limits. ISO date text is accepted, and
 fractional serial days are truncated. The solver works in log-rate space with
 a contracting bracket and bounded Newton steps; zero leading flows and extreme
 date spans do not change its root. Array shape differences retain row-wise
@@ -303,6 +307,9 @@ pairing; invalid dates, mismatched counts and non-convergence return cell errors
 Real numeric grid labels reduce precision to fit the column, retaining their
 exponent; insufficient widths show overflow markers. Copying and editing retain
 the full value. Complete number/style/locale formatting remains unported.
+Each engine owns its context; opening another workbook does not change its
+calculation epoch. The original calculation settings beyond this reference date,
+locale parsing and complete date-function/coercion fidelity remain unported.
 
 The shared native Gregorian calendar now implements `YEARFRAC` and `DAYS360`
 with all five OpenFormula financial bases. Financial US Basis 0 and the signed

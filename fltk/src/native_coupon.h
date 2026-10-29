@@ -14,5 +14,6 @@ CouponPeriod coupon_period(std::chrono::sys_days settlement,
                            std::chrono::sys_days maturity, int frequency,
                            int basis = 0, bool end_of_month = true);
 bool coupon_function_name(const Text &);
-NativeValue coupon_function(const Text &, const std::vector<NativeValue> &);
+NativeValue coupon_function(const Text &, const std::vector<NativeValue> &,
+                            const NativeCalculationSettings & = {});
 } // namespace DomeOffice

@@ -74,11 +74,12 @@ bool logical(const V &v) {
 }
 int leap_years_through(int year) { return year / 4 - year / 100 + year / 400; }
 } // namespace
-std::chrono::sys_days calendar_date(const NativeValue &v) {
+std::chrono::sys_days calendar_date(const NativeValue &v,
+                                    const NativeCalculationSettings &settings) {
   using namespace std::chrono;
   if (v.isError())
     throw v;
-  const auto epoch = sys_days(year(1899) / 12 / 30);
+  const auto epoch = settings.reference_date();
   if (v.isNumber()) {
     auto serial = std::trunc(v.number);
     auto minimum = (sys_days(year(1) / 1 / 1) - epoch).count();
@@ -161,13 +162,15 @@ Text calendar_name(const Text &name) {
   return calendar_signatures().contains(base) ? base : name;
 }
 NativeValue calendar_function(const Text &input,
-                              const std::vector<NativeValue> &args) try {
+                              const std::vector<NativeValue> &args,
+                              const NativeCalculationSettings &settings) try {
   auto name = calendar_name(input);
   if (!calendar_signatures().contains(name))
     return V::error("#NAME?", true);
   if (args.size() < 2 || args.size() > 3)
     fail("#VALUE!");
-  auto start = calendar_date(args[0]), end = calendar_date(args[1]);
+  auto start = calendar_date(args[0], settings),
+       end = calendar_date(args[1], settings);
   if (name == "YEARFRAC") {
     auto basis = args.size() == 3 ? std::trunc(numeric(args[2])) : 0;
     if (basis < 0 || basis > 4)

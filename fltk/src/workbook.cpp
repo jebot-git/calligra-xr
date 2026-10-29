@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "workbook.h"
-#include "xlsx_import.h"
 #include "native_formula.h"
+#include "native_time.h"
+#include "xlsx_import.h"
 #include <mutex>
 #include <stdexcept>
 
@@ -91,9 +92,8 @@ Workbook::Workbook()
     initialize();
     add_sheet("Sheet1");
 }
-void Workbook::initialize()
-{
-    map_ = std::make_unique<SheetEngine>();
+void Workbook::initialize(NativeCalculationSettings settings) {
+  map_ = std::make_unique<SheetEngine>(settings);
 }
 int Workbook::sheet_count() const { return map_->count(); }
 Text Workbook::sheet_name(int s) const { return map_->sheet(s)->sheetName(); }
@@ -160,7 +160,24 @@ void Workbook::load_package(OdfPackage candidate)
     auto tables = children(candidate.body(), TABLE, "table");
     if (tables.isEmpty())
         fail("The document has no worksheets");
-    initialize();
+    NativeCalculationSettings settings;
+    auto declarations =
+        children(candidate.body(), TABLE, "calculation-settings");
+    if (!declarations.isEmpty())
+      for (auto element : children(declarations[0], TABLE, "null-date")) {
+        // Match the retained loader: absent/invalid declarations fall back
+        // to the default. Ignore other namespaces and nested lookalikes.
+        settings = NativeCalculationSettings();
+        if (element.attributeNS(TABLE, "value-type", "date") != "date")
+          continue;
+        auto value = element.attributeNS(TABLE, "date-value", "1899-12-30");
+        auto date =
+            value.size() <= 128 ? Date::fromString(value, ISODate) : Date();
+        if (date.valid && int(date.day.year()) >= 1 &&
+            int(date.day.year()) <= 9999)
+          settings = NativeCalculationSettings(date.day);
+      }
+    initialize(settings);
     tables_.clear();
     changed_.clear();
     formulas_.clear();
