@@ -192,3 +192,21 @@ native Wayland is the default and the target for presentation work.
 Keep complex originals until the full-model integrations and interoperability
 checks above are complete. This is a concrete limitation of this milestone,
 not a claim of a finished office replacement.
+
+
+## Structural table model — 2026-10-29
+
+The native flow now records ordered paragraph/table blocks and a bounded table
+grid. Nested tables, merged spans and covered cells, repeated rows/cells, header
+rows/columns, column widths/ratios, row dimensions, padding/background/border
+properties, alignment/direction, page/keep properties and scoped style inheritance
+are represented without Qt. Repeated content shares original paragraph identities;
+hidden source text in covered cells retains its editing offsets. A million-record
+expansion budget, 1,024 columns, 100,000 rows and 16 nested tables bound input.
+
+This is a source-model milestone. The existing page/frame previews still flatten
+paragraphs and explicitly report native cell layout as unsupported. They do not
+yet paint or paginate this grid. Cell text-style inheritance, width/height
+resolution, border conflict/painting, repeated headers, split/merged row pagination
+and source-aware cell selection are the next implementation stage. No claim of
+rendered table support or completed Words structure parity follows from this model.

@@ -2,6 +2,7 @@
 #pragma once
 #include "native_image.h"
 #include "odf_package.h"
+#include <array>
 #include <functional>
 #include <optional>
 
@@ -117,8 +118,72 @@ struct TextPageStyle {
   double top = 56.692913386, bottom = 56.692913386;
   TextColor background{255, 255, 255};
 };
+// Blocks preserve source paragraph identity while tables add a structural grid.
+// Repeated ODF rows/cells share their source blocks; editing remains source
+// based.
+struct TextBlock {
+  enum Kind { Paragraph, Table } kind = Paragraph;
+  size_t index = 0;
+};
+struct TextTableBorder {
+  enum Style {
+    None,
+    Solid,
+    Double,
+    Dashed,
+    Dotted,
+    Groove,
+    Ridge,
+    Inset,
+    Outset
+  } style = None;
+  double width = 0;
+  TextColor color;
+  std::optional<std::array<double, 3>> double_widths;
+};
+struct TextCellStyle {
+  // Top, right, bottom, left; borders and padding are inside the cell extent.
+  std::array<TextTableBorder, 4> borders;
+  std::array<double, 4> padding{};
+  std::optional<TextColor> background;
+  enum Vertical { Top, Middle, Bottom } vertical = Top;
+};
+struct TextTableCell {
+  Text style_name;
+  size_t row = 0, column = 0, rows = 1, columns = 1;
+  TextCellStyle style;
+  std::vector<TextBlock> blocks;
+};
+struct TextTableRow {
+  std::optional<double> height;
+  double minimum = 0;
+  bool keep_together = false, header = false, visible = true;
+  std::optional<TextColor> background;
+};
+struct TextTableColumn {
+  std::optional<double> width;
+  double relative = 0;
+  bool optimal = false, visible = true, header = false;
+  Text default_cell_style;
+};
+struct TextTable {
+  Text name, master;
+  std::vector<Text> unsupported;
+  std::vector<TextTableColumn> columns;
+  std::vector<TextTableRow> rows;
+  std::vector<TextTableCell> cells;
+  std::optional<double> width, relative_width;
+  double left = 0, right = 0, before = 0, after = 0;
+  enum Alignment { Full, Left, Center, Right, Margins } alignment = Full;
+  bool rtl = false, collapsing = false, visible = true;
+  bool break_before = false, break_after = false, keep_next = false;
+  bool may_break_rows = true;
+  std::optional<TextColor> background;
+};
 struct TextFlow {
   std::vector<TextParagraph> paragraphs;
+  std::vector<TextBlock> blocks;
+  std::vector<TextTable> tables;
   std::map<Text, TextPageStyle> masters;
   Text first_master;
   std::vector<Text> unsupported;

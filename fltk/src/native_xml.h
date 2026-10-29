@@ -218,6 +218,8 @@ public:
     return out;
   }
   XmlDocument ownerDocument() const;
+  // Stable while this node's shared document owner is retained.
+  const void *identity() const { return node_; }
   bool operator==(const XmlNode &o) const { return node_ == o.node_; }
   bool operator!=(const XmlNode &o) const { return !(*this == o); }
 };

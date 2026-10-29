@@ -322,3 +322,23 @@ regressions remain part of the broader validation. Passing these checks establis
 this module's tested behavior, not full spreadsheet or office-suite parity.
 Diagnostic JSON snapshots now replace their destination atomically; concurrent
 GUI readers cannot observe an empty or partially rewritten report.
+
+
+## Ordered native table source model — 2026-10-29
+
+All 20 Release document suites and all 20 ASan/UBSan suites pass, with core
+leak detection enabled. Independent producer checks also pass in both builds.
+The new `native-table-model` suite verifies ordered root/nested blocks, source
+paragraph identity across repetition, row/column spans, covered-cell text, header
+rows/columns, fixed/relative widths, padding/borders/backgrounds and inherited
+cell styles. Content automatic styles and master/header automatic styles are
+checked independently, including callers with separately parsed XML owners and
+repeated frame reads after a failed load. Source editing/save/reopen preserves
+the grid and original paragraph mapping.
+
+Malformed spans/coverage, cycles, invalid styles, nesting and expansion limits
+are checked, together with a 40,000-cell repeated grid that reads one source
+paragraph once. `table_model_producer.py` creates an independent odfpy ODT with
+headers, merged/repeated/nested cells and checks its model without modifying the
+package. These are source/model checks; table cell rendering and pagination are
+still explicitly unsupported and require the next port stage.

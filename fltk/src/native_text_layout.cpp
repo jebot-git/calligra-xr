@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_layout.h"
 #include "native_list_number.h"
+#include "native_table_model.h"
 #include "native_tabs.h"
 #include "native_text_shaper.h"
 #include <charconv>
@@ -75,6 +76,9 @@ TextColor text_color(const Text &value) {
 }
 struct Reader {
   TextFlow flow;
+  std::shared_ptr<OdfTableModelReader> table_reader;
+  std::vector<TextBlock> *block_target = nullptr;
+  size_t table_budget = 0, table_depth = 0;
   std::map<Text, XmlElement> paragraph_styles, text_styles;
   std::map<Text, XmlElement> common_paragraph_styles, common_text_styles;
   std::map<Text, XmlElement> master_paragraph_styles, master_text_styles;
@@ -926,7 +930,48 @@ struct Reader {
     tab_records += p.tabs.size();
     if (tab_records > 262144)
       fail("Document exceeds native tab style limit");
+    auto index = flow.paragraphs.size();
     flow.paragraphs.push_back(std::move(p));
+    (block_target ? *block_target : flow.blocks)
+        .push_back({TextBlock::Paragraph, index});
+  }
+  void table(const XmlElement &node, int depth) {
+    if (table_depth >= 16 || flow.tables.size() >= 4096)
+      fail("Excessive native table nesting or count");
+    if (!table_reader)
+      table_reader = std::make_shared<OdfTableModelReader>(documents);
+    struct Depth {
+      size_t &value;
+      Depth(size_t &v) : value(v) { ++value; }
+      ~Depth() { --value; }
+    } scope(table_depth);
+    auto model = table_reader->read(
+        node,
+        [&](const XmlElement &cell) {
+          std::vector<TextBlock> content;
+          auto previous = block_target;
+          block_target = &content;
+          try {
+            blocks(cell, depth + 1, nullptr);
+          } catch (...) {
+            block_target = previous;
+            throw;
+          }
+          block_target = previous;
+          return content;
+        },
+        table_budget, styles_source);
+    for (const auto &warning : model.unsupported)
+      note(flow.unsupported, warning);
+    // Geometry/pagination will consume the structural model in the next port
+    // step. Preserve the existing diagnostic while its preview is still flat.
+    note(flow.unsupported, "Native table cell layout is not implemented");
+    if (flow.tables.size() >= 4096)
+      fail("Too many native tables");
+    auto index = flow.tables.size();
+    flow.tables.push_back(std::move(model));
+    (block_target ? *block_target : flow.blocks)
+        .push_back({TextBlock::Table, index});
   }
   void list(const XmlElement &node, int depth, ListItem *parent,
             bool numbered = false) {
@@ -1062,9 +1107,11 @@ struct Reader {
       if (e.namespaceURI() == TEXT &&
           (e.localName() == "p" || e.localName() == "h")) {
         paragraph(e, item);
-      } else if (e.namespaceURI() == TEXT &&
-                 (e.localName() == "list" ||
-                  e.localName() == "numbered-paragraph"))
+      } else if (e.namespaceURI() == TABLE && e.localName() == "table")
+        table(e, depth + 1);
+      else if (e.namespaceURI() == TEXT &&
+               (e.localName() == "list" ||
+                e.localName() == "numbered-paragraph"))
         list(e, depth + 1, item, e.localName() == "numbered-paragraph");
       else if (e.namespaceURI() == TEXT && (e.localName() == "sequence-decls" ||
                                             e.localName() == "number" ||
@@ -1960,6 +2007,8 @@ TextFlow OdfTextReader::frame(const XmlElement &container,
   reader.text_size = 0;
   reader.tab_records = 0;
   reader.reset_lists();
+  reader.block_target = nullptr;
+  reader.table_budget = reader.table_depth = 0;
   reader.styles_source = styles_source;
   reader.frame_base = base;
   reader.frame_paragraph_style = paragraph_style;
