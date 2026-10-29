@@ -879,3 +879,104 @@ rendering and undo/redo. Maps show no Qt; GTK3 still loads through libdecor.
 Software GL results do not establish hardware or spatial XR readiness, and no
 active desktop/display-manager session is restarted. Installation is verified
 separately against the exact staged manifest.
+
+
+## Remaining retained financial registrations — 2026-10-29
+
+The native financial catalogue now matches all 64 active original registrations,
+including ACCRINT, AMORDEGRC/AMORLINC, EURO/EUROCONVERT, ORG.OPENOFFICE.CONVERT,
+ODDLPRICE/ODDLYIELD, PRICEMAT/YIELDMAT and the three treasury-bill functions.
+The earlier source inventory counted only unqualified uppercase names and missed
+the dotted currency-conversion entry. The new audit strips C++ comments, includes
+dotted names and compares the complete original/native sets: 64 each, no missing
+or spurious registrations. Commented-out ODDFPRICE/ODDFYIELD are not treated as
+active upstream capabilities. This audit proves handler coverage, not the full
+calculation/value/settings model or every numerical behavior of the old engine.
+
+Accrued interest retains the old standalone financial day-count helper, including
+its unusual within-year February adjustment and start-year Actual/Actual divisor.
+The native port validates First as a date but, like the retained calculation,
+does not use it to partition coupon periods. It preserves the registered six/seven
+arguments; the newer eight-argument CalcMethod is not implemented. Maturity and
+odd-last formulas use shared YEARFRAC and retain their domain/frequency rules.
+The frequency cancels algebraically in the retained odd-last equations.
+
+Treasury functions preserve the source's 30/360/inclusive-day conventions and
+its separate horizon/integral-fraction exclusions. This is deliberately not a
+claim of OpenFormula's actual/360 treasury-bill calculation or modern Excel parity.
+Source examples that document these differences remain in the corpus. Shared
+calendar YEARFRAC differences from the older helper remain documented above.
+
+French amortization retains the original first-period fraction, degressive
+coefficient bands, whole-unit rounding and terminal recurrence behavior. AMORLINC
+retains its whole-array rejection instead of mapping it element by element. A
+zero cost/rate gives zero depreciation, avoiding the old undefined float-to-integer
+conversion. Period calculations use bounded numeric comparisons instead of
+unchecked integer casts. A rounded recurrence fixed point resolves distant
+periods directly; otherwise 100,000 iterations produce an incomplete #LIMIT!
+so the original cache survives. The core suite checks this distinction.
+
+Historical currency conversion retains the fixed table and destination decimals,
+case-insensitive EURO/EUROCONVERT, uppercase-only/full-precision legacy CONVERT,
+the LUX compatibility alias, identity conversions and optional triangulation.
+Large requested precision cannot overflow a power or integer conversion. The
+constants are historical entry rates, not market exchange-rate information.
+The original table is checked against the historical ECB appendix and the
+OpenFormula currency-conversion specification:
+https://www.ecb.europa.eu/pub/pdf/other/the_first_euros_2015en.pdf
+https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part4-formula.pdf
+
+`financial_completion_reference.py` checks 2,699 cases: all 331 retained expressions
+for these entries, 200 maturity values, 200 odd-last values, 100 accrued-interest
+cases, 200 amortization cases, 300 treasury cases, 882 historical currency pairs,
+441 triangulations, 36 namespace aliases, six bounded/identity cases and three
+binary64 coefficient/half-unit boundaries. It uses
+Python Gregorian dates, rational day counts and Decimal arithmetic with explicit
+half-away rounding, independently of the C++ implementation. All retained
+expressions match within their original macro tolerances; no retained deviations
+are omitted. The complete-name audit runs with the same corpus.
+
+Independent odfpy/openpyxl producers cover all thirteen new entries in ODS and
+both Excel epochs. Actual dates and all supported financial results replace stale
+numeric caches. The Excel producer substitutes standard EUROCONVERT for the two
+Calligra-specific currency entry points. Unknown/odd-first formulas and dependent
+IFERROR values retain their original caches. Previous financial/cash-flow/calendar/
+coupon/bond producer families now use the genuinely unregistered ODDFPRICE for
+unsupported-cache checks, while new supported odd-last results have direct tests.
+The imported originals and unrelated package members remain intact.
+
+The focused GUI edits the principal, checks the full 21-cell row including dates,
+currency and depreciation results, undoes/redoes, saves and reopens. Core tests
+also cover typed arrays, AMORLINC's array rejection, dependencies, domain errors,
+partial-status propagation, zero-rate behavior and the degressive work limit.
+The full document/calculation model, remaining statistical functions and complete
+interoperability remain outside this completed registration milestone.
+
+```sh
+python3 fltk/tests/financial_completion_reference.py
+uv run --with odfpy --with openpyxl python3 fltk/tests/financial_completion_producer.py /tmp/calligra-financial-completion
+uv run --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/financial_completion_ui.py
+```
+
+Artifacts are under
+`/home/blux/de-xr/artifacts/calligra-native-financial-completion-20261029/`.
+
+The principal-edit GUI caught a source-precision boundary in AMORDEGRC: retaining
+an unrounded wider rate made .15 * 2.5 * 1316 round down instead of producing the
+source's 494. The coefficient selection and recurrence now explicitly retain
+binary64 intermediates, as in the source. Regression cases also cover rate .2
+at the five-year coefficient boundary and rate 1/6 at the six-year boundary.
+The independent Decimal reference models these binary64 boundaries explicitly.
+
+The audit also compares registered argument ranges, normalizing the upstream
+unbounded NPV list to the native engine's 255-argument limit. The only widened
+range is the documented DURATION dated overload; other retained argument ranges
+match. Final Release and ASan/UBSan builds pass all 30 suites, with core leak
+detection enabled. All six numerical families pass 36,139 cases per build, and
+all 17 producer inputs per build pass. The corrected principal edit/undo/redo/save/
+reopen GUI passes in both builds; GUI leak detection is disabled for third-party
+allocations. Private native Wayland checks cover all three applications, including
+accrued-interest and historical conversion values selected by keyboard. Process
+maps use system FLTK and no Qt; GTK3 remains dynamically loaded by libdecor.
+Software GL is not hardware/spatial XR validation. Installation remains separately
+verified against the exact stage, without restarting active sessions.

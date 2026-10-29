@@ -274,13 +274,16 @@ text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` retu
 `#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
 errors; special-function non-convergence cannot terminate the application.
 
-The native financial module implements 51 names: `PMT`, `PV`, `FV`, `NPER`,
+The native financial module implements all 64 active retained names: `PMT`, `PV`, `FV`, `NPER`,
 `RATE`, `IPMT`, `PPMT`, `ISPMT`, `CUMIPMT`, `CUMPRINC`, `NPV`, `IRR`, `MIRR`,
 `FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, `DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
 `LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`,
 `DOLLARFR`, `XIRR`, `XNPV`, `ACCRINTM`, `DISC`, `INTRATE`, `PRICEDISC`,
 `RECEIVED`, `YIELDDISC`, `COUPDAYBS`, `COUPDAYS`, `COUPDAYSNC`, `COUPNCD`,
-`COUPNUM`, `COUPPCD`, `PRICE`, `YIELD`, `MDURATION` and `DURATION_ADD`. Loan functions share stable annuity calculations, including
+`COUPNUM`, `COUPPCD`, `PRICE`, `YIELD`, `MDURATION`, `DURATION_ADD`, `ACCRINT`,
+`AMORDEGRC`, `AMORLINC`, `EURO`, `EUROCONVERT`, `ORG.OPENOFFICE.CONVERT`,
+`ODDLPRICE`, `ODDLYIELD`, `PRICEMAT`, `YIELDMAT`, `TBILLEQ`, `TBILLPRICE` and
+`TBILLYIELD`. Loan functions share stable annuity calculations, including
 zero/near-zero rates, and cumulative interest uses a closed sum. Iterative
 return/rate solvers have bounded work and report non-convergence as a cell
 error. Fractional VDB boundaries retain the original calculation behavior.
@@ -336,10 +339,29 @@ YEARFRAC-timed duration calculation, independently of PRICE's period clock.
 Three-argument `DURATION` remains the Calligra annuity extension. The calendar
 clock has documented differences from published Excel duration examples; it is
 not silently replaced with another clock to match those examples. Supported
-duration caches are now recalculated. Odd-period bonds and other remaining dated
-financial functions, legacy euro conversion and complete calculation settings/model
-still need porting. The supported functions do not establish full financial-module
-or Excel interoperability fidelity.
+duration caches are now recalculated. Odd-last-period and maturity-price/yield
+functions now share the native calendar layer. ACCRINT retains its older simple
+accrual algorithm, including its separate financial day-count helper; it validates
+but does not use First to split coupon periods. Its registered six/seven-argument
+form does not implement the newer CalcMethod argument. Treasury bills preserve
+the original 30/360 and inclusive-maturity rules, which differ from the actual-day
+standard formula.
+
+French AMORLINC/AMORDEGRC retain the original first-period and rounded recurrence
+behavior. AMORLINC rejects arrays as in the original module; zero cost/rate has a
+safe zero result. Degressive calculations detect rounded fixed points, and a
+100,000-step work bound preserves source caches if a recurrence cannot finish.
+EURO/EUROCONVERT use the retained fixed historical table, including the LUX
+compatibility spelling, destination rounding and optional euro triangulation.
+ORG.OPENOFFICE.CONVERT retains uppercase-only codes and full precision. These
+functions use no live exchange rates.
+
+The 64-entry count includes the dotted legacy conversion entry omitted by the
+earlier source inventory. A comment-aware audit now matches every active original
+registration to a native handler. This is catalogue coverage, not complete
+calculation settings/model or Excel/OpenFormula interoperability fidelity. The
+originally unregistered odd-first-period functions remain unsupported; unknown
+formula caches continue to be preserved.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

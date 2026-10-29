@@ -16,7 +16,7 @@ FORMULAS=['YEARFRAC([.A1];[.A2];0)','DAYS360([.A1];[.A2])',
           'INTRATE([.A1];[.A2];.95*[.B1];[.B1];2)','PRICEDISC([.A1];[.A2];.1;[.B1];0)',
           'RECEIVED([.A1];[.A2];[.B1];.1;0)','YIELDDISC([.A1];[.A2];.95*[.B1];[.B1];2)',
           'IFERROR(YEARFRAC([.A1];[.A2];5);77)','UNKNOWN_CALENDAR_FUNCTION()',
-          'ODDLPRICE([.A1];[.A2];[.A1];.05;.07;100;2)','IFERROR([.M1];77)']
+          'ODDFPRICE(DATE(2026;1;1);DATE(2030;1;1);DATE(2025;7;1);DATE(2026;7;1);.05;.07;100;2)','IFERROR([.M1];77)']
 def expected(cash=1000):
     return [DATES[0].isoformat(),cash,.25,90,cash*.025,.2,.05/.95*4,
             cash*.975,cash/.975,.05/.95*4,77,'#NAME?','#NAME?',77]

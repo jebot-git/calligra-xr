@@ -30,10 +30,12 @@ def constant(node):
     raise AssertionError(ast.dump(node))
 
 native=(ROOT/'fltk/src/native_financial.cpp').read_text().split('Text financial_name')[0]
-names=set(re.findall(r'\{"([A-Z_]+)",',native));assert len(names)==51
+names=set(re.findall(r'\{"([A-Z_.]+)",',native));assert len(names)==64
 names-= {'XIRR','XNPV','ACCRINTM','DISC','INTRATE','PRICEDISC','RECEIVED','YIELDDISC',
          'COUPDAYBS','COUPDAYS','COUPDAYSNC','COUPNCD','COUPNUM','COUPPCD',
-         'PRICE','YIELD','MDURATION','DURATION_ADD'} # Separate dated cash-flow, calendar, coupon and bond corpora.
+         'PRICE','YIELD','MDURATION','DURATION_ADD',
+         'ACCRINT','AMORDEGRC','AMORLINC','EURO','EUROCONVERT','ORG.OPENOFFICE.CONVERT',
+         'ODDLPRICE','ODDLYIELD','PRICEMAT','TBILLEQ','TBILLPRICE','TBILLYIELD','YIELDMAT'} # Separate dated, coupon, bond and completion corpora.
 upstream=(ROOT/'sheets/functions/financial.cpp').read_text()
 registrations=list(re.finditer(r'new Function\("([A-Z_]+)"',upstream))
 aliases={}

@@ -36,7 +36,7 @@ including complex arithmetic, units, Bessel/error functions and base conversion.
 Complex results retain both coefficients in the native model and save ODF caches
 as strings. Independent SciPy, cmath, mpmath and Pint references, the retained
 upstream cases, external ODF/XLSX producers and real keyboard edit/save/reopen
-checks cover this module. A native financial module now covers 51 annuity,
+checks cover this module. A native financial module now covers all 64 active retained annuity,
 amortization, periodic cash-flow, depreciation and related names. It shares
 stable near-zero-rate calculations, preserves sparse sequence semantics and
 checks convergence/work limits. The original fractional VDB algorithms and
@@ -52,9 +52,15 @@ MSRB/actual/European day conventions; date caches stay typed. Regular-coupon
 PRICE/YIELD now share that schedule and a stable scaled cash-flow model. Dated
 DURATION/DURATION_ADD/MDURATION use the retained YEARFRAC clock, while the
 three-argument DURATION extension remains available. Duration caches are now
-calculated; remaining odd-period/datetime financial functions, euro conversion,
-the statistical catalogue and complete model remain unported. Documented Excel
-single-payment pricing and duration-clock differences remain compatibility limits.
+calculated. Accrued interest, odd-last/maturity securities, retained treasury-bill
+rules, French amortization and fixed historical euro conversion are now native.
+A comment-aware inventory includes the previously missed dotted currency entry
+and matches all 64 active original financial registrations. This does not port the
+complete calculation settings/value/style model or remaining statistical catalogue.
+The original treasury-bill/accrual and duration conventions, newer unimplemented
+CalcMethod/odd-first functions, and documented Excel differences remain compatibility
+limits. Bounded degressive depreciation can still report incomplete work rather
+than replace a source cache after exceeding its work budget.
 Passing the retained document and GUI tests does not establish full function
 or office-suite parity. The assessment below distinguishes implemented native
 behavior from the remaining full port.

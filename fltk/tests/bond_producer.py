@@ -22,7 +22,7 @@ FORMULAS=['PRICE([.A1];[.A2];.0575;[.B1];100;2;1)',
           'YIELD([.A1];[.A2];0;[.I1];100;2;1)',
           'IFERROR(PRICE([.A1];[.A2];.05;-1;100;2);77)',
           'UNKNOWN_BOND_FUNCTION()',
-          'ODDLPRICE([.A1];[.A2];[.A3];.05;.07;100;2)','IFERROR([.M1];77)']
+          'ODDFPRICE(DATE(2026;1;1);DATE(2030;1;1);DATE(2025;7;1);DATE(2026;7;1);.05;.07;100;2)','IFERROR([.M1];77)']
 def expected(rate=.065):
     price,duration,modified=bond_values(DATES[0],DATES[1],.0575,rate,100,2,1)
     zero,_,_=bond_values(DATES[0],DATES[1],0,rate,100,2,1)

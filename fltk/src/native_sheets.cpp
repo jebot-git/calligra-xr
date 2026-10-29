@@ -909,7 +909,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "SHEET",   "SHEETS",  "ROWS",        "COLUMNS",   "MATCH",
       "LOOKUP",  "VLOOKUP", "HLOOKUP",     "TRANSPOSE", "SUMPRODUCT",
       "MMULT",   "MDETERM", "MINVERSE",    "IMSUM",     "IMPRODUCT",
-      "IRR",     "MIRR",    "FVSCHEDULE",  "XIRR",      "XNPV"};
+      "IRR",     "MIRR",    "FVSCHEDULE",  "XIRR",      "XNPV",
+      "AMORLINC"};
   bool caller_array_context = array_context;
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name));

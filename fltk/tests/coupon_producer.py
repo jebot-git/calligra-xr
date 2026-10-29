@@ -17,7 +17,7 @@ FORMULAS=['COUPDAYBS([.A1];[.A2];[.B1];1)','COUPDAYS([.A1];[.A2];[.B1];1)',
           '[.F1]-[.H1]','COUPDAYSNC([.A1];[.A2];[.B1];0)',
           'COUPDAYSNC([.A1];[.A2];[.B1];5)',
           'IFERROR(COUPNUM([.A1];[.A2];5);77)','UNKNOWN_COUPON_FUNCTION()',
-          'ODDLPRICE([.A1];[.A2];[.A3];.05;.07;100;2)','IFERROR([.N1];77)',
+          'ODDFPRICE(DATE(2026;1;1);DATE(2030;1;1);DATE(2025;7;1);DATE(2026;7;1);.05;.07;100;2)','IFERROR([.N1];77)',
           '[.F1]=DATE(2024;8;31)']
 def expected(frequency=2):
     assert frequency in (2,4)
