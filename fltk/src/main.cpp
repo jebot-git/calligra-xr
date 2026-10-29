@@ -334,7 +334,6 @@ public:
             canvas = new SlideCanvas(194, 62, 894, 418);
             canvas->scene = [this]() -> const SlideScene& { return stage->scene(slide); };
             canvas->revision = [this] { return stage->revision(); };
-            canvas->image = [this](const Text& path) { return stage->image(path); };
             canvas->selected = [this](int n) {
                 if (presenting) {
                     command(Next);
@@ -388,10 +387,12 @@ public:
             editor->add_key_binding('y', FL_CTRL, undo_key);
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
             content->resizable(canvas);
+        }
+        content->end();
+        if (kind == Kind::Stage) {
             auto* present = new Fl_Button(568, 10, 130, 32, "Present");
             present->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(Present); }, this);
         }
-        content->end();
         if (kind == Kind::Words) {
             page_button = new Fl_Button(560, 10, 100, 32, "Pages");
             page_button->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(PageLayout); }, this);
@@ -519,6 +520,7 @@ public:
             workbook = std::make_unique<Workbook>();
             refresh_sheets();
         } else if (kind == Kind::Words) {
+            text_pages->images.clear();
             words = std::make_unique<TextDocument>();
             fill_buffer(words->text());
             if (page_view)
@@ -674,6 +676,7 @@ public:
         } else if (kind == Kind::Words) {
             auto fresh = std::make_unique<TextDocument>();
             fresh->load(qs(path.c_str()));
+            text_pages->images.clear();
             words = std::move(fresh);
             fill_buffer(words->text());
             if (page_view)
@@ -892,8 +895,10 @@ public:
                     }
                     canvas->resize(0, 0, window.w(), window.h());
                     canvas->box = -1;
+                    canvas->clear_images();
                     window.fullscreen();
                 } else {
+                    canvas->clear_images();
                     window.fullscreen_off();
                     for (auto* widget : presentation_hidden)
                         widget->show();
@@ -943,13 +948,25 @@ public:
             data["text"] = buffer_text();
         if (kind == Kind::Words) {
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
-            Json labels=Json::array();size_t page_index=0;
+            Json labels = Json::array(), image_labels = Json::array();
+            size_t page_index = 0;
             for (const auto& page : text_pages->pagination.pages) {
                 for (const auto& line : page.lines)
                     if (line.shaped) {
                         ++shaped_lines;
                         glyphs += line.shaped->glyphs.size();
                         missing += line.shaped->missing_glyphs;
+                        if (line.label && line.label->image)
+                            image_labels.push_back({{"source", utf8(line.label->image->source)},
+                                                    {"available", bool(line.label->image->asset)},
+                                                    {"page", page_index},
+                                                    {"paragraph", line.paragraph},
+                                                    {"x", line.label->x},
+                                                    {"y", line.baseline + line.label->y},
+                                                    {"width", line.label->width},
+                                                    {"height", line.label->height},
+                                                    {"page_width", page.style.width},
+                                                    {"page_height", page.style.height}});
                         if(line.label&&line.label->shaped) {
                             glyphs+=line.label->shaped->glyphs.size();
                             missing+=line.label->shaped->missing_glyphs;
@@ -960,14 +977,20 @@ public:
                     }
                 ++page_index;
             }
-            data["page_layout"]
-                = { { "visible", page_view }, { "pages", text_pages->pagination.pages.size() },
-                      { "page", text_pages->current_page() + 1 },
-                      { "render_error", text_pages->render_error() },
-                      { "rasterizations", text_pages->rasterizations() },
-                      { "shaped_lines", shaped_lines }, { "glyphs", glyphs },
-                      { "missing_glyphs", missing }, { "list_labels",labels },
-                      { "viewport",{text_pages->x(),text_pages->y(),text_pages->w(),text_pages->h()} } };
+            data["page_layout"] = {{"visible", page_view},
+                                   {"pages", text_pages->pagination.pages.size()},
+                                   {"page", text_pages->current_page() + 1},
+                                   {"render_error", text_pages->render_error()},
+                                   {"rasterizations", text_pages->rasterizations()},
+                                   {"shaped_lines", shaped_lines},
+                                   {"glyphs", glyphs},
+                                   {"missing_glyphs", missing},
+                                   {"list_labels", labels},
+                                   {"image_labels", image_labels},
+                                   {"image_decodes", text_pages->images.decodes()},
+                                   {"image_uploads", text_pages->images.uploads()},
+                                   {"image_errors", text_pages->images.errors()},
+                                   {"viewport", {text_pages->x(), text_pages->y(), text_pages->w(), text_pages->h()}}};
         }
         if (kind == Kind::Stage) {
             const auto& model = stage->scene(slide);
@@ -990,19 +1013,33 @@ public:
             }
             for (const auto& feature : text.unsupported)
                 unsupported.push_back(utf8(feature));
-            data["scene"] = { { "page", slide + 1 }, { "width", model.width },
-                { "height", model.height }, { "shapes", model.shapes.size() },
-                { "master_shapes", masters }, { "editable_frames", model.editable_sources.size() },
-                { "selected_frame", box }, { "can_undo", stage->can_undo() }, { "can_redo", stage->can_redo() },
-                { "selected_shape", canvas->selected_shape }, { "adjustments", adjustments },
-                { "revision", stage->revision() }, { "slides", stage->count() },
-                { "rendered_shapes", canvas->rendered_shapes() },
-                { "geometry_points", canvas->geometry_points() },
-                { "render_error", canvas->render_error() }, { "unsupported", unsupported },
-                { "shaped_lines", text.lines }, { "glyphs", text.glyphs },
-                { "list_labels",text.labels },
-                { "missing_glyphs", text.missing_glyphs }, { "overflow_frames", text.overflow_frames },
-                { "viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()} } };
+            data["scene"] = {{"page", slide + 1},
+                             {"width", model.width},
+                             {"height", model.height},
+                             {"shapes", model.shapes.size()},
+                             {"master_shapes", masters},
+                             {"editable_frames", model.editable_sources.size()},
+                             {"selected_frame", box},
+                             {"can_undo", stage->can_undo()},
+                             {"can_redo", stage->can_redo()},
+                             {"selected_shape", canvas->selected_shape},
+                             {"adjustments", adjustments},
+                             {"revision", stage->revision()},
+                             {"slides", stage->count()},
+                             {"rendered_shapes", canvas->rendered_shapes()},
+                             {"geometry_points", canvas->geometry_points()},
+                             {"render_error", canvas->render_error()},
+                             {"unsupported", unsupported},
+                             {"shaped_lines", text.lines},
+                             {"glyphs", text.glyphs},
+                             {"list_labels", text.labels},
+                             {"image_labels", text.image_labels},
+                             {"image_decodes", canvas->images().decodes()},
+                             {"image_uploads", canvas->images().uploads()},
+                             {"image_errors", canvas->images().errors()},
+                             {"missing_glyphs", text.missing_glyphs},
+                             {"overflow_frames", text.overflow_frames},
+                             {"viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()}}};
         }
         std::ofstream(options.report) << data.dump(2) << '\n';
     }

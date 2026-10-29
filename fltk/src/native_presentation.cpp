@@ -154,6 +154,7 @@ struct Source {
   std::map<Text, Text> fonts;
 };
 struct Catalog {
+  const OdfPackage &source_package;
   Source styles, content;
   std::map<std::pair<Text, Text>, XmlElement> common;
   std::map<Text, XmlElement> defaults, masters;
@@ -163,7 +164,8 @@ struct Catalog {
   size_t nodes = 0, points = 0;
   bool legacy_polar_order = false;
   Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader)
-      : text_reader(reader ? std::move(reader)
+      : source_package(package),
+        text_reader(reader ? std::move(reader)
                            : std::make_shared<OdfTextReader>(package)) {
     legacy_polar_order = enhanced_legacy_polar_order(package);
     auto bytes = package.entry("styles.xml");
@@ -516,6 +518,8 @@ struct Catalog {
       if (name == "frame") {
         shape.kind = SceneShape::Frame;
         shape.image = child(node, DRAW, "image").attributeNS(XLINK, "href");
+        if (!shape.image.empty())
+          shape.raster = source_package.image_asset(shape.image);
       } else if (name == "custom-shape") {
         shape.kind = SceneShape::Custom;
         auto geometry = child(node, DRAW, "enhanced-geometry");

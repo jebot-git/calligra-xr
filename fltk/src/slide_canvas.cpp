@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "slide_canvas.h"
+#include "gpu_image.h"
 #include "native_path.h"
 #include "suite/fltk_appearance.h"
-#include <FL/Fl_JPEG_Image.H>
-#include <FL/Fl_PNG_Image.H>
-#include <FL/Fl_SVG_Image.H>
 #include <FL/fl_draw.H>
 #include <FL/gl.h>
 #include <GL/glu.h>
@@ -160,30 +158,14 @@ struct SlideCanvas::Impl {
   std::vector<Prepared> prepared;
   NativeTextShaper shaper;
   GpuTextCache glyphs;
-  struct Picture {
-    GLuint texture = 0;
-    size_t bytes = 0;
-  };
-  std::map<Text, Picture> pictures;
-  size_t picture_bytes = 0;
-  GLContext context = nullptr;
+  GpuImageCache pictures;
   Fl_Gl_Window *window = nullptr;
   std::string error;
   size_t rendered = 0;
   size_t geometry_points = 0;
   double geometry_x = NAN, geometry_y = NAN;
   SceneTextStats text_stats;
-  void clear_images() {
-    if (window && context && window->context() == context) {
-      window->make_current();
-      for (auto &[key, image] : pictures)
-        if (image.texture)
-          glDeleteTextures(1, &image.texture);
-    }
-    pictures.clear();
-    picture_bytes = 0;
-  }
-  ~Impl() { clear_images(); }
+  void clear_images() { pictures.clear(); }
   void prepare(const SlideScene &model, uint64_t version, double scale_x,
                double scale_y) {
     if (current == &model && revision == version &&
@@ -252,6 +234,8 @@ struct SlideCanvas::Impl {
           if (line.shaped) {
             text_stats.glyphs += line.shaped->glyphs.size();
             text_stats.missing_glyphs += line.shaped->missing_glyphs;
+            if (line.label && line.label->image)
+              ++text_stats.image_labels;
             if(line.label&&line.label->shaped) {
               ++text_stats.labels;
               text_stats.glyphs+=line.label->shaped->glyphs.size();
@@ -281,91 +265,12 @@ struct SlideCanvas::Impl {
     geometry_x = scale_x;
     geometry_y = scale_y;
   }
-  GLuint picture(const Text &name, const Bytes &bytes) {
-    if (auto found = pictures.find(name); found != pictures.end())
-      return found->second.texture;
-    if (pictures.size() >= 4096) {
-      auto old = pictures.begin();
-      if (old->second.texture)
-        glDeleteTextures(1, &old->second.texture);
-      picture_bytes -= old->second.bytes;
-      pictures.erase(old);
-    }
-    pictures[name] = {};
-    if (bytes.empty())
-      return 0;
-    std::unique_ptr<Fl_RGB_Image> decoded;
-    auto label = name.toUtf8();
-    if (bytes.startsWith("\x89PNG"))
-      decoded = std::make_unique<Fl_PNG_Image>(
-          label.c_str(), reinterpret_cast<const unsigned char *>(bytes.data()),
-          bytes.size());
-    else if (bytes.startsWith("\xff\xd8"))
-      decoded = std::make_unique<Fl_JPEG_Image>(
-          label.c_str(), reinterpret_cast<const unsigned char *>(bytes.data()),
-          bytes.size());
-    else if (bytes.contains("<svg")) {
-      auto svg = std::make_unique<Fl_SVG_Image>(label.c_str(), bytes.c_str());
-      svg->normalize();
-      decoded = std::move(svg);
-    }
-    if (!decoded || decoded->fail())
-      return 0;
-    int w = decoded->w(), h = decoded->h(), depth = decoded->d();
-    GLint texture_limit = 0;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &texture_limit);
-    if (w < 1 || h < 1 || depth < 1 || depth > 4 || size_t(w) * h > 16000000 ||
-        w > texture_limit || h > texture_limit)
-      throw std::runtime_error("Slide image exceeds the raster limit");
-    auto *source = reinterpret_cast<const unsigned char *>(decoded->data()[0]);
-    int stride = decoded->ld() ? decoded->ld() : w * depth;
-    std::vector<unsigned char> rgba(size_t(w) * h * 4);
-    while (picture_bytes + rgba.size() > 128 * 1024 * 1024 &&
-           pictures.size() > 1) {
-      auto old = pictures.begin();
-      if (old->first == name)
-        ++old;
-      if (old->second.texture)
-        glDeleteTextures(1, &old->second.texture);
-      picture_bytes -= old->second.bytes;
-      pictures.erase(old);
-    }
-    for (int y = 0; y < h; ++y)
-      for (int x = 0; x < w; ++x) {
-        auto s = source + size_t(y) * stride + x * depth;
-        auto d = rgba.data() + (size_t(y) * w + x) * 4;
-        d[0] = s[0];
-        d[1] = depth < 3 ? s[0] : s[1];
-        d[2] = depth < 3 ? s[0] : s[2];
-        d[3] = depth == 2 ? s[1] : depth == 4 ? s[3] : 255;
-      }
-    GLuint texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glPushClientAttrib(GL_CLIENT_PIXEL_STORE_BIT);
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                 rgba.data());
-    glPopClientAttrib();
-    pictures[name] = {texture, rgba.size()};
-    picture_bytes += rgba.size();
-    return texture;
-  }
   void draw(const SlideScene &model, const SceneTransform &screen,
             SlideCanvas &canvas) {
     window = dynamic_cast<Fl_Gl_Window *>(canvas.window());
     if (!window)
       return;
-    if (context != window->context()) {
-      pictures.clear();
-      picture_bytes = 0;
-      context = window->context();
-    }
+    pictures.begin_frame(*window);
     State state(*window);
     scene_color({255, 255, 255});
     quad(screen, model.width, model.height);
@@ -423,27 +328,9 @@ struct SlideCanvas::Impl {
           glEnd();
         }
       }
-      if (!shape.image.empty()) {
-        auto texture = picture(
-            shape.image,
-            canvas.image(Url::fromPercentEncoding(shape.image.toUtf8())));
-        if (texture) {
-          glEnable(GL_TEXTURE_2D);
-          glBindTexture(GL_TEXTURE_2D, texture);
-          glColor4d(1, 1, 1, 1);
-          glBegin(GL_QUADS);
-          glTexCoord2f(0, 0);
-          vertex(transform.map({0, 0}));
-          glTexCoord2f(1, 0);
-          vertex(transform.map({shape.width, 0}));
-          glTexCoord2f(1, 1);
-          vertex(transform.map({shape.width, shape.height}));
-          glTexCoord2f(0, 1);
-          vertex(transform.map({0, shape.height}));
-          glEnd();
-          glDisable(GL_TEXTURE_2D);
-        }
-      }
+      if (!shape.image.empty())
+        pictures.draw(shape.raster, transform, shape.width, shape.height,
+                      *window);
       if (!cached.text.lines.empty()) {
         glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT);
         SceneTransform origin;
@@ -462,6 +349,12 @@ struct SlideCanvas::Impl {
             if(line.label&&line.label->shaped) {
               baseline.e=line.label->x;
               glyphs.draw(*line.label->shaped,transform*baseline,{r,g,b},*window);
+            }
+            if (line.label && line.label->image) {
+              baseline.e = line.label->x;
+              baseline.f = line.baseline + line.label->y;
+              pictures.draw(line.label->image->asset, transform * baseline,
+                            line.label->width, line.label->height, *window);
             }
           }
         glPopAttrib();
@@ -521,6 +414,8 @@ void SlideCanvas::reset() {
   impl_->clear_images();
   redraw();
 }
+void SlideCanvas::clear_images() { impl_->clear_images(); }
+const GpuImageCache &SlideCanvas::images() const { return impl_->pictures; }
 const std::string &SlideCanvas::render_error() const { return impl_->error; }
 size_t SlideCanvas::rendered_shapes() const { return impl_->rendered; }
 size_t SlideCanvas::geometry_points() const { return impl_->geometry_points; }

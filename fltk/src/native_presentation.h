@@ -54,6 +54,7 @@ struct SceneShape {
     Custom
   } kind = Frame;
   Text name, text, image;
+  std::shared_ptr<const ImageAsset> raster;
   SceneTransform transform;
   ScenePaint paint;
   TextFlow text_flow;

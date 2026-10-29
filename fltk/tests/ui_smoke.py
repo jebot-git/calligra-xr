@@ -457,6 +457,62 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                     assert b'Edited' in z.read('content.xml') and z.read('styles.xml')==before_styles and z.read('extra/retained.bin')==before_payload
                 key('q',('Control_L',));assert process.wait(timeout=10)==0
                 print('PASS:',app,'native list glyphs, numbering/reflow, source offsets and XML-preserving edit/save',flush=True)
+        subprocess.run([sys.executable,str(ROOT/'fltk/tests/image_lists_producer.py'),str(fixtures)],env=env,check=True)
+        for app,extension in [('words','odt'),('stage','odp')]:
+            doc=fixtures/f'image-lists.{extension}';report=art/f'image-lists-{app}.json';capture=art/f'image-lists-{app}.ppm'
+            report.unlink(missing_ok=True);capture.unlink(missing_ok=True)
+            with zipfile.ZipFile(doc) as z:original={n:z.read(n) for n in z.namelist()}
+            with (art/f'image-lists-{app}.log').open('w') as log:
+                command=[str(args.bin_dir.resolve()/f'calligra-{app}-fltk'),str(doc),'--report',str(report),'--capture',str(capture)]
+                if app=='words':command.append('--page-layout')
+                process=subprocess.Popen(command,env=env,stdout=log,stderr=log)
+                def data():return json.loads(report.read_text())
+                def state():return data()['page_layout' if app=='words' else 'scene']
+                wait(lambda:report.exists() and capture.exists());host=wait(lambda:window(app))
+                st=state();assert not st['render_error'],st
+                assert len(st['image_labels'])==9 if app=='words' else st['image_labels']==9,st
+                assert st['image_uploads']==6 and st['image_decodes']==7 and len(st['image_errors'])==2,st
+                picture=Image.open(capture).convert('RGB')
+                if app=='words':
+                    x,y,w,h=st['viewport'];labels=st['image_labels'];zoom=max(.05,min(1.5,(w-48)/max(l['page_width'] for l in labels)))
+                    def sample(label,fx,fy):
+                        left=x+(w-label['page_width']*zoom)/2;top=y+12
+                        return picture.getpixel((int(left+(label['x']+label['width']*fx)*zoom),int(top+(label['y']+label['height']*fy)*zoom)))
+                    png=labels[0];assert all(abs(a-b)<4 for a,b in zip(sample(png,.2,.5),(237,137,147))),sample(png,.2,.5)
+                    assert sample(png,.8,.5)==(255,255,255),sample(png,.8,.5)
+                    gif=labels[3];assert sample(gif,.8,.5)==(255,255,255),sample(gif,.8,.5)
+                    assert len([l for l in labels if l['available']])==8
+                else:
+                    x,y,w,h=st['viewport'];ink=list(picture.crop((x,y,x+w,y+h)).get_flattened_data())
+                    for color in [(237,137,147),(20,180,40),(32,48,221),(240,190,20),(180,30,210),(20,170,210)]:
+                        assert sum(all(abs(a-b)<5 for a,b in zip(p,color)) for p in ink)>25,(color,st)
+                    # Fullscreen changes the GL context and SVG raster size; redraws
+                    # in either context must reuse the uploaded textures.
+                    click(host,600,25);wait(lambda:state()['image_uploads']>=12)
+                    key('Escape');wait(lambda:state()['image_uploads']>=18)
+                    host=wait(lambda:window(app))
+                stable=(state()['image_decodes'],state()['image_uploads'])
+                for _ in range(3):host.clear_area(exposures=True);xd.sync();time.sleep(.12)
+                assert (state()['image_decodes'],state()['image_uploads'])==stable
+                if app=='words':click(host,610,25);wait(lambda:not state()['visible']);click(host,350,100)
+                else:click(host,350,565)
+                key('Home',('Control_L',));text('Edited ');wait(lambda:data()['text'].startswith('Edited '))
+                key('s',('Control_L',));wait(lambda:not data()['modified'])
+                with zipfile.ZipFile(doc) as z:
+                    assert set(z.namelist())==set(original)
+                    for name,content in original.items():
+                        if name!='content.xml':assert z.read(name)==content,name
+                    assert structure(ET.fromstring(z.read('content.xml')))==structure(ET.fromstring(original['content.xml']))
+                key('q',('Control_L',));assert process.wait(timeout=10)==0
+                # Reopen saved documents with a fresh process to exercise retained
+                # encoded data, inline payloads and percent-encoded package paths.
+                reopen=art/f'image-lists-{app}-reopen.json'
+                command=[str(args.bin_dir.resolve()/f'calligra-{app}-fltk'),str(doc),'--report',str(reopen),'--quit-after-ms','2200']
+                if app=='words':command.append('--page-layout')
+                subprocess.run(command,env=env,stdout=log,stderr=log,check=True)
+                restored=json.loads(reopen.read_text())['page_layout' if app=='words' else 'scene']
+                assert restored['image_uploads']==6 and restored['image_decodes']==7,restored
+                print('PASS:',app,'PNG/JPEG/SVG/GIF/BMP and inline image lists, alpha pixels, shared GPU cache, placeholders and edit/save/reopen',flush=True)
         for app,extension in [('words','odt'),('sheets','ods'),('stage','odp')]:
             doc=fixtures/f'{app}.{extension}';report=art/f'{app}.json';report.unlink(missing_ok=True)
             with (art/f'{app}.log').open('w') as log:

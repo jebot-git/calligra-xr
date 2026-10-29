@@ -57,6 +57,9 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   Native textual lists support nested numbering/bullets, continuation, restarts,
   headers, label styling and both ODF spacing modes. Generated labels stay out
   of the editable source text. The same engine renders lists in Stage frames.
+  Image bullets retain packaged or inline PNG/JPEG/SVG/GIF/BMP assets, with
+  declared size and vertical alignment. Missing/invalid images show a placeholder;
+  external image URLs are diagnosed without fetching files or network data.
 - Sheets loads ODS and imports XLSX cell data, shared/inline Unicode strings,
   numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell
@@ -77,7 +80,7 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.
-  The shared glyph cache is bounded to 64 MiB/4,096 entries; slide images to
+  The shared glyph cache is bounded to 64 MiB/4,096 entries; the shared Words/Stage image cache to
   128 MiB/4,096 entries. Polygon tessellation uses GLU with at most 1,024 input points.
   Native ODP frame text retains separate paragraphs, inherited paragraph styles,
   styled spans/links, fonts and foreground colors. The shared reader resolves

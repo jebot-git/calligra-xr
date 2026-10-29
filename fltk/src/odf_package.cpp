@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "odf_package.h"
+#include "native_image.h"
 #include <fcntl.h>
 #include <memory>
 #include <stdexcept>
@@ -111,34 +112,34 @@ OdfPackage::OdfPackage(Kind kind)
                                  .toUtf8();
     if (!xml.setContent(start, XmlDocument::ParseOption::UseNamespaceProcessing))
         fail("Cannot create document");
-    entries_["mimetype"] = mime(kind).toUtf8();
+    put("mimetype", mime(kind).toUtf8());
     const Text STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0",
                   FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
-    entries_["styles.xml"] = ("<?xml version=\"1.0\"?><office:document-styles xmlns:office=\"" + OFFICE
-        + "\" xmlns:style=\"" + STYLE + "\" xmlns:fo=\"" + FO
-        + "\" "
-          "office:version=\"1.3\"><office:styles/"
-          "><office:automatic-styles><style:page-layout "
-          "style:name=\"pm1\"><style:page-layout-properties fo:page-width=\""
-        + (kind == Kind::Stage ? Text("28cm") : Text("21cm")) + "\" fo:page-height=\""
-        + (kind == Kind::Stage ? Text("15.75cm") : Text("29.7cm"))
-        + "\"/></style:page-layout></"
-          "office:automatic-styles><office:master-styles><style:master-page "
-          "style:name=\"Default\" "
-          "style:page-layout-name=\"pm1\"/></office:master-styles></"
-          "office:document-styles>")
-                                 .toUtf8();
+    put("styles.xml", ("<?xml version=\"1.0\"?><office:document-styles xmlns:office=\"" + OFFICE + "\" xmlns:style=\"" +
+                       STYLE + "\" xmlns:fo=\"" + FO +
+                       "\" "
+                       "office:version=\"1.3\"><office:styles/"
+                       "><office:automatic-styles><style:page-layout "
+                       "style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"" +
+                       (kind == Kind::Stage ? Text("28cm") : Text("21cm")) + "\" fo:page-height=\"" +
+                       (kind == Kind::Stage ? Text("15.75cm") : Text("29.7cm")) +
+                       "\"/></style:page-layout></"
+                       "office:automatic-styles><office:master-styles><style:master-page "
+                       "style:name=\"Default\" "
+                       "style:page-layout-name=\"pm1\"/></office:master-styles></"
+                       "office:document-styles>")
+                          .toUtf8());
 
-    entries_["META-INF/manifest.xml"] = ("<?xml version=\"1.0\"?><manifest:manifest "
-                                         "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
-                                         "manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" "
-                                         "manifest:media-type=\""
-        + mime(kind)
-        + "\"/><manifest:file-entry manifest:full-path=\"content.xml\" "
-          "manifest:media-type=\"text/xml\"/><manifest:file-entry "
-          "manifest:full-path=\"styles.xml\" "
-          "manifest:media-type=\"text/xml\"/></manifest:manifest>")
-                                            .toUtf8();
+    put("META-INF/manifest.xml", ("<?xml version=\"1.0\"?><manifest:manifest "
+                                  "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
+                                  "manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" "
+                                  "manifest:media-type=\"" +
+                                  mime(kind) +
+                                  "\"/><manifest:file-entry manifest:full-path=\"content.xml\" "
+                                  "manifest:media-type=\"text/xml\"/><manifest:file-entry "
+                                  "manifest:full-path=\"styles.xml\" "
+                                  "manifest:media-type=\"text/xml\"/></manifest:manifest>")
+                                     .toUtf8());
 }
 XmlElement OdfPackage::body() const
 {
@@ -213,7 +214,10 @@ void OdfPackage::load(const Text& path)
     if (b.isNull())
         fail("Document has no expected content body");
     xml = parsed;
-    entries_ = contents;
+    entries_.clear();
+    image_assets_.clear();
+    for (auto it = contents.begin(); it != contents.end(); ++it)
+        put(it.key(), std::move(it.value()));
     read_only_ = false;
     for (const auto& name : entries_.keys())
         if (name.startsWith("META-INF/") && name.contains("signature", CaseInsensitive))
@@ -222,7 +226,7 @@ void OdfPackage::load(const Text& path)
 void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& mediaType)
 {
     const Text MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
-    auto manifest = read_document_xml(entries_.value("META-INF/manifest.xml"));
+    auto manifest = read_document_xml(entry("META-INF/manifest.xml"));
     auto root = manifest.documentElement();
     auto entry = XmlElement();
     for (auto e : children(root, MANIFEST, "file-entry"))
@@ -233,8 +237,8 @@ void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& medi
     }
     entry.setAttributeNS(MANIFEST, "manifest:full-path", name);
     entry.setAttributeNS(MANIFEST, "manifest:media-type", mediaType);
-    entries_[name] = data;
-    entries_["META-INF/manifest.xml"] = manifest.toByteArray(-1);
+    put(name, data);
+    put("META-INF/manifest.xml", manifest.toByteArray(-1));
 }
 void OdfPackage::save(const Text& path)
 {
@@ -242,7 +246,7 @@ void OdfPackage::save(const Text& path)
         fail("Signed documents are read-only in this port; signatures must not be "
              "silently invalidated");
     auto contents = entries_;
-    contents["content.xml"] = xml.toByteArray(-1);
+    contents["content.xml"] = std::make_shared<const Bytes>(xml.toByteArray(-1));
     TempFile temporary(FileInfo(path).absolutePath() + "/.calligra-XXXXXX");
     if (!temporary.open())
         fail("Cannot create document in the selected directory");
@@ -265,10 +269,10 @@ void OdfPackage::save(const Text& path)
             fail("Cannot store document media type");
     };
     try {
-        add("mimetype", contents["mimetype"], true);
+        add("mimetype", *contents["mimetype"], true);
         for (auto it = contents.cbegin(); it != contents.cend(); ++it)
             if (it.key() != "mimetype")
-                add(it.key(), it.value(), false);
+                add(it.key(), *it.value(), false);
     } catch (...) {
         zip_discard(zip);
         throw;
@@ -290,5 +294,18 @@ void OdfPackage::save(const Text& path)
         close(directory);
     }
     entries_ = contents;
+    image_assets_.erase("content.xml");
+}
+std::shared_ptr<const ImageAsset> OdfPackage::image_asset(const Text &reference) const {
+    auto path = package_image_path(reference);
+    if (!path)
+        return {};
+    if (auto it = image_assets_.find(*path); it != image_assets_.end())
+        if (auto asset = it->second.lock())
+            return asset;
+    auto asset = make_image_asset(*path, entry_data(*path));
+    if (asset)
+        image_assets_[*path] = asset;
+    return asset;
 }
 } // namespace DomeOffice

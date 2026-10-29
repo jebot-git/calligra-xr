@@ -1,7 +1,7 @@
 # Native engine validation — 2026-10-28
 
 The Qt-free Release build passes the three original document CTests with their
-assertions retained, plus thirteen native calculation/matrix/text/scene/history/handle/list regression suites. Actual
+assertions retained, plus fourteen native calculation/matrix/text/scene/history/handle/list regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
 for Words, Sheets and Stage using system FLTK. Link checks show no Qt libraries.
 
@@ -31,10 +31,20 @@ Six upstream LibreOffice list documents contribute nine generated labels,
 including padded decimal and custom-template cases. The broader source audit
 also records a malformed `office:texture-mode` body rejected by the loader and
 a field-numbering document with no list elements; these are not counted as list
-coverage. Image bullets, outline/field numbering and the other remaining list
+coverage. Outline/field numbering and the other remaining list
 features are listed in PORT_STATUS.md. List semantics follow
 [ODF 1.4 Part 3](https://docs.oasis-open.org/office/OpenDocument/part3-schema/OpenDocument-v1.4-os-part3-schema.html)
 and the retained KoListLevelProperties/KoOdfNumberDefinition/KoTextLoader code.
+
+The native image suite checks immutable archive sharing, asset replacement and
+retained lifetime, package-only URI resolution, folded inline base64, image-label
+geometry, wrapping, RTL, both spacing modes, vertical alignment and save/reload.
+Independent odfpy/Pillow fixtures exercise PNG/JPEG/SVG/GIF/BMP and inline labels
+in both applications. Actual pixels verify colors and PNG/GIF transparency.
+Keyboard tests verify unchanged style/image payloads through edit/save/reopen,
+missing/corrupt placeholders, repeated-frame cache reuse, and Stage fullscreen
+context changes. The Present toolbar control also receives a real mouse click.
+These checks run with system FLTK; they do not establish broad image/SVG fidelity.
 
 The native presentation-history suite checks cross-frame and cross-slide text,
 slide insertion/deletion, selection restoration, byte-exact styled XML undo,

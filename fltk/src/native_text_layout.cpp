@@ -126,6 +126,49 @@ struct Reader {
   std::map<Text, std::shared_ptr<Domain>> numbered_lists;
   Text anonymous_numbered_style;
   std::shared_ptr<Domain> anonymous_numbered;
+  struct LabelImage {
+    XmlElement node;
+    std::shared_ptr<const ImageAsset> asset;
+    std::vector<Text> warnings;
+  };
+  std::vector<LabelImage> label_images;
+  void load_images(const OdfPackage &package) {
+    std::set<uint64_t> used;
+    size_t total = 0;
+    for (const auto &document : documents)
+      for (auto node :
+           document.elementsByTagNameNS(TEXT, "list-level-style-image")) {
+        if (label_images.size() >= 4096)
+          fail("Too many list image declarations");
+        LabelImage image;
+        image.node = node;
+        auto href = node.attributeNS(XLINK, "href");
+        if (!href.empty())
+          image.asset = package.image_asset(href);
+        if (!image.asset) {
+          auto binary = child(node, OFFICE, "binary-data");
+          if (!binary.isNull()) {
+            auto data = inline_image_data(binary.text());
+            if (data)
+              image.asset =
+                  make_image_asset("inline list image", std::move(*data));
+          }
+        }
+        if (image.asset && !used.contains(image.asset->id)) {
+          if (image.asset->data->size() > 128 * 1024 * 1024 - total) {
+            image.asset.reset();
+            image.warnings.push_back("List image data exceeds native limit");
+          } else {
+            used.insert(image.asset->id);
+            total += image.asset->data->size();
+          }
+        }
+        if (!image.asset)
+          image.warnings.push_back(
+              "Unavailable or unsupported list image source");
+        label_images.push_back(std::move(image));
+      }
+  }
   size_t label_size = 0;
   struct ListItem {
     Text style;
@@ -480,6 +523,45 @@ struct Reader {
           fail("List number template exceeds limit");
       }
       auto props = child(e, STYLE, "list-level-properties");
+      if (l.kind == ListLevel::Image) {
+        ListImage image;
+        image.source = e.attributeNS(XLINK, "href", "inline list image");
+        for (const auto &loaded : label_images)
+          if (loaded.node == e) {
+            image.asset = loaded.asset;
+            for (const auto &message : loaded.warnings)
+              warning(message);
+            break;
+          }
+        if (props.hasAttributeNS(FO, "width"))
+          image.width = length(props.attributeNS(FO, "width"));
+        if (props.hasAttributeNS(FO, "height"))
+          image.height = length(props.attributeNS(FO, "height"));
+        if (image.width <= 0 || image.height <= 0 || image.width > 10000 ||
+            image.height > 10000)
+          fail("Invalid list image size");
+        auto pos = props.attributeNS(STYLE, "vertical-pos", "middle");
+        if (pos == "top")
+          image.position = ListImage::Top;
+        else if (pos == "bottom")
+          image.position = ListImage::Bottom;
+        else if (pos == "from-top")
+          image.position = ListImage::FromTop;
+        else if (pos != "middle")
+          warning("Unsupported list image vertical position; middle used");
+        auto rel = props.attributeNS(STYLE, "vertical-rel", "line");
+        if (rel == "baseline")
+          image.reference = ListImage::Baseline;
+        else if (rel == "text")
+          image.reference = ListImage::TextBox;
+        else if (rel == "char")
+          image.reference = ListImage::Character;
+        else if (rel != "line")
+          warning("Unsupported list image reference; line used");
+        if (props.hasAttributeNS(SVG, "y"))
+          image.offset = length(props.attributeNS(SVG, "y"));
+        l.layout.image = std::move(image);
+      }
       auto align = props.attributeNS(FO, "text-align", "start");
       l.layout.alignment = align == "left"     ? TextListLabel::Left
                            : align == "right"  ? TextListLabel::Right
@@ -591,9 +673,9 @@ struct Reader {
       else
         label.font.size *= level.relative_size;
       label.text = level.bullet;
-    } else if (level.kind == ListLevel::Image)
-      note(flow.unsupported, "Image list labels");
-    else if (!level.format.empty()) {
+    } else if (level.kind == ListLevel::Image) {
+      label.text.clear();
+    } else if (!level.format.empty()) {
       TextList pieces;
       size_t begin = item.numbers.size() > size_t(level.display)
                          ? item.numbers.size() - level.display
@@ -1030,6 +1112,15 @@ struct WrappedLine {
   TextLine line;
   bool hard = false;
 };
+double image_position(const ListImage &image, double top, double bottom) {
+  if (image.position == ListImage::Top)
+    return top;
+  if (image.position == ListImage::Bottom)
+    return bottom - image.height;
+  if (image.position == ListImage::FromTop)
+    return top + image.offset;
+  return (top + bottom - image.height) / 2;
+}
 std::vector<WrappedLine> wrap(const TextParagraph &p,
                               const std::vector<Cluster> &clusters,
                               const TextPageStyle &page, size_t start,
@@ -1043,8 +1134,10 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
   std::shared_ptr<ShapedText> label_shape;
   if (p.list) {
     const auto &label = *p.list;
-    if (label.visible && !label.text.empty()) {
-      if (shaper) {
+    if (label.visible && (label.image || !label.text.empty())) {
+      if (label.image)
+        label_metrics.width = label.image->width;
+      else if (shaper) {
         TextParagraph marker;
         marker.text = label.text;
         marker.font = label.font;
@@ -1054,7 +1147,8 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
         label_metrics = label_shape->metrics;
       } else
         label_metrics = measure(label.text, label.font);
-      check_metrics(label_metrics);
+      if (!label.image)
+        check_metrics(label_metrics);
     }
     auto alignment = label.alignment;
     if (alignment == TextListLabel::Left)
@@ -1068,7 +1162,7 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       else if (alignment == TextListLabel::Center)
         label_start -= label_metrics.width / 2;
       first_start = body_start;
-      if (label.visible && !label.text.empty()) {
+      if (label.visible && (label.image || !label.text.empty())) {
         first_start = label_start + label_metrics.width;
         if (label.follow == TextListLabel::Space) {
           auto space = measure(" ", label.font);
@@ -1105,7 +1199,7 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
         label_start = std::max(box_start, body_start - label_metrics.width -
                                               label.min_distance);
       first_start = body_start;
-      if (label.visible && !label.text.empty())
+      if (label.visible && (label.image || !label.text.empty()))
         first_start =
             std::max(body_start + p.indent,
                      label_start + label_metrics.width + label.min_distance);
@@ -1215,7 +1309,7 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
       width = shape->metrics.width;
     }
     if (begin == 0 && start == 0 && lines.empty() && p.list &&
-        p.list->visible && !p.list->text.empty()) {
+        p.list->visible && (p.list->image || !p.list->text.empty())) {
       const auto &marker = *p.list;
       line.label = TextLine::Label{marker.text,
                                    marker.font,
@@ -1225,14 +1319,35 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
                                        : page.left + label_start,
                                    label_metrics.width,
                                    label_shape};
-      max_ascent = std::max(max_ascent, label_metrics.ascent);
-      max_descent = std::max(max_descent, label_metrics.descent);
+      if (marker.image) {
+        line.label->image = marker.image;
+        line.label->height = marker.image->height;
+        double top = -max_ascent, bottom = max_descent;
+        if (marker.image->reference == ListImage::Baseline)
+          top = bottom = 0;
+        else if (marker.image->reference == ListImage::Character) {
+          auto font_metrics = measure("M", marker.font);
+          check_metrics(font_metrics);
+          top = -font_metrics.ascent;
+          bottom = font_metrics.descent;
+        }
+        line.label->y = image_position(*marker.image, top, bottom);
+        max_ascent = std::max(max_ascent, -line.label->y);
+        max_descent = std::max(max_descent, line.label->y + line.label->height);
+      } else {
+        max_ascent = std::max(max_ascent, label_metrics.ascent);
+        max_descent = std::max(max_descent, label_metrics.descent);
+      }
     }
     double natural = max_ascent + max_descent;
     line.height = p.line_height > 0 ? p.line_height : natural * p.line_factor;
     if (!std::isfinite(line.height) || line.height <= 0)
       fail("Invalid native line height");
     line.baseline = (line.height - natural) / 2 + max_ascent;
+    if (line.label && line.label->image &&
+        line.label->image->reference == ListImage::Line)
+      line.label->y = image_position(*line.label->image, -line.baseline,
+                                     line.height - line.baseline);
     // Trailing wrap spaces stay in the source range but do not affect
     // alignment.
     double visible = width;
@@ -1332,6 +1447,7 @@ OdfTextReader::OdfTextReader(const OdfPackage &package)
   if (!styles.empty())
     impl_->reader.scan(read_document_xml(styles), true);
   impl_->reader.scan(package.xml);
+  impl_->reader.load_images(package);
 }
 TextFlow OdfTextReader::frame(const XmlElement &container,
                               const TextParagraph &base,
@@ -1356,6 +1472,7 @@ TextFlow read_text_flow(const OdfPackage &package) {
   if (!styles.empty())
     reader.scan(read_document_xml(styles), true);
   reader.scan(package.xml);
+  reader.load_images(package);
   reader.pages();
   reader.blocks(package.body());
   size_t total = 0;
@@ -1405,6 +1522,14 @@ static void check_paragraph(const TextParagraph &p) {
     for (double tab : label.paragraph_tabs)
       if (!std::isfinite(tab) || std::abs(tab) > 100000)
         fail("Invalid paragraph tab");
+    if (label.image) {
+      const auto &image = *label.image;
+      if (!label.text.empty() || !std::isfinite(image.width) ||
+          !std::isfinite(image.height) || !std::isfinite(image.offset) ||
+          image.width <= 0 || image.height <= 0 || image.width > 10000 ||
+          image.height > 10000 || std::abs(image.offset) > 100000)
+        fail("Invalid list image geometry");
+    }
   }
   size_t end = 0;
   for (const auto &span : p.spans) {

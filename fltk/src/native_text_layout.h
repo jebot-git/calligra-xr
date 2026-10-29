@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "native_image.h"
 #include "odf_package.h"
 #include <functional>
 #include <optional>
@@ -24,6 +25,13 @@ struct TextSpan {
   TextFont font;
   std::optional<TextColor> color;
 };
+struct ListImage {
+  Text source;
+  std::shared_ptr<const ImageAsset> asset;
+  double width = 1, height = 1, offset = 0;
+  enum Position { Top, Middle, Bottom, FromTop } position = Middle;
+  enum Reference { Baseline, TextBox, Character, Line } reference = Line;
+};
 struct TextListLabel {
   Text text, style;
   int level = 1;
@@ -37,6 +45,7 @@ struct TextListLabel {
   std::vector<double> paragraph_tabs;
   double default_tab = 72 * 1.25 / 2.54;
   bool relative_tabs = true;
+  std::optional<ListImage> image;
 };
 struct TextParagraph {
   Text text, master;
@@ -87,6 +96,8 @@ struct TextLine {
     std::optional<TextColor> color;
     double x = 0, width = 0; // Page/frame coordinates, independent of body x.
     std::shared_ptr<const struct ShapedText> shaped;
+    std::optional<ListImage> image;
+    double y = 0, height = 0; // Image top relative to this line's baseline.
   };
   std::optional<Label> label;
 };

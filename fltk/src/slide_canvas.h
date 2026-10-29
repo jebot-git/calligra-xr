@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "gpu_image.h"
 #include "gpu_text.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 struct SceneTextStats {
-  size_t lines = 0, glyphs = 0, missing_glyphs = 0, overflow_frames = 0, labels = 0;
+  size_t lines = 0, glyphs = 0, missing_glyphs = 0, overflow_frames = 0,
+         labels = 0, image_labels = 0;
   std::vector<Text> unsupported;
 };
 class SlideCanvas : public Fl_Widget {
 public:
   std::function<const SlideScene &()> scene;
   std::function<uint64_t()> revision;
-  std::function<Bytes(const Text &)> image;
   std::function<void(int)>
       selected; // Scene shape index (including shapes without text).
   enum Adjustment { Begin, Move, End, Cancel };
@@ -23,6 +24,8 @@ public:
   SlideCanvas(int, int, int, int);
   ~SlideCanvas() override;
   void reset();
+  void clear_images();
+  const GpuImageCache &images() const;
   const std::string &render_error() const;
   size_t rendered_shapes() const;
   size_t geometry_points() const;

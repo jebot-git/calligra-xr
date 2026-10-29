@@ -51,6 +51,9 @@ void TextPageCanvas::draw() {
   fl_push_clip(x(), y(), w(), h());
   fl_color(FL_BACKGROUND_COLOR);
   fl_rectf(x(), y(), w(), h());
+  auto *image_host = dynamic_cast<Fl_Gl_Window *>(window());
+  if (image_host)
+    images.begin_frame(*image_host);
   double top = y() + 12 - scroll_, zoom = scale();
   for (size_t i = 0; i < pagination.pages.size(); ++i) {
     const auto &page = pagination.pages[i];
@@ -76,6 +79,12 @@ void TextPageCanvas::draw() {
           if(line.label&&line.label->shaped) {
             transform.e=left+line.label->x*zoom;
             glyphs_->draw(*line.label->shaped,transform,{r,g,b},*host);
+          }
+          if (line.label && line.label->image) {
+            transform.e = left + line.label->x * zoom;
+            transform.f = top + (line.baseline + line.label->y) * zoom;
+            images.draw(line.label->image->asset, transform, line.label->width,
+                        line.label->height, *host);
           }
         }
       } catch (const std::exception &error) {

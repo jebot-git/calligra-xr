@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
-#include "native_text_shaper.h"
+#include "gpu_image.h"
 #include "gpu_text.h"
+#include "native_text_shaper.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 class TextPageCanvas : public Fl_Widget {
@@ -14,6 +15,7 @@ public:
   void set_pagination(TextPagination);
   size_t current_page() const;
   uint64_t rasterizations() const;
+  GpuImageCache images;
   const std::string &render_error() const { return render_error_; }
   int handle(int) override;
 

@@ -2,6 +2,7 @@
 #pragma once
 #include "native_xml.h"
 namespace DomeOffice {
+struct ImageAsset;
 inline const Text OFFICE = Text("urn:oasis:names:tc:opendocument:xmlns:office:1.0");
 inline const Text TEXT = Text("urn:oasis:names:tc:opendocument:xmlns:text:1.0");
 inline const Text TABLE = Text("urn:oasis:names:tc:opendocument:xmlns:table:1.0");
@@ -24,14 +25,24 @@ public:
     void save(const Text& path);
     void set_entry(const Text& name, const Bytes& data, const Text& mediaType);
     XmlElement body() const;
-    Bytes entry(const Text& name) const { return entries_.value(name); }
+    Bytes entry(const Text &name) const {
+        auto data = entry_data(name);
+        return data ? *data : Bytes();
+    }
+    std::shared_ptr<const Bytes> entry_data(const Text &name) const { return entries_.value(name); }
+    std::shared_ptr<const ImageAsset> image_asset(const Text &reference) const;
     Kind kind() const { return kind_; }
     bool read_only() const { return read_only_; }
     XmlDocument xml;
 
 private:
     Kind kind_;
-    Map<Text, Bytes> entries_;
+    Map<Text, std::shared_ptr<const Bytes>> entries_;
     bool read_only_ = false;
+    mutable std::map<Text, std::weak_ptr<const ImageAsset>> image_assets_;
+    void put(const Text &name, Bytes bytes) {
+        entries_[name] = std::make_shared<const Bytes>(std::move(bytes));
+        image_assets_.erase(name);
+    }
 };
 } // namespace DomeOffice
