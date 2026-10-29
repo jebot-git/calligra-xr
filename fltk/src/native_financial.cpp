@@ -12,6 +12,7 @@
 // participate in this module.
 #include "native_financial.h"
 #include "native_calendar.h"
+#include "native_coupon.h"
 #include "native_financial_dates.h"
 #include <limits>
 namespace DomeOffice {
@@ -30,15 +31,19 @@ const NativeSignatures &financial_signatures() {
       {"VDB", {5, 7}},          {"DOLLARDE", {2, 2}},    {"DOLLARFR", {2, 2}},
       {"XIRR", {2, 3}},         {"XNPV", {3, 3}},        {"ACCRINTM", {3, 5}},
       {"DISC", {4, 5}},         {"INTRATE", {4, 5}},     {"PRICEDISC", {4, 5}},
-      {"RECEIVED", {4, 5}},     {"YIELDDISC", {4, 5}}};
+      {"RECEIVED", {4, 5}},     {"YIELDDISC", {4, 5}},   {"COUPDAYBS", {3, 4}},
+      {"COUPDAYS", {3, 4}},     {"COUPDAYSNC", {3, 4}},  {"COUPNCD", {3, 4}},
+      {"COUPNUM", {3, 5}},      {"COUPPCD", {3, 4}}};
   return values;
 }
 Text financial_name(const Text &name) {
   static const Text prefix = "COM.SUN.STAR.SHEET.ADDIN.ANALYSIS.GET";
   static const std::set<Text> aliases = {
-      "CUMIPMT",    "CUMPRINC",  "DOLLARDE", "DOLLARFR", "DURATION", "EFFECT",
-      "FVSCHEDULE", "NOMINAL",   "XIRR",     "XNPV",     "ACCRINTM", "DISC",
-      "INTRATE",    "PRICEDISC", "RECEIVED", "YIELDDISC"};
+      "CUMIPMT",   "CUMPRINC",   "DOLLARDE", "DOLLARFR",   "DURATION",
+      "EFFECT",    "FVSCHEDULE", "NOMINAL",  "XIRR",       "XNPV",
+      "ACCRINTM",  "DISC",       "INTRATE",  "PRICEDISC",  "RECEIVED",
+      "YIELDDISC", "COUPDAYBS",  "COUPDAYS", "COUPDAYSNC", "COUPNCD",
+      "COUPNUM",   "COUPPCD"};
   if (name.startsWith(prefix)) {
     auto base = name.mid(prefix.size());
     if (aliases.contains(base))
@@ -286,6 +291,8 @@ NativeValue financial_function(const Text &input,
   }
   if (name == "XIRR" || name == "XNPV")
     return financial_date_function(name, args);
+  if (coupon_function_name(name))
+    return coupon_function(name, args);
   // Standard DURATION is the date/coupon overload; until its calendar model
   // is ported it must remain incomplete so supported source caches survive.
   if (name == "DURATION" && args.size() != 3)

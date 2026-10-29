@@ -701,3 +701,80 @@ desktop/display-manager session is restarted. Maps show no Qt; GTK3 still loads
 through system FLTK/libdecor. Software GL checks do not establish hardware or
 spatial XR readiness. Installation remains a separate authenticated step; a
 verified stage does not mean the installed version has advanced.
+
+
+## Native coupon schedules — 2026-10-29
+
+COUPDAYBS, COUPDAYS, COUPDAYSNC, COUPNCD, COUPNUM and COUPPCD now run through a
+shared native C++ coupon model. The financial catalogue has 47 names. Civil
+date conversion and Excel epoch normalization are shared with the native calendar
+layer; no Qt date, value or calculation classes participate. A month quotient
+and one boundary adjustment locate the current coupon period. Every date is
+anchored directly to maturity, retaining the original day or end-of-month rule;
+a short February cannot shift a later August coupon. The model provides previous
+and next dates, remaining payments, coupon days, accrued days and remaining days
+for the subsequent native bond-pricing/duration port.
+
+The behavioral source is the retained coupon implementation in
+`sheets/functions/financial.cpp`, originally adapted there from Gnumeric.
+All six queries retain its MSRB 30/360, Actual/Actual, Actual/360, Actual/365,
+30E/360 and 30E+/360 conventions. In particular, MSRB independently adjusts both
+last-day-of-February endpoints; this differs from the shared YEARFRAC Basis 0
+procedure and is not silently substituted with that routine. The normal standard
+interface uses annual/semiannual/quarterly schedules and bases 0–4. Existing
+Calligra extensions retain frequencies 3, 6 and 12, basis 5 and COUPNUM's fifth
+end-of-month flag. Other queries retain their registered three/four-argument
+interface, even though the upstream internal helper also has an EOM argument.
+These extensions are not claimed as standard Excel syntax. OpenFormula's coupon
+function descriptions are in §§6.12.5–6.12.10; the documented MSRB variant and
+extensions here describe the retained Calligra behavior rather than blanket
+OpenFormula day-count conformance. LibreOffice's published examples for all six queries are included as external
+cases:
+https://help.libreoffice.org/latest/en-US/text/scalc/01/04060118.html
+
+`coupon_reference.py` checks 22,890 cases: all 61 retained expressions with their
+original expectations, 21,600 independently enumerated schedule/convention cases,
+1,200 explicit EOM cases, eleven documented boundary cases and 18 namespace
+aliases. Its Python datetime/calendar implementation enumerates dates from
+maturity instead of using the C++ constant-time lookup. Leap centuries, short
+Februarys, payment-date settlement, all retained frequencies/bases and both EOM
+choices are covered. There are no retained expectation deviations in this corpus.
+The native suite additionally checks typed arrays, errors, partial-status
+propagation, dependent edits, fractional argument truncation and year 1–9999
+counting. A previous coupon outside the native representable year range returns
+ordinary #NUM! when requested as a date; complete date/settings compatibility
+remains part of the larger port.
+
+Independent odfpy/openpyxl producers generate ODS, XLSX 1900 and XLSX 1904 inputs
+with typed source dates and stale numeric caches. They check all six functions,
+date subtraction, Boolean results, ordinary invalid-frequency errors and retained
+unsupported/bond-dependent caches. Saved coupon dates must have ODF date types
+and date-value attributes, with no stale numeric value attribute. Excel inputs
+use standard four-argument functions and replace the ODS-only basis-5 example
+with the equivalent actual one-day boundary case. Neither source documents nor
+unrelated package members are overwritten by import checks.
+
+GUI tests change the coupon frequency from two to four, verify changed dates,
+counts and day values, undo, redo, save and reopen. All three producer formats
+and this focused GUI workflow pass in Release and ASan/UBSan builds. Both core
+builds pass all 28 suites with leak detection enabled. GUI leak detection is
+disabled for third-party allocations. The existing 6,859 calendar, 685 dated
+cash-flow and 1,978 periodic reference cases are rerun separately against the
+new build. These results do not establish the remaining bond functions or full
+calculation/document model.
+
+```sh
+python3 fltk/tests/coupon_reference.py
+uv run --with odfpy --with openpyxl python3 fltk/tests/coupon_producer.py /tmp/calligra-coupons
+uv run --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/coupon_ui.py
+```
+
+Evidence is under `/home/blux/de-xr/artifacts/calligra-native-coupons-20261029/`.
+
+A private native Wayland run verifies Words/Sheets/Stage against system FLTK,
+including coupon day values and typed next/previous dates selected with native
+keyboard input. Words table/caption rendering and navigation, and Stage table
+rendering and undo/redo also pass. Process maps contain no Qt; GTK3 remains loaded
+through system FLTK/libdecor. These software-GL checks do not establish hardware
+or spatial XR readiness. The current authenticated installation remains separate
+from this staged build, and no active desktop or display manager is restarted.

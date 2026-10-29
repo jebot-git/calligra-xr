@@ -274,13 +274,14 @@ text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` retu
 `#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
 errors; special-function non-convergence cannot terminate the application.
 
-The native financial module implements 41 names: `PMT`, `PV`, `FV`, `NPER`,
+The native financial module implements 47 names: `PMT`, `PV`, `FV`, `NPER`,
 `RATE`, `IPMT`, `PPMT`, `ISPMT`, `CUMIPMT`, `CUMPRINC`, `NPV`, `IRR`, `MIRR`,
 `FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, legacy three-argument
 `DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
 `LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`,
 `DOLLARFR`, `XIRR`, `XNPV`, `ACCRINTM`, `DISC`, `INTRATE`, `PRICEDISC`,
-`RECEIVED` and `YIELDDISC`. Loan functions share stable annuity calculations, including
+`RECEIVED`, `YIELDDISC`, `COUPDAYBS`, `COUPDAYS`, `COUPDAYSNC`, `COUPNCD`,
+`COUPNUM` and `COUPPCD`. Loan functions share stable annuity calculations, including
 zero/near-zero rates, and cumulative interest uses a closed sum. Iterative
 return/rate solvers have bounded work and report non-convergence as a cell
 error. Fractional VDB boundaries retain the original calculation behavior.
@@ -311,8 +312,19 @@ Nine differences from retained upstream test expectations are documented in
 VALIDATION.md; this is an explicit OpenFormula choice rather than a claim of
 identical historical numerical behavior.
 
-Coupon-bearing bond functions, remaining date-dependent calculations and legacy
-euro conversions remain unported. In particular, standard five/six-argument
+The native coupon model now supplies previous/next dates, remaining payments
+and before/after/period day counts. Dates are anchored to maturity with its
+original day or end-of-month rule, avoiding cumulative February clamping drift.
+The six coupon queries preserve the retained MSRB, actual, 30E and 30E+ day
+conventions. The coupon MSRB convention differs from YEARFRAC Basis 0 at
+February endpoints; these are separate documented behaviors. Retained extensions
+include frequencies 3, 6 and 12, basis 5 (30E+/360), and COUPNUM's fifth end-of-month
+argument. Other coupon queries retain their original three/four-argument interface.
+COUPNCD/COUPPCD return typed dates and save date caches. Schedule lookup uses
+constant-time month arithmetic, including wide year spans.
+
+Coupon-bearing bond pricing/yield/duration, remaining date-dependent calculations
+and legacy euro conversions remain unported. In particular, standard five/six-argument
 `DURATION` remains incomplete and preserves its original cached result; it is
 distinct from the retained three-argument Calligra extension. The supported
 periodic functions do not establish full financial-module fidelity.

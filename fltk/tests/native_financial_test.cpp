@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
       std::cout << encode(eval(Text(line))).dump() << '\n';
     return 0;
   }
-  assert(financial_signatures().size() == 41);
+  assert(financial_signatures().size() == 47);
   for (auto [formula, expected] : std::vector<std::pair<Text, double>>{
            {"PMT(5%,12,1000)", -112.8254100208},
            {"PMT(5%,12,1000,100,1)", -113.4361438313},

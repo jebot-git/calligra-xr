@@ -30,8 +30,9 @@ def constant(node):
     raise AssertionError(ast.dump(node))
 
 native=(ROOT/'fltk/src/native_financial.cpp').read_text().split('Text financial_name')[0]
-names=set(re.findall(r'\{"([A-Z_]+)",',native));assert len(names)==41
-names-= {'XIRR','XNPV','ACCRINTM','DISC','INTRATE','PRICEDISC','RECEIVED','YIELDDISC'} # Covered by the dated cash-flow and calendar corpora.
+names=set(re.findall(r'\{"([A-Z_]+)",',native));assert len(names)==47
+names-= {'XIRR','XNPV','ACCRINTM','DISC','INTRATE','PRICEDISC','RECEIVED','YIELDDISC',
+         'COUPDAYBS','COUPDAYS','COUPDAYSNC','COUPNCD','COUPNUM','COUPPCD'} # Separate dated cash-flow, calendar and coupon corpora.
 upstream=(ROOT/'sheets/functions/financial.cpp').read_text()
 registrations=list(re.finditer(r'new Function\("([A-Z_]+)"',upstream))
 aliases={}
