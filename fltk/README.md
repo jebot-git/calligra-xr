@@ -274,14 +274,13 @@ text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` retu
 `#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
 errors; special-function non-convergence cannot terminate the application.
 
-The native financial module implements 47 names: `PMT`, `PV`, `FV`, `NPER`,
+The native financial module implements 51 names: `PMT`, `PV`, `FV`, `NPER`,
 `RATE`, `IPMT`, `PPMT`, `ISPMT`, `CUMIPMT`, `CUMPRINC`, `NPV`, `IRR`, `MIRR`,
-`FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, legacy three-argument
-`DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
+`FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, `DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
 `LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`,
 `DOLLARFR`, `XIRR`, `XNPV`, `ACCRINTM`, `DISC`, `INTRATE`, `PRICEDISC`,
 `RECEIVED`, `YIELDDISC`, `COUPDAYBS`, `COUPDAYS`, `COUPDAYSNC`, `COUPNCD`,
-`COUPNUM` and `COUPPCD`. Loan functions share stable annuity calculations, including
+`COUPNUM`, `COUPPCD`, `PRICE`, `YIELD`, `MDURATION` and `DURATION_ADD`. Loan functions share stable annuity calculations, including
 zero/near-zero rates, and cumulative interest uses a closed sum. Iterative
 return/rate solvers have bounded work and report non-convergence as a cell
 error. Fractional VDB boundaries retain the original calculation behavior.
@@ -323,11 +322,24 @@ argument. Other coupon queries retain their original three/four-argument interfa
 COUPNCD/COUPPCD return typed dates and save date caches. Schedule lookup uses
 constant-time month arithmetic, including wide year spans.
 
-Coupon-bearing bond pricing/yield/duration, remaining date-dependent calculations
-and legacy euro conversions remain unported. In particular, standard five/six-argument
-`DURATION` remains incomplete and preserves its original cached result; it is
-distinct from the retained three-argument Calligra extension. The supported
-periodic functions do not establish full financial-module fidelity.
+Regular-coupon `PRICE` and `YIELD` now use the shared schedule. Valuation uses
+scaled positive cash flows and logarithmic-rate inversion, with bounded iteration
+and an explicit no-root result for degenerate zero-time payments. Binary polynomial
+sums compute values and first moments in logarithmic work per evaluation, avoiding
+loops across every payment and cancellation at zero rates. PRICE keeps the retained
+OpenFormula exponential single-payment convention; it does not implement Excel's
+special linear single-payment branch. Zero-yield PRICE is supported, and YIELD
+can return negative rates for premium bonds within its representable domain.
+
+Five/six-argument `DURATION`, `DURATION_ADD` and `MDURATION` now share the retained
+YEARFRAC-timed duration calculation, independently of PRICE's period clock.
+Three-argument `DURATION` remains the Calligra annuity extension. The calendar
+clock has documented differences from published Excel duration examples; it is
+not silently replaced with another clock to match those examples. Supported
+duration caches are now recalculated. Odd-period bonds and other remaining dated
+financial functions, legacy euro conversion and complete calculation settings/model
+still need porting. The supported functions do not establish full financial-module
+or Excel interoperability fidelity.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

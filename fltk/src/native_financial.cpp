@@ -11,6 +11,7 @@
 // sheets/functions/financial.cpp. No original Qt value or calculation classes
 // participate in this module.
 #include "native_financial.h"
+#include "native_bond.h"
 #include "native_calendar.h"
 #include "native_coupon.h"
 #include "native_financial_dates.h"
@@ -18,22 +19,32 @@
 namespace DomeOffice {
 const NativeSignatures &financial_signatures() {
   static const NativeSignatures values = {
-      {"PMT", {3, 5}},          {"PV", {3, 5}},          {"FV", {3, 5}},
-      {"NPER", {3, 5}},         {"RATE", {3, 6}},        {"IPMT", {4, 6}},
-      {"PPMT", {4, 6}},         {"ISPMT", {4, 4}},       {"CUMIPMT", {6, 6}},
-      {"CUMPRINC", {6, 6}},     {"IRR", {1, 2}},         {"MIRR", {3, 3}},
-      {"NPV", {2, 255}},        {"FVSCHEDULE", {2, 2}},  {"EFFECT", {2, 2}},
-      {"EFFECTIVE", {2, 2}},    {"NOMINAL", {2, 2}},     {"PDURATION", {3, 3}},
-      {"DURATION", {3, 6}},     {"RRI", {3, 3}},         {"COMPOUND", {4, 4}},
-      {"CONTINUOUS", {3, 3}},   {"FV_ANNUITY", {3, 3}},  {"PV_ANNUITY", {3, 3}},
-      {"LEVEL_COUPON", {5, 5}}, {"ZERO_COUPON", {3, 3}}, {"SLN", {3, 3}},
-      {"SYD", {4, 4}},          {"DB", {4, 5}},          {"DDB", {4, 5}},
-      {"VDB", {5, 7}},          {"DOLLARDE", {2, 2}},    {"DOLLARFR", {2, 2}},
-      {"XIRR", {2, 3}},         {"XNPV", {3, 3}},        {"ACCRINTM", {3, 5}},
-      {"DISC", {4, 5}},         {"INTRATE", {4, 5}},     {"PRICEDISC", {4, 5}},
-      {"RECEIVED", {4, 5}},     {"YIELDDISC", {4, 5}},   {"COUPDAYBS", {3, 4}},
-      {"COUPDAYS", {3, 4}},     {"COUPDAYSNC", {3, 4}},  {"COUPNCD", {3, 4}},
-      {"COUPNUM", {3, 5}},      {"COUPPCD", {3, 4}}};
+      {"PMT", {3, 5}},          {"PV", {3, 5}},
+      {"FV", {3, 5}},           {"NPER", {3, 5}},
+      {"RATE", {3, 6}},         {"IPMT", {4, 6}},
+      {"PPMT", {4, 6}},         {"ISPMT", {4, 4}},
+      {"CUMIPMT", {6, 6}},      {"CUMPRINC", {6, 6}},
+      {"IRR", {1, 2}},          {"MIRR", {3, 3}},
+      {"NPV", {2, 255}},        {"FVSCHEDULE", {2, 2}},
+      {"EFFECT", {2, 2}},       {"EFFECTIVE", {2, 2}},
+      {"NOMINAL", {2, 2}},      {"PDURATION", {3, 3}},
+      {"DURATION", {3, 6}},     {"RRI", {3, 3}},
+      {"COMPOUND", {4, 4}},     {"CONTINUOUS", {3, 3}},
+      {"FV_ANNUITY", {3, 3}},   {"PV_ANNUITY", {3, 3}},
+      {"LEVEL_COUPON", {5, 5}}, {"ZERO_COUPON", {3, 3}},
+      {"SLN", {3, 3}},          {"SYD", {4, 4}},
+      {"DB", {4, 5}},           {"DDB", {4, 5}},
+      {"VDB", {5, 7}},          {"DOLLARDE", {2, 2}},
+      {"DOLLARFR", {2, 2}},     {"XIRR", {2, 3}},
+      {"XNPV", {3, 3}},         {"ACCRINTM", {3, 5}},
+      {"DISC", {4, 5}},         {"INTRATE", {4, 5}},
+      {"PRICEDISC", {4, 5}},    {"RECEIVED", {4, 5}},
+      {"YIELDDISC", {4, 5}},    {"COUPDAYBS", {3, 4}},
+      {"COUPDAYS", {3, 4}},     {"COUPDAYSNC", {3, 4}},
+      {"COUPNCD", {3, 4}},      {"COUPNUM", {3, 5}},
+      {"COUPPCD", {3, 4}},      {"PRICE", {6, 7}},
+      {"YIELD", {6, 7}},        {"MDURATION", {5, 6}},
+      {"DURATION_ADD", {5, 6}}};
   return values;
 }
 Text financial_name(const Text &name) {
@@ -43,7 +54,7 @@ Text financial_name(const Text &name) {
       "EFFECT",    "FVSCHEDULE", "NOMINAL",  "XIRR",       "XNPV",
       "ACCRINTM",  "DISC",       "INTRATE",  "PRICEDISC",  "RECEIVED",
       "YIELDDISC", "COUPDAYBS",  "COUPDAYS", "COUPDAYSNC", "COUPNCD",
-      "COUPNUM",   "COUPPCD"};
+      "COUPNUM",   "COUPPCD",    "PRICE",    "YIELD",      "MDURATION"};
   if (name.startsWith(prefix)) {
     auto base = name.mid(prefix.size());
     if (aliases.contains(base))
@@ -293,10 +304,8 @@ NativeValue financial_function(const Text &input,
     return financial_date_function(name, args);
   if (coupon_function_name(name))
     return coupon_function(name, args);
-  // Standard DURATION is the date/coupon overload; until its calendar model
-  // is ported it must remain incomplete so supported source caches survive.
-  if (name == "DURATION" && args.size() != 3)
-    return args.size() == 4 ? V::error("#VALUE!") : V::error("#NAME?", true);
+  if (bond_function_name(name) && (name != "DURATION" || args.size() != 3))
+    return bond_function(name, args);
   auto n = [&](size_t index, Real fallback = 0) {
     return index < args.size() ? number(args[index]) : fallback;
   };

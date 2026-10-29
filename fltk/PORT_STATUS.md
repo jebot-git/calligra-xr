@@ -36,7 +36,7 @@ including complex arithmetic, units, Bessel/error functions and base conversion.
 Complex results retain both coefficients in the native model and save ODF caches
 as strings. Independent SciPy, cmath, mpmath and Pint references, the retained
 upstream cases, external ODF/XLSX producers and real keyboard edit/save/reopen
-checks cover this module. A native financial module now covers 47 annuity,
+checks cover this module. A native financial module now covers 51 annuity,
 amortization, periodic cash-flow, depreciation and related names. It shares
 stable near-zero-rate calculations, preserves sparse sequence semantics and
 checks convergence/work limits. The original fractional VDB algorithms and
@@ -48,11 +48,13 @@ Real numeric grid labels now fit their column without clipping an exponent.
 Shared Gregorian day counts now support YEARFRAC, signed DAYS360 and six
 additional dated securities functions. Six native coupon queries now share
 maturity-anchored previous/next dates, remaining payment counts and the retained
-MSRB/actual/European day conventions; date caches stay typed. Coupon-bearing
-bond pricing/yield/duration, remaining
-date-dependent functions, euro conversion, the remaining
-statistical catalogue and complete model remain unported. Standard coupon
-DURATION stays incomplete so its original caches survive saving.
+MSRB/actual/European day conventions; date caches stay typed. Regular-coupon
+PRICE/YIELD now share that schedule and a stable scaled cash-flow model. Dated
+DURATION/DURATION_ADD/MDURATION use the retained YEARFRAC clock, while the
+three-argument DURATION extension remains available. Duration caches are now
+calculated; remaining odd-period/datetime financial functions, euro conversion,
+the statistical catalogue and complete model remain unported. Documented Excel
+single-payment pricing and duration-clock differences remain compatibility limits.
 Passing the retained document and GUI tests does not establish full function
 or office-suite parity. The assessment below distinguishes implemented native
 behavior from the remaining full port.

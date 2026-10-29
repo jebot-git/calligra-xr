@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
       std::cout << encode(eval(Text(line))).dump() << '\n';
     return 0;
   }
-  assert(financial_signatures().size() == 47);
+  assert(financial_signatures().size() == 51);
   for (auto [formula, expected] : std::vector<std::pair<Text, double>>{
            {"PMT(5%,12,1000)", -112.8254100208},
            {"PMT(5%,12,1000,100,1)", -113.4361438313},
@@ -168,10 +168,13 @@ int main(int argc, char **argv) {
     auto wrong = financial_function(name, {});
     assert(wrong.isError() && wrong.string == "#VALUE!" && !wrong.incomplete);
   }
-  auto unsupported = eval("IFERROR(DURATION(45000,46000,.05,.07,2),99)");
+  auto unsupported =
+      eval("IFERROR(ODDLPRICE(45000,46000,44900,.05,.07,100,2),99)");
   assert(unsupported.incomplete && unsupported.number == 99);
-  // The implemented failure is ordinary, while the unported coupon overload
-  // remains incomplete and cannot overwrite a preserved source cache.
+  auto duration = eval("DURATION(45000,46000,.05,.07,2)");
+  assert(duration.isNumber() && duration.number > 0 && !duration.incomplete);
+  // The implemented failure is ordinary; an unported odd-period bond formula
+  // stays incomplete and cannot overwrite its preserved source cache.
   assert(!eval("IFERROR(RATE(0,10,100),99)").incomplete);
   TempDir temporary;
   Workbook book;

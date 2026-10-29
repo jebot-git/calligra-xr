@@ -1,5 +1,8 @@
 # Native engine validation — 2026-10-28
 
+This is a chronological milestone log. Later sections supersede earlier function
+limits; README.md and PORT_STATUS.md describe the current implementation.
+
 The Qt-free Release build passes the three original document CTests with their
 assertions retained, plus fifteen native calculation/matrix/text/scene/history/handle/list regression suites. Actual
 Xvfb/D-Bus keyboard, menu, edit/save and Office-to-ODF conversion checks pass
@@ -778,3 +781,101 @@ rendering and undo/redo also pass. Process maps contain no Qt; GTK3 remains load
 through system FLTK/libdecor. These software-GL checks do not establish hardware
 or spatial XR readiness. The current authenticated installation remains separate
 from this staged build, and no active desktop or display manager is restarted.
+
+
+## Native regular-coupon bonds and dated duration — 2026-10-29
+
+Native PRICE, YIELD, MDURATION and DURATION_ADD expand the financial catalogue to
+51 names. The existing DURATION entry now implements its five/six-argument dated
+form as well as the retained three-argument annuity extension. Previously
+unsupported dated DURATION expressions now return calculated numbers and update
+their package caches. Unsupported-cache fixtures now use ODDLPRICE instead;
+the new bond producer explicitly checks completed DURATION caches, so the old
+unsupported behavior is not retained by changing the fixtures alone.
+
+Valuation uses the shared maturity-anchored CouponPeriod. Binary concatenation
+computes the finite discounted sum and first moment in logarithmic work per
+evaluation. Positive cash flows are normalized before evaluation. For negative
+log rates, the polynomial is reversed and its final time factor is retained in
+log space. This avoids overflowing long-span dirty values in the yield solver,
+and avoids losing finite duration when a zero-coupon value underflows. Zero rates
+need no cancellation-prone division by the rate.
+
+YIELD solves the monotone log dirty-price equation, uses its analytic mean-time
+derivative, and contracts a bracket when Newton would make insufficient progress.
+Its 256-iteration bound and representable annual-yield limits prevent open-ended
+iteration. Premium bonds may produce negative yields above minus frequency;
+public PRICE retains its nonnegative-yield domain and now accepts the zero-yield
+limit. No-root, unrepresentable-yield and zero-time degeneracies produce ordinary
+calculation errors, not unsupported-function status. PRICE keeps its original
+extra frequencies dividing 12; YIELD and duration keep frequencies 1, 2 and 4.
+
+All dated duration entry points retain the source algorithm's YEARFRAC timing of
+the final payment; intermediate payments have integer period spacing. They do
+not silently use PRICE's coupon-period exponent. Both retained Calligra's
+`duration` helper and LibreOffice's GetDuration use that clock:
+https://raw.githubusercontent.com/LibreOffice/core/master/scaddins/source/analysis/analysishelper.cxx
+The three retained DURATION_ADD/MDURATION expressions pass their original
+expectations. This does not claim all historical numerical results are identical,
+particularly where the shared native YEARFRAC has the nine recorded differences
+in the calendar milestone above.
+
+There are explicit interoperability limits. PRICE follows retained/OpenFormula
+exponential discounting even with a single payment; Microsoft's documented
+single-payment PRICE branch uses a separate formula. The current published Excel
+DURATION and MDURATION examples also differ from the retained/native calendar
+clock. Both published rounded values, their source URLs, and the independently
+calculated native values remain in the reference report as compatibility
+observations; they are not relabeled as matching examples or omitted:
+https://support.microsoft.com/en-us/excel/functions/price-function
+https://support.microsoft.com/en-us/excel/functions/duration-function
+https://support.microsoft.com/en-us/excel/functions/mduration-function
+
+`bond_reference.py` checks 1,028 cases using 90-digit mpmath and explicitly
+enumerated cash flows, independently of the native binary-series evaluator:
+three retained expressions, 540 price/duration cases, 180 retained-clock cases,
+180 inverse yields, five negative yields, 90 extreme-rate cases, three extreme
+inversions, an unrepresentable root, a year 1–9999 monthly span, three retained
+frequency extensions, six documented/degenerate cases, two published-clock
+compatibility observations and 14 namespace aliases. It covers zero/near-zero
+rates, zero coupons, rates through 1e300, near-minus-frequency yields and a
+single-payment zero-day-count degeneracy. The native core suite also checks typed
+arrays, error/partial-status propagation and dependent edits.
+
+Independent odfpy/openpyxl producers cover ODS and both Excel date epochs. Native
+price, inverse yield, all duration entry points, zero-coupon values and dependent
+results replace deliberately stale caches. Supported errors are completed;
+unknown/odd-period formulas and their dependent fallback caches remain intact.
+The Excel producer uses DURATION in place of the Calligra-only DURATION_ADD name,
+and PDURATION in place of the three-argument DURATION extension. This makes the
+input syntax valid for Excel while retaining the recorded numerical limits.
+Older financial, dated-cash-flow, calendar and coupon producer families are also
+rerun after moving their unsupported examples to the genuinely unported odd-period
+function. Original imported files and unrelated package members remain intact.
+
+GUI checks edit the yield, verify price/yield/duration recalculation and actual
+painted numeric magnitudes, undo, redo, save and reopen. Both Release and
+ASan/UBSan builds run the focused document/GUI workflow; core leak detection is
+enabled and third-party GUI leak detection is disabled. Evidence is under
+`/home/blux/de-xr/artifacts/calligra-native-bonds-20261029/`.
+
+```sh
+uv run --with mpmath python3 fltk/tests/bond_reference.py
+uv run --with mpmath --with odfpy --with openpyxl python3 fltk/tests/bond_producer.py /tmp/calligra-bonds
+uv run --with mpmath --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/bond_ui.py
+```
+
+Odd-period bonds, remaining dated financial functions, currency conversion, full
+calculation settings/model/style handling and the rest of the office engines are
+still incomplete. This milestone is not full original-engine or Excel parity.
+
+Both final builds pass all 29 core suites and all five numerical reference
+families (33,440 cases per build). All 14 producer inputs per build pass after
+the final duration-clock correction, and the focused GUI workflow passes again.
+A private native Wayland session verifies all three applications with system
+FLTK: Words table/caption pixels and page navigation, Sheets bond values and
+painted numeric magnitudes with native keyboard selection, and Stage table
+rendering and undo/redo. Maps show no Qt; GTK3 still loads through libdecor.
+Software GL results do not establish hardware or spatial XR readiness, and no
+active desktop/display-manager session is restarted. Installation is verified
+separately against the exact staged manifest.

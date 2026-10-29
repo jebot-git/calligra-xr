@@ -14,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[2]
 DATES=[dt.date(2024,1,1),dt.date(2024,7,1),dt.date(2024,12,31)]
 FORMULAS=['XIRR([.B1:.B3];[.A1:.A3])','XNPV(.1;[.B1:.B3];[.A1:.A3])','[.C1]+.01',
           'XNPV([.C1];[.B1:.B3];[.A1:.A3])','IFERROR(XIRR({1;2};{0;365});77)',
-          'UNKNOWN_DATED_FUNCTION()','DURATION(DATE(2026;1;1);DATE(2030;1;1);.05;.07;2)',
+          'UNKNOWN_DATED_FUNCTION()','ODDLPRICE(DATE(2026;1;1);DATE(2030;1;1);DATE(2025;7;1);.05;.07;100;2)',
           'IFERROR([.I1];77)','XIRR({-100;110};{DATE(2024;1;1);DATE(2024;12;31)})']
 def expected(cash=-10000):
     def npv(r):return cash+6000/(1+r)**(182/365)+7000/(1+r)
