@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_sheets.h"
 #include "native_engineering.h"
+#include "native_financial.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -851,7 +852,7 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
   return failure;
 }
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = engineering_name(e->name);
+  const auto name = financial_name(engineering_name(e->name));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -871,13 +872,11 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     add("MID DATE TIME", 3, 3);
     add("IF FIND SEARCH", 2, 3);
     add("SUBSTITUTE", 3, 4);
-    add("PMT PV FV", 3, 5);
     add("SUM PRODUCT MIN MAX COUNT COUNTA CONCAT CONCATENATE SUMSQ", 0, 255);
     add("AVERAGE MEDIAN STDEV STDEV.S STDEVP STDEV.P VAR VAR.S VARP VAR.P AND "
         "OR XOR",
         1, 255);
     add("COUNTBLANK", 1, 1);
-    add("NPV", 2, 255);
     add("CHOOSE", 2, 255);
     add("INDEX MATCH LOOKUP", 2, 3);
     add("VLOOKUP HLOOKUP", 3, 4);
@@ -888,6 +887,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     add("MMULT", 2, 2);
     add("SUMPRODUCT", 1, 255);
     for (const auto &[name, arity] : engineering_signatures())
+      out[name] = arity;
+    for (const auto &[name, arity] : financial_signatures())
       out[name] = arity;
     return out;
   }();
@@ -906,7 +907,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "INDEX",   "OFFSET",  "INDIRECT",    "ROW",       "COLUMN",
       "SHEET",   "SHEETS",  "ROWS",        "COLUMNS",   "MATCH",
       "LOOKUP",  "VLOOKUP", "HLOOKUP",     "TRANSPOSE", "SUMPRODUCT",
-      "MMULT",   "MDETERM", "MINVERSE",    "IMSUM",     "IMPRODUCT"};
+      "MMULT",   "MDETERM", "MINVERSE",    "IMSUM",     "IMPRODUCT",
+      "IRR",     "MIRR",    "FVSCHEDULE"};
   bool caller_array_context = array_context;
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name));
@@ -1046,6 +1048,34 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         }
       return Value::array(rows, columns, std::move(result));
     }
+  }
+  if (financial_signatures().contains(name)) {
+    std::vector<Value> args;
+    size_t records = 0;
+    for (size_t i = 0; i < count; ++i) {
+      bool sequence = (name == "NPV" && i > 0) ||
+                      ((name == "IRR" || name == "MIRR") && i == 0) ||
+                      (name == "FVSCHEDULE" && i == 1);
+      if (!sequence) {
+        args.push_back(arg(i));
+        continue;
+      }
+      bool collection = false;
+      auto values = flatten(e->args[i], &collection);
+      if (values.size() > 1000000 - records)
+        return error("#LIMIT!");
+      records += values.size();
+      if (collection) {
+        // Preserve the distinction between a direct scalar and a cell/range:
+        // NumberSequence excludes referenced text, Boolean and empty cells.
+        if (values.empty())
+          values.push_back(Value());
+        auto rows = values.size();
+        args.push_back(Value::array(rows, 1, std::move(values)));
+      } else
+        args.push_back(values.front());
+    }
+    return financial_function(name, args);
   }
   if (engineering_signatures().contains(name)) {
     std::vector<Value> args;
@@ -1674,39 +1704,6 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     }
     int found = haystack.indexOf(needle, at - 1);
     return found < 0 ? error("#VALUE!") : numeric(found + 1);
-  }
-  if (name == "PMT" || name == "PV" || name == "FV") {
-    double rate = n(0), periods = n(1), a = n(2), b = count > 3 ? n(3) : 0,
-           type = count > 4 ? n(4) : 0;
-    if (type != 0 && type != 1)
-      return error("#NUM!");
-    double factor = std::pow(1 + rate, periods);
-    if (name == "PMT")
-      return periods == 0
-                 ? error("#DIV/0!")
-                 : numeric(rate == 0 ? -(a + b) / periods
-                                     : -rate * (a * factor + b) /
-                                           ((factor - 1) * (1 + rate * type)));
-    if (name == "PV")
-      return numeric(rate == 0
-                         ? -b - a * periods
-                         : -(b + a * (1 + rate * type) * (factor - 1) / rate) /
-                               factor);
-    return numeric(rate == 0 ? -b - a * periods
-                             : -(b * factor +
-                                 a * (1 + rate * type) * (factor - 1) / rate));
-  }
-  if (name == "NPV") {
-    double rate = n(0), sum = 0;
-    int period = 1;
-    for (size_t i = 1; i < count; i++)
-      for (auto &v : flatten(e->args[i])) {
-        if (v.isError())
-          throw v;
-        if (v.isNumber())
-          sum += v.number / std::pow(1 + rate, period++);
-      }
-    return numeric(sum);
   }
   if (name == "DATE") {
     int year = integer(0, 0, 9999), month = integer(1, -120000, 120000),

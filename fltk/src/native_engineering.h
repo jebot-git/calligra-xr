@@ -2,7 +2,6 @@
 #pragma once
 #include "native_sheets.h"
 namespace DomeOffice {
-using NativeSignatures = std::map<Text, std::pair<size_t, size_t>>;
 const NativeSignatures &engineering_signatures();
 Text engineering_name(const Text &);
 NativeValue engineering_function(const Text &,

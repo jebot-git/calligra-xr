@@ -4,6 +4,7 @@
 #include "native_types.h"
 #include <cmath>
 namespace DomeOffice {
+using NativeSignatures = std::map<Text, std::pair<size_t, size_t>>;
 struct NativeValue {
   enum Kind { Empty, Number, Boolean, String, Error, Array, Complex };
   Kind kind = Empty;

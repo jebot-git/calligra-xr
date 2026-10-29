@@ -36,8 +36,14 @@ including complex arithmetic, units, Bessel/error functions and base conversion.
 Complex results retain both coefficients in the native model and save ODF caches
 as strings. Independent SciPy, cmath, mpmath and Pint references, the retained
 upstream cases, external ODF/XLSX producers and real keyboard edit/save/reopen
-checks cover this module. This adds one module to the smaller native catalogue;
-the original statistical/financial catalogue and complete model remain unported.
+checks cover this module. A native financial module now covers 33 annuity,
+amortization, periodic cash-flow, depreciation and related names. It shares
+stable near-zero-rate calculations, preserves sparse sequence semantics and
+checks convergence/work limits. The original fractional VDB algorithms and
+three-argument DURATION extension are retained. Calendar-dependent coupon/bond
+functions, irregular-date cash flows, euro conversion, the remaining
+statistical catalogue and complete model remain unported. Standard coupon
+DURATION stays incomplete so its original caches survive saving.
 Passing the retained document and GUI tests does not establish full function
 or office-suite parity. The assessment below distinguishes implemented native
 behavior from the remaining full port.

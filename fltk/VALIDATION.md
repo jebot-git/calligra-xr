@@ -514,3 +514,58 @@ Nested table master assignments, header/body-crossing spans and full document
 fidelity remain separate unfinished work.
 
 Evidence: `/home/blux/de-xr/artifacts/calligra-native-cell-masters-20261029/`.
+
+## Native periodic financial calculations — 2026-10-29
+
+The native financial module ports 33 names from the retained financial group,
+including annuities, amortization, periodic cash-flow returns, depreciation and
+the three-argument Calligra DURATION extension. It uses native typed values and
+C++ math rather than the original Qt-backed Value/ValueCalc classes. The
+original variable-declining-balance algorithms and their fractional boundaries
+are retained. Shared annuity calculations use stable small-rate series and
+`log1p`/`expm1`; cumulative interest uses a closed sum. Rate/return iterations
+check convergence and have finite work limits.
+
+`financial_reference.py` checks 1,978 cases in each build: 199 retained upstream
+cases, 1,396 NumPy Financial comparisons, 308 high-precision mpmath cases,
+9 explicit boundaries and 66 Excel namespace cases. Every registered name is
+covered. The references exposed a fractional first-period DDB difference and
+negative-return IRR oscillation; retained tests and independent cash flows
+cover the corrected behavior. The solver removes the derivative of the
+polynomial scaling factor so iterations follow the same NPV function on both
+sides of zero. No numerical reference packages participate in the installed
+calculation path.
+The loan/sequence contracts are checked against
+[OpenFormula 1.4](https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part4-formula.pdf);
+independent periodic calculations use [NumPy Financial](https://numpy.org/numpy-financial/latest/).
+
+The new core suite also checks sparse numeric sequences, direct versus
+referenced text/Boolean arguments, scalar array mapping, error propagation,
+near-zero individual/cumulative interest, amortization identities and ODS
+round trips. `financial_producer.py` creates independent ODS and XLSX files with
+deliberately stale formula caches. Native evaluation and saved ODS results are
+checked against NumPy Financial. Supported formulas replace stale caches;
+ordinary errors update them, while unknown calculations and their IFERROR
+dependents preserve the original caches. Standard coupon DURATION is explicitly
+incomplete until its date/coupon calculation is ported.
+
+`financial_ui.py` follows actual keyboard selection through 21 dependent cells,
+edits the original loan value, checks recalculation/undo/redo, saves through the
+application and reopens the file. Unchanged package members and unsupported
+caches survive. Both Release and ASan/UBSan GUI runs pass, and all 25 core suites
+pass in both builds with core leak checking enabled. GUI checks disable leak
+detection for third-party toolkit allocations. A private native Wayland run
+checks financial result display and keyboard selection alongside Words/Stage
+rendering and Stage undo/redo; all three use system FLTK without Qt mapped.
+GTK3 still loads through system decorations. These software-OpenGL checks do
+not establish hardware performance or spatial XR fidelity.
+
+```sh
+uv run --with numpy-financial --with mpmath python3 fltk/tests/financial_reference.py
+uv run --with numpy-financial --with odfpy --with openpyxl python3 fltk/tests/financial_producer.py /tmp/calligra-financial
+uv run --with numpy-financial --with odfpy --with openpyxl --with Pillow --with python-xlib python3 fltk/tests/financial_ui.py
+```
+
+Coupon/bond/date-basis behavior, irregular-date cash flows, euro conversions and
+the remaining original calculation/model/format catalogue remain unfinished.
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-financial-20261029/`.

@@ -271,10 +271,31 @@ text is ignored by `IMSUM` and rejected by `IMPRODUCT`; zero-base `IMPOWER` retu
 `#NUM!` under the ODF constraint. Floating-point overflow/domain failures are cell
 errors; special-function non-convergence cannot terminate the application.
 
+The native financial module implements 33 names: `PMT`, `PV`, `FV`, `NPER`,
+`RATE`, `IPMT`, `PPMT`, `ISPMT`, `CUMIPMT`, `CUMPRINC`, `NPV`, `IRR`, `MIRR`,
+`FVSCHEDULE`, `EFFECT`/`EFFECTIVE`, `NOMINAL`, `PDURATION`, legacy three-argument
+`DURATION`, `RRI`, `COMPOUND`, `CONTINUOUS`, `FV_ANNUITY`, `PV_ANNUITY`,
+`LEVEL_COUPON`, `ZERO_COUPON`, `SLN`, `SYD`, `DB`, `DDB`, `VDB`, `DOLLARDE`
+and `DOLLARFR`. Loan functions share stable annuity calculations, including
+zero/near-zero rates, and cumulative interest uses a closed sum. Iterative
+return/rate solvers have bounded work and report non-convergence as a cell
+error. Fractional VDB boundaries retain the original calculation behavior.
+Range-consuming financial functions retain row order and use sparse range
+visits. Referenced text, Boolean and empty cells are excluded from numeric
+sequences; direct scalar arguments follow numeric conversion. Scalar financial
+functions map typed arrays. Applicable legacy analysis, Excel `_xlfn.` and
+`COM.MICROSOFT.` names resolve to the same implementations.
+
+Calendar-dependent bond/coupon functions, irregular-date cash flows and legacy
+euro conversions remain unported. In particular, standard five/six-argument
+`DURATION` remains incomplete and preserves its original cached result; it is
+distinct from the retained three-argument Calligra extension. The supported
+periodic functions do not establish full financial-module fidelity.
+
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,
 logical and type tests, rounding, powers/logarithms/trigonometry, basic text
-functions, PMT/PV/FV/NPV and basic date/time functions. This is a smaller
+functions, the engineering/financial groups above and basic date/time functions. This is a smaller
 catalogue than the original Calligra engine. Unknown functions produce `#NAME?`,
 not a fabricated numeric result. Dependent formulas propagate errors. Existing
 source caches for unsupported computations are preserved on ODF save, including
