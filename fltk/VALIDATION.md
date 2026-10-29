@@ -340,5 +340,39 @@ Malformed spans/coverage, cycles, invalid styles, nesting and expansion limits
 are checked, together with a 40,000-cell repeated grid that reads one source
 paragraph once. `table_model_producer.py` creates an independent odfpy ODT with
 headers, merged/repeated/nested cells and checks its model without modifying the
-package. These are source/model checks; table cell rendering and pagination are
-still explicitly unsupported and require the next port stage.
+package. These checks establish the source model. The subsequent continuous frame
+renderer is covered below; Words table pagination remains unsupported.
+
+
+## Continuous native table layout — 2026-10-29
+
+All 21 Release document suites and all 21 ASan/UBSan suites pass with core leak
+checking enabled. The `native-table-layout` suite checks column sizing, RTL
+source identities, collapsed/separate borders, hidden and zero-height rows,
+fixed-row clipping, vertical alignment, nested/repeated cell formatting and
+source-preserving text edits with inline line breaks. The shared full GUI
+regression passes in Release and ASan/UBSan builds. GUI leak checking is disabled
+for retained third-party toolkit allocations; core leak checking stays enabled.
+
+Independent odfpy ODT/ODP fixtures exercise merged/header cells, inherited text
+styles, fixed-height overflow and all border patterns. Private Xvfb/D-Bus tests
+check actual background/border/glyph pixels, a clipped two-color image bullet,
+and tab leaders both present inside the cell and absent from its neighbor.
+A rotated-frame test rectifies affine cell corners and checks clipping in source
+coordinates. Text edit, undo/redo, save and reopen retain the grid, styles and
+inline breaks; untouched package members remain byte-identical. These normal
+and rotated tests pass in both Release and sanitizer builds. Reproduce with:
+
+```sh
+uv run --with odfpy --with Pillow --with python-xlib python3 fltk/tests/table_layout_ui.py
+uv run --with odfpy --with Pillow --with python-xlib python3 fltk/tests/table_transform_ui.py
+```
+
+Use `--bin-dir` and `--artifacts` for an alternate build and separate output.
+Tests use isolated sessions and do not restart the active desktop. The current
+native Wayland proof covers all three applications, system FLTK mapping without
+Qt, rendered Stage table pixels and keyboard undo/redo. GTK3 can still load
+through system FLTK's libdecor decoration plugin. This is continuous frame
+layout validation; Words row splitting, repeated page headers, merged-cell
+continuations, page-width reflow and cell-aware page editing remain unfinished.
+Evidence: `/home/blux/de-xr/artifacts/calligra-native-table-layout-20261029/`.

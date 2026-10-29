@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "slide_canvas.h"
+#include "gpu_clip.h"
 #include "gpu_image.h"
 #include "native_path.h"
+#include "native_table_layout.h"
 #include "suite/fltk_appearance.h"
 #include <FL/fl_draw.H>
 #include <FL/gl.h>
@@ -212,7 +214,7 @@ struct SlideCanvas::Impl {
       }
       p.text_area =
           shape.text_area.value_or(SceneRect{0, 0, shape.width, shape.height});
-      if (!shape.text.empty() &&
+      if ((!shape.text.empty() || !shape.text_flow.tables.empty()) &&
           p.text_area.width >
               shape.paint.padding_left + shape.paint.padding_right &&
           p.text_area.height >
@@ -250,11 +252,18 @@ struct SlideCanvas::Impl {
             (shape.paint.vertical_alignment == ScenePaint::Middle   ? extra / 2
              : shape.paint.vertical_alignment == ScenePaint::Bottom ? extra
                                                                     : 0);
+        offset_text_layout(p.text, p.text_area.x + shape.paint.padding_left, y);
+        text_stats.table_paints += p.text.paints.size();
+        for (const auto &cell : p.text.cells) {
+          const auto &r = cell.rect;
+          text_stats.cells.push_back(
+              {cell,
+               {shape.transform.map({r.x, r.y}),
+                shape.transform.map({r.x + r.width, r.y}),
+                shape.transform.map({r.x + r.width, r.y + r.height}),
+                shape.transform.map({r.x, r.y + r.height})}});
+        }
         for (auto &line : p.text.lines) {
-          line.x += p.text_area.x + shape.paint.padding_left;
-          if(line.label)line.label->x+=p.text_area.x+shape.paint.padding_left;
-          line.y += y;
-          line.baseline += y;
           for (const auto &tab : line.tabs)
             text_stats.tabs.push_back(
                 {tab.source,
@@ -338,7 +347,7 @@ struct SlideCanvas::Impl {
       if (!shape.image.empty())
         pictures.draw(shape.raster, transform, shape.width, shape.height,
                       *window);
-      if (!cached.text.lines.empty()) {
+      if (!cached.text.lines.empty() || !cached.text.paints.empty()) {
         glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT);
         SceneTransform origin;
         origin.e = cached.text_area.x;
@@ -347,23 +356,30 @@ struct SlideCanvas::Impl {
                    cached.text_area.height);
         unsigned char r, g, b;
         Fl::get_color(FL_FOREGROUND_COLOR, r, g, b);
+        glyphs.draw_paints(cached.text.paints, transform, *window);
         for (const auto &line : cached.text.lines)
           if (line.shaped) {
             SceneTransform baseline;
             baseline.e = line.x;
             baseline.f = line.baseline;
-            glyphs.draw(*line.shaped, transform * baseline, {r, g, b}, *window);
-            glyphs.draw_tabs(line.tabs, transform * baseline, {r, g, b},
-                             *window);
+            glyphs.draw(*line.shaped, transform * baseline, {r, g, b}, *window,
+                        relative_text_clip(line.clip, line.x, line.baseline));
+            glyphs.draw_tabs(
+                line.tabs, transform * baseline, {r, g, b}, *window,
+                relative_text_clip(line.clip, line.x, line.baseline));
             if(line.label&&line.label->shaped) {
               baseline.e=line.label->x;
-              glyphs.draw(*line.label->shaped,transform*baseline,{r,g,b},*window);
+              glyphs.draw(
+                  *line.label->shaped, transform * baseline, {r, g, b}, *window,
+                  relative_text_clip(line.clip, line.label->x, line.baseline));
             }
             if (line.label && line.label->image) {
               baseline.e = line.label->x;
               baseline.f = line.baseline + line.label->y;
               pictures.draw(line.label->image->asset, transform * baseline,
-                            line.label->width, line.label->height, *window);
+                            line.label->width, line.label->height, *window,
+                            relative_text_clip(line.clip, line.label->x,
+                                               line.baseline + line.label->y));
             }
           }
         glPopAttrib();

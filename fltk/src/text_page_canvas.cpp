@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_page_canvas.h"
+#include "gpu_clip.h"
 #include "suite/fltk_appearance.h"
 #include <FL/fl_draw.H>
 #include <algorithm>
@@ -71,21 +72,31 @@ void TextPageCanvas::draw() {
       try {
         auto *host=dynamic_cast<Fl_Gl_Window *>(window());
         unsigned char r,g,b;Fl::get_color(FL_FOREGROUND_COLOR,r,g,b);
+        if (host)
+          glyphs_->draw_paints(page.paints, {zoom, 0, 0, zoom, left, top},
+                               *host);
         for(const auto &line:page.lines) {
           if(top+(line.y+line.height)*zoom<y()||top+line.y*zoom>y()+h())continue;
           if(!line.shaped||!host)throw std::runtime_error("Native page glyph positions are missing");
           SceneTransform transform{zoom,0,0,zoom,left+line.x*zoom,top+line.baseline*zoom};
-          glyphs_->draw(*line.shaped,transform,{r,g,b},*host);
-          glyphs_->draw_tabs(line.tabs, transform, {r, g, b}, *host);
+          glyphs_->draw(*line.shaped, transform, {r, g, b}, *host,
+                        relative_text_clip(line.clip, line.x, line.baseline));
+          glyphs_->draw_tabs(
+              line.tabs, transform, {r, g, b}, *host,
+              relative_text_clip(line.clip, line.x, line.baseline));
           if(line.label&&line.label->shaped) {
             transform.e=left+line.label->x*zoom;
-            glyphs_->draw(*line.label->shaped,transform,{r,g,b},*host);
+            glyphs_->draw(
+                *line.label->shaped, transform, {r, g, b}, *host,
+                relative_text_clip(line.clip, line.label->x, line.baseline));
           }
           if (line.label && line.label->image) {
             transform.e = left + line.label->x * zoom;
             transform.f = top + (line.baseline + line.label->y) * zoom;
             images.draw(line.label->image->asset, transform, line.label->width,
-                        line.label->height, *host);
+                        line.label->height, *host,
+                        relative_text_clip(line.clip, line.label->x,
+                                           line.baseline + line.label->y));
           }
         }
       } catch (const std::exception &error) {

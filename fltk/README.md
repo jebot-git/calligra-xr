@@ -112,8 +112,13 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   retained. Legacy ODF T/U arc behavior follows the original loader through ODF
   1.3; ODF 1.4 uses radial angles and clockwise arcs. Formula evaluation is
   bounded and checks invalid references, cycles and non-finite results.
-  Lists/tables, text auto-growth/fit, vertical writing, custom preset lookup,
-  adjustment handles/stretch points, extrusion/text-on-path, advanced strokes/fills,
+  Native tables in unlinked frames support nested/merged/repeated cells, scoped
+  cell text styles, fixed/relative columns, row heights, padding and vertical
+  alignment. GPU backgrounds and border patterns follow frame transforms; cell
+  clipping covers glyphs, tab leaders and image bullets. Supported text edits
+  preserve the source grid and inline line breaks through undo/save/reopen.
+  Structural list/table editing, text auto-growth/fit, vertical writing, custom
+  preset lookup, stretch points, extrusion/text-on-path, advanced strokes/fills,
   master placeholder fields and animation/timing still require a full port.
 
 Office imports support Transitional and Strict namespaces and are content/data
@@ -168,10 +173,12 @@ can populate additional entries. Session appearance changes refresh the layout.
 This establishes a native shaping/rendering path, not full typography or print
 parity. Embedded document fonts, complete complex-script style properties,
 font synthesis, arbitrary variable axes, color glyph painting, advanced
-justification/hyphenation and vertical text remain incomplete. Rich formatting controls, table/list/section
-layout, columns, notes, headers/footers, anchored shapes and page-style details
-remain to be ported. Nested structural content is currently flattened for this
-view and its unsupported categories are reported by the layout model. DOCX
+justification/hyphenation and vertical text remain incomplete. Rich formatting
+controls, paginated table/section layout, structural list editing, columns, notes,
+headers/footers, anchored shapes and page-style details remain to be ported.
+Words retains native table grids but still flattens their paragraphs in the page
+view and reports table pagination as unsupported. The continuous Stage frame
+path paints native cells; this does not establish page-aware table support. DOCX
 import still omits styles/page geometry. No PDF/printing parity is claimed.
 
 Layout limits are one million Unicode scalars per paragraph, four million per

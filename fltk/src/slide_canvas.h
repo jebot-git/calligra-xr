@@ -14,6 +14,12 @@ struct SceneTextStats {
     size_t strokes = 0, glyphs = 0;
   };
   std::vector<Tab> tabs;
+  struct Cell {
+    TextCellBox source;
+    std::array<ScenePoint, 4> corners;
+  };
+  std::vector<Cell> cells;
+  size_t table_paints = 0;
   std::vector<Text> unsupported;
 };
 class SlideCanvas : public Fl_Widget {

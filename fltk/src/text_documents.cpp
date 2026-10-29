@@ -103,6 +103,44 @@ namespace {
     {
         auto existing = paragraphs(parent);
         TextList parts = text.split('\n');
+        // Preserve the distinction between original paragraph boundaries and
+        // inline line breaks when a text-only edit leaves every newline intact.
+        TextList original;
+        bool soft_breaks = false;
+        for (auto p : existing) {
+            auto value = plain_text(p);
+            soft_breaks = soft_breaks || value.contains('\n');
+            original.push_back(value);
+        }
+        if (soft_breaks) {
+            auto before = original.join('\n');
+            size_t prefix = 0, suffix = 0;
+            while (prefix < before.size() && prefix < text.size() && before[prefix] == text[prefix])
+                ++prefix;
+            while (suffix < before.size() - prefix && suffix < text.size() - prefix
+                && before[before.size() - 1 - suffix] == text[text.size() - 1 - suffix])
+                ++suffix;
+            auto removed = before.mid(prefix, before.size() - prefix - suffix);
+            auto inserted = text.mid(prefix, text.size() - prefix - suffix);
+            if (!removed.contains('\n') && !inserted.contains('\n')) {
+                parts.clear();
+                size_t old_boundary = 0, start = 0;
+                const auto delta = static_cast<int64_t>(text.size()) - static_cast<int64_t>(before.size());
+                for (size_t i = 0; i + 1 < original.size(); ++i) {
+                    old_boundary += original[i].size();
+                    auto boundary = static_cast<int64_t>(old_boundary);
+                    if (old_boundary >= before.size() - suffix)
+                        boundary += delta;
+                    if (boundary < static_cast<int64_t>(start) || boundary >= static_cast<int64_t>(text.size())
+                        || text[size_t(boundary)] != '\n')
+                        fail("Cannot retain the original paragraph boundaries");
+                    parts.push_back(text.mid(start, size_t(boundary) - start));
+                    start = size_t(boundary) + 1;
+                    ++old_boundary;
+                }
+                parts.push_back(text.mid(start));
+            }
+        }
         if (existing.size() != parts.size() && !allowStructural)
             fail("Adding or removing paragraphs in this structure is not supported yet");
         if (existing.size() != parts.size())

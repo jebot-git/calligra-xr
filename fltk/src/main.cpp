@@ -948,9 +948,16 @@ public:
             data["text"] = buffer_text();
         if (kind == Kind::Words) {
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
-            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array();
+            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array();
+            size_t table_paints = 0;
+            std::vector<std::string> unsupported;
+            for (const auto& feature : text_pages->pagination.unsupported)
+                unsupported.push_back(utf8(feature));
             size_t page_index = 0;
             for (const auto& page : text_pages->pagination.pages) {
+                table_paints += page.paints.size();
+                for (const auto& cell : page.cells)
+                    cells.push_back({ { "table", cell.table }, { "row", cell.row }, { "column", cell.column }, { "rows", cell.rows }, { "columns", cell.columns }, { "header", cell.header }, { "continued", cell.continued }, { "page", page_index }, { "x", cell.rect.x }, { "y", cell.rect.y }, { "width", cell.rect.width }, { "height", cell.rect.height }, { "page_width", page.style.width }, { "page_height", page.style.height } });
                 for (const auto& line : page.lines)
                     if (line.shaped) {
                         ++shaped_lines;
@@ -989,21 +996,24 @@ public:
                     }
                 ++page_index;
             }
-            data["page_layout"] = {{"visible", page_view},
-                                   {"pages", text_pages->pagination.pages.size()},
-                                   {"page", text_pages->current_page() + 1},
-                                   {"render_error", text_pages->render_error()},
-                                   {"rasterizations", text_pages->rasterizations()},
-                                   {"shaped_lines", shaped_lines},
-                                   {"glyphs", glyphs},
-                                   {"missing_glyphs", missing},
-                                   {"list_labels", labels},
-                                   {"image_labels", image_labels},
-                                   {"tabs", tabs},
-                                   {"image_decodes", text_pages->images.decodes()},
-                                   {"image_uploads", text_pages->images.uploads()},
-                                   {"image_errors", text_pages->images.errors()},
-                                   {"viewport", {text_pages->x(), text_pages->y(), text_pages->w(), text_pages->h()}}};
+            data["page_layout"] = { { "visible", page_view },
+                { "pages", text_pages->pagination.pages.size() },
+                { "page", text_pages->current_page() + 1 },
+                { "render_error", text_pages->render_error() },
+                { "rasterizations", text_pages->rasterizations() },
+                { "shaped_lines", shaped_lines },
+                { "glyphs", glyphs },
+                { "missing_glyphs", missing },
+                { "list_labels", labels },
+                { "image_labels", image_labels },
+                { "tabs", tabs },
+                { "table_cells", cells },
+                { "table_paints", table_paints },
+                { "unsupported", unsupported },
+                { "image_decodes", text_pages->images.decodes() },
+                { "image_uploads", text_pages->images.uploads() },
+                { "image_errors", text_pages->images.errors() },
+                { "viewport", { text_pages->x(), text_pages->y(), text_pages->w(), text_pages->h() } } };
         }
         if (kind == Kind::Stage) {
             const auto& model = stage->scene(slide);
@@ -1035,34 +1045,44 @@ public:
             }
             for (const auto& feature : text.unsupported)
                 unsupported.push_back(utf8(feature));
-            data["scene"] = {{"page", slide + 1},
-                             {"width", model.width},
-                             {"height", model.height},
-                             {"shapes", model.shapes.size()},
-                             {"master_shapes", masters},
-                             {"editable_frames", model.editable_sources.size()},
-                             {"selected_frame", box},
-                             {"can_undo", stage->can_undo()},
-                             {"can_redo", stage->can_redo()},
-                             {"selected_shape", canvas->selected_shape},
-                             {"adjustments", adjustments},
-                             {"revision", stage->revision()},
-                             {"slides", stage->count()},
-                             {"rendered_shapes", canvas->rendered_shapes()},
-                             {"geometry_points", canvas->geometry_points()},
-                             {"render_error", canvas->render_error()},
-                             {"unsupported", unsupported},
-                             {"shaped_lines", text.lines},
-                             {"glyphs", text.glyphs},
-                             {"list_labels", text.labels},
-                             {"image_labels", text.image_labels},
-                             {"image_decodes", canvas->images().decodes()},
-                             {"image_uploads", canvas->images().uploads()},
-                             {"image_errors", canvas->images().errors()},
-                             {"tabs", tabs},
-                             {"missing_glyphs", text.missing_glyphs},
-                             {"overflow_frames", text.overflow_frames},
-                             {"viewport", {canvas->x(), canvas->y(), canvas->w(), canvas->h()}}};
+            Json cells = Json::array();
+            for (const auto& cell : text.cells) {
+                Json corners = Json::array();
+                for (const auto& p : cell.corners)
+                    corners.push_back({ p.x, p.y });
+                const auto& c = cell.source;
+                cells.push_back({ { "table", c.table }, { "row", c.row }, { "column", c.column }, { "rows", c.rows }, { "columns", c.columns }, { "header", c.header }, { "corners", corners } });
+            }
+            data["scene"] = { { "page", slide + 1 },
+                { "width", model.width },
+                { "height", model.height },
+                { "shapes", model.shapes.size() },
+                { "master_shapes", masters },
+                { "editable_frames", model.editable_sources.size() },
+                { "selected_frame", box },
+                { "can_undo", stage->can_undo() },
+                { "can_redo", stage->can_redo() },
+                { "selected_shape", canvas->selected_shape },
+                { "adjustments", adjustments },
+                { "revision", stage->revision() },
+                { "slides", stage->count() },
+                { "rendered_shapes", canvas->rendered_shapes() },
+                { "geometry_points", canvas->geometry_points() },
+                { "render_error", canvas->render_error() },
+                { "unsupported", unsupported },
+                { "shaped_lines", text.lines },
+                { "table_cells", cells },
+                { "table_paints", text.table_paints },
+                { "glyphs", text.glyphs },
+                { "list_labels", text.labels },
+                { "image_labels", text.image_labels },
+                { "image_decodes", canvas->images().decodes() },
+                { "image_uploads", canvas->images().uploads() },
+                { "image_errors", canvas->images().errors() },
+                { "tabs", tabs },
+                { "missing_glyphs", text.missing_glyphs },
+                { "overflow_frames", text.overflow_frames },
+                { "viewport", { canvas->x(), canvas->y(), canvas->w(), canvas->h() } } };
         }
         // Readers must see one complete snapshot while the UI refreshes it.
         TempFile temporary(Text(options.report + ".XXXXXX"));

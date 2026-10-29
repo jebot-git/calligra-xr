@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_layout.h"
 #include "native_list_number.h"
+#include "native_table_layout.h"
 #include "native_table_model.h"
 #include "native_tabs.h"
 #include "native_text_shaper.h"
@@ -182,6 +183,17 @@ struct Reader {
     std::vector<Counter> numbers;
     std::shared_ptr<Domain> domain;
   };
+  struct ParagraphSource {
+    XmlElement node;
+    std::optional<ListItem> list;
+  };
+  std::vector<ParagraphSource> paragraph_sources;
+  std::vector<XmlElement> cell_context;
+  using FormatKey = std::pair<size_t, std::vector<uintptr_t>>;
+  std::map<FormatKey, std::shared_ptr<const TextParagraph>>
+      formatted_paragraphs;
+  std::map<FormatKey, std::shared_ptr<const TextTable>> formatted_tables;
+  size_t format_budget = 0;
   static int64_t integer(const XmlElement &e, const Text &ns, const Text &name,
                          int64_t fallback, int64_t min, int64_t max) {
     auto value =
@@ -897,9 +909,7 @@ struct Reader {
     p.list = std::move(label);
     item.first = false;
   }
-  void paragraph(const XmlElement &e, ListItem *item) {
-    if (flow.paragraphs.size() >= 100000)
-      fail("Too many text paragraphs");
+  TextParagraph make_paragraph(const XmlElement &e, ListItem *item) {
     TextParagraph p;
     p.color = TextColor{};
     character(p.font, p.color, text_default);
@@ -913,6 +923,8 @@ struct Reader {
       p.font = frame_base->font;
       p.color = frame_base->color;
     }
+    for (const auto &style : cell_context)
+      apply(style);
     auto explicit_styles = chain(false, e.attributeNS(TEXT, "style-name"),
                                  [](const XmlElement &) {});
     auto frame_styles =
@@ -930,10 +942,102 @@ struct Reader {
     tab_records += p.tabs.size();
     if (tab_records > 262144)
       fail("Document exceeds native tab style limit");
+    return p;
+  }
+  void paragraph(const XmlElement &e, ListItem *item) {
+    if (flow.paragraphs.size() >= 100000)
+      fail("Too many text paragraphs");
+    ParagraphSource source{e, item ? std::optional<ListItem>(*item)
+                                   : std::nullopt};
+    auto p = make_paragraph(e, item);
     auto index = flow.paragraphs.size();
     flow.paragraphs.push_back(std::move(p));
+    paragraph_sources.push_back(std::move(source));
     (block_target ? *block_target : flow.blocks)
         .push_back({TextBlock::Paragraph, index});
+  }
+  FormatKey format_key(size_t index, const std::vector<XmlElement> &context) {
+    FormatKey key{index, {}};
+    for (const auto &style : context)
+      key.second.push_back(reinterpret_cast<uintptr_t>(style.identity()));
+    return key;
+  }
+  std::shared_ptr<const TextTable>
+  format_table(size_t index, const std::vector<XmlElement> &context,
+               size_t depth = 0) {
+    if (depth >= 16)
+      fail("Excessive formatted table depth");
+    auto key = format_key(index, context);
+    if (auto found = formatted_tables.find(key);
+        found != formatted_tables.end())
+      return found->second;
+    const auto &original = flow.tables.at(index);
+    const size_t cost =
+        original.cells.size() + original.rows.size() + original.columns.size();
+    if (cost > 1000000 - format_budget)
+      fail("Formatted table model exceeds native limit");
+    format_budget += cost;
+    auto table = std::make_shared<TextTable>(original);
+    for (auto &cell : table->cells) {
+      auto inherited = context;
+      auto styles = table_reader->cell_styles(cell.style_name, styles_source);
+      inherited.insert(inherited.end(), styles.begin(), styles.end());
+      if (cell.blocks.empty()) {
+        auto empty_key =
+            format_key(std::numeric_limits<size_t>::max(), inherited);
+        auto found = formatted_paragraphs.find(empty_key);
+        if (found == formatted_paragraphs.end()) {
+          if (formatted_paragraphs.size() >= 100000)
+            fail("Too many formatted empty cell styles");
+          cell_context = inherited;
+          auto empty = make_paragraph({}, nullptr);
+          cell_context.clear();
+          found = formatted_paragraphs
+                      .emplace(std::move(empty_key),
+                               std::make_shared<const TextParagraph>(
+                                   std::move(empty)))
+                      .first;
+        }
+        cell.empty_format = found->second;
+      }
+      for (auto &block : cell.blocks) {
+        if (block.kind == TextBlock::Table) {
+          block.table = format_table(block.index, inherited, depth + 1);
+          continue;
+        }
+        auto paragraph_key = format_key(block.index, inherited);
+        auto found = formatted_paragraphs.find(paragraph_key);
+        if (found == formatted_paragraphs.end()) {
+          if (formatted_paragraphs.size() >= 100000)
+            fail("Too many formatted cell paragraphs");
+          auto recipe = paragraph_sources.at(block.index);
+          cell_context = inherited;
+          auto value = make_paragraph(recipe.node,
+                                      recipe.list ? &*recipe.list : nullptr);
+          cell_context.clear();
+          found = formatted_paragraphs
+                      .emplace(std::move(paragraph_key),
+                               std::make_shared<const TextParagraph>(
+                                   std::move(value)))
+                      .first;
+        }
+        block.formatted = found->second;
+      }
+    }
+    formatted_tables.emplace(std::move(key), table);
+    return table;
+  }
+  void finish_tables() {
+    // These are independent bounds for the cached resolved formatting; source
+    // text was already checked during parsing. Repeated identical contexts
+    // share it.
+    text_size = tab_records = label_size = format_budget = 0;
+    formatted_paragraphs.clear();
+    formatted_tables.clear();
+    for (auto &block : flow.blocks)
+      if (block.kind == TextBlock::Table)
+        block.table = format_table(block.index, {});
+    cell_context.clear();
   }
   void table(const XmlElement &node, int depth) {
     if (table_depth >= 16 || flow.tables.size() >= 4096)
@@ -963,9 +1067,6 @@ struct Reader {
         table_budget, styles_source);
     for (const auto &warning : model.unsupported)
       note(flow.unsupported, warning);
-    // Geometry/pagination will consume the structural model in the next port
-    // step. Preserve the existing diagnostic while its preview is still flat.
-    note(flow.unsupported, "Native table cell layout is not implemented");
     if (flow.tables.size() >= 4096)
       fail("Too many native tables");
     auto index = flow.tables.size();
@@ -2007,12 +2108,17 @@ TextFlow OdfTextReader::frame(const XmlElement &container,
   reader.text_size = 0;
   reader.tab_records = 0;
   reader.reset_lists();
+  reader.paragraph_sources.clear();
+  reader.cell_context.clear();
+  reader.formatted_paragraphs.clear();
+  reader.formatted_tables.clear();
   reader.block_target = nullptr;
   reader.table_budget = reader.table_depth = 0;
   reader.styles_source = styles_source;
   reader.frame_base = base;
   reader.frame_paragraph_style = paragraph_style;
   reader.blocks(container);
+  reader.finish_tables();
   return std::move(reader.flow);
 }
 
@@ -2027,6 +2133,7 @@ TextFlow read_text_flow(const OdfPackage &package) {
   reader.load_images(package);
   reader.pages();
   reader.blocks(package.body());
+  reader.finish_tables();
   size_t total = 0;
   for (const auto &p : reader.flow.paragraphs) {
     total += p.text.size();
@@ -2112,11 +2219,92 @@ static void check_paragraph(const TextParagraph &p) {
   if (!p.spans.empty() && end != p.text.size())
     fail("Incomplete inline text spans");
 }
+class ParagraphBoxes {
+  const TextFlow &flow;
+  const MeasureText &measure;
+  NativeTextShaper *shaper;
+  Breaks breaks;
+  struct Prepared {
+    std::shared_ptr<ShapingParagraph> shaping;
+    std::vector<Cluster> clusters;
+  };
+  std::map<uintptr_t, Prepared> prepared;
+  std::map<std::pair<uintptr_t, double>, std::shared_ptr<const TextBoxLayout>>
+      cached;
+  size_t characters = 0;
+
+public:
+  ParagraphBoxes(const TextFlow &f, const MeasureText &m, NativeTextShaper *s)
+      : flow(f), measure(m), shaper(s) {}
+  std::shared_ptr<const TextBoxLayout> operator()(const TextBlock &block,
+                                                  double width) {
+    const auto &p = block_paragraph(flow, block);
+    auto identity = reinterpret_cast<uintptr_t>(&p);
+    auto key = std::pair{identity, width};
+    if (auto it = cached.find(key); it != cached.end())
+      return it->second;
+    if (!std::isfinite(width) || width <= 0 || width > 100000)
+      fail("Invalid native cell text width");
+    auto found = prepared.find(identity);
+    if (found == prepared.end()) {
+      characters +=
+          p.text.size() + (p.list && p.list->visible ? p.list->text.size() : 0);
+      if (characters > 4000000 || prepared.size() >= 100000)
+        fail("Resolved cell text exceeds native limit");
+      check_paragraph(p);
+      Prepared value;
+      if (shaper)
+        value.shaping = std::make_shared<ShapingParagraph>(shaper->prepare(p));
+      value.clusters = breaks.clusters(
+          p, measure, value.shaping ? &value.shaping->whole() : nullptr);
+      found = prepared.emplace(identity, std::move(value)).first;
+    }
+    TextPageStyle frame;
+    frame.width = width;
+    frame.left = frame.right = frame.top = frame.bottom = 0;
+    auto lines = wrap(p, found->second.clusters, frame, 0, measure,
+                      found->second.shaping.get(), shaper);
+    auto result = std::make_shared<TextBoxLayout>();
+    double y = 0;
+    for (auto &wrapped : lines) {
+      auto line = std::move(wrapped.line);
+      line.paragraph = block.index;
+      line.style = block.formatted;
+      line.y = y;
+      line.baseline += y;
+      y += line.height;
+      if (line.shaped && line.shaped->missing_glyphs)
+        note(result->unsupported, "Missing font glyphs");
+      result->lines.push_back(std::move(line));
+      if (result->lines.size() > 1000000 || y > 100000000)
+        fail("Cell paragraph exceeds native layout limit");
+    }
+    result->height = y;
+    cached.emplace(key, result);
+    return result;
+  }
+};
 static TextBoxLayout text_box_impl(const TextFlow &flow, double width,
                                    const MeasureText &measure,
                                    NativeTextShaper *shaper) {
   if (!measure || !std::isfinite(width) || width < 1 || width > 10000)
     fail("Invalid native text frame width");
+  if (!flow.tables.empty()) {
+    ParagraphBoxes paragraphs(flow, measure, shaper);
+    NativeBlockLayouter layouter(flow, [&](const TextBlock &block, double w) {
+      return paragraphs(block, w);
+    });
+    auto blocks = flow.blocks;
+    if (blocks.empty())
+      for (size_t i = 0; i < flow.paragraphs.size(); ++i)
+        blocks.push_back({TextBlock::Paragraph, i});
+    auto result = layouter.blocks(blocks, width);
+    for (const auto &warning : flow.unsupported)
+      note(result.unsupported, warning);
+    if (result.lines.size() > 100000 || result.height > 10000000)
+      fail("Text frame exceeds native table layout limit");
+    return result;
+  }
   TextBoxLayout result;
   result.unsupported = flow.unsupported;
   TextPageStyle frame;
@@ -2185,6 +2373,8 @@ static TextPagination paginate_impl(const TextFlow &flow,
     fail("Native text measurement is required");
   TextPagination result;
   result.unsupported = flow.unsupported;
+  if (!flow.tables.empty())
+    note(result.unsupported, "Native table pagination is not implemented");
   Breaks breaks;
   std::vector<std::vector<Cluster>> clusters;
   std::vector<std::shared_ptr<ShapingParagraph>> shaping;

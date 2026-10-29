@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "gpu_text.h"
+#include "gpu_clip.h"
 #include "suite/fltk_appearance.h"
 #include <FL/Fl_Gl_Window.H>
 #include <FL/fl_draw.H>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <deque>
+#include <numbers>
 namespace DomeOffice {
 namespace {
 struct DrawingState {
@@ -109,7 +111,10 @@ struct GpuTextCache::Impl {
     }
   }
   void draw(const ShapedText &text, const SceneTransform &transform,
-            SceneColor color, Fl_Gl_Window &host) {
+            SceneColor color, Fl_Gl_Window &host,
+            std::optional<TextRect> clip) {
+    if (clip && (clip->width <= 0 || clip->height <= 0))
+      return;
     window = &host;
     prepare(host);
     DrawingState state(host.w(), host.h());
@@ -142,20 +147,30 @@ struct GpuTextCache::Impl {
                 paint.alpha);
       double unit = glyph.size / raster.em;
       double x = glyph.x + raster.left * unit, y = glyph.y + raster.top * unit;
-      auto a = transform.map({x, y}),
-           b = transform.map({x + raster.width * unit, y}),
-           c = transform.map(
-               {x + raster.width * unit, y + raster.height * unit}),
-           d = transform.map({x, y + raster.height * unit});
+      double width = raster.width * unit, height = raster.height * unit;
+      double left = x, top = y, right = x + width, bottom = y + height;
+      if (clip) {
+        left = std::max(left, clip->x);
+        top = std::max(top, clip->y);
+        right = std::min(right, clip->x + clip->width);
+        bottom = std::min(bottom, clip->y + clip->height);
+      }
+      if (right <= left || bottom <= top)
+        continue;
+      auto a = transform.map({left, top}), b = transform.map({right, top}),
+           c = transform.map({right, bottom}),
+           d = transform.map({left, bottom});
+      double u1 = (left - x) / width, v1 = (top - y) / height,
+             u2 = (right - x) / width, v2 = (bottom - y) / height;
       glBindTexture(GL_TEXTURE_2D, raster.texture);
       glBegin(GL_QUADS);
-      glTexCoord2f(0, 0);
+      glTexCoord2d(u1, v1);
       glVertex2d(a.x, a.y);
-      glTexCoord2f(1, 0);
+      glTexCoord2d(u2, v1);
       glVertex2d(b.x, b.y);
-      glTexCoord2f(1, 1);
+      glTexCoord2d(u2, v2);
       glVertex2d(c.x, c.y);
-      glTexCoord2f(0, 1);
+      glTexCoord2d(u1, v2);
       glVertex2d(d.x, d.y);
       glEnd();
     }
@@ -164,12 +179,14 @@ struct GpuTextCache::Impl {
 GpuTextCache::GpuTextCache() : impl_(std::make_unique<Impl>()) {}
 GpuTextCache::~GpuTextCache() = default;
 void GpuTextCache::draw(const ShapedText &text, const SceneTransform &transform,
-                        SceneColor color, Fl_Gl_Window &window) {
-  impl_->draw(text, transform, color, window);
+                        SceneColor color, Fl_Gl_Window &window,
+                        std::optional<TextRect> clip) {
+  impl_->draw(text, transform, color, window, clip);
 }
 void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,
                              const SceneTransform &transform,
-                             SceneColor fallback, Fl_Gl_Window &host) {
+                             SceneColor fallback, Fl_Gl_Window &host,
+                             std::optional<TextRect> clip) {
   DrawingState state(host.w(), host.h());
   glDisable(GL_TEXTURE_2D);
   glDisable(GL_DEPTH_TEST);
@@ -180,7 +197,6 @@ void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,
     auto color = tab.color.value_or(fallback);
     glColor4d(color.red / 255., color.green / 255., color.blue / 255.,
               color.alpha);
-    glBegin(GL_QUADS);
     for (const auto &stroke : tab.strokes) {
       double dx = stroke.x2 - stroke.x1, dy = stroke.y2 - stroke.y1,
              n = std::hypot(dx, dy);
@@ -200,21 +216,107 @@ void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,
       glColor4d(color.red / 255., color.green / 255., color.blue / 255.,
                 color.alpha * std::min(1., stroke.width * density));
       double x = nx * thickness / 2, y = ny * thickness / 2;
-      for (auto p : {ScenePoint{stroke.x1 + x, stroke.y1 + y},
-                     ScenePoint{stroke.x2 + x, stroke.y2 + y},
-                     ScenePoint{stroke.x2 - x, stroke.y2 - y},
-                     ScenePoint{stroke.x1 - x, stroke.y1 - y}}) {
-        auto screen = transform.map(p);
-        glVertex2d(screen.x, screen.y);
+      std::array<ClipPoint, 4> points = {
+          ClipPoint{stroke.x1 + x, stroke.y1 + y},
+          ClipPoint{stroke.x2 + x, stroke.y2 + y},
+          ClipPoint{stroke.x2 - x, stroke.y2 - y},
+          ClipPoint{stroke.x1 - x, stroke.y1 - y}};
+      auto polygon = clip_polygon(points, clip);
+      if (polygon.size >= 3) {
+        glBegin(GL_TRIANGLE_FAN);
+        for (size_t i = 0; i < polygon.size; ++i) {
+          auto p = transform.map({polygon.points[i].x, polygon.points[i].y});
+          glVertex2d(p.x, p.y);
+        }
+        glEnd();
       }
     }
-    glEnd();
     if (tab.leader) {
       if (tab.stop.leader_font.color_set && !tab.stop.leader_font.color)
         color = fallback;
-      impl_->draw(*tab.leader, transform, color, host);
+      impl_->draw(*tab.leader, transform, color, host, clip);
       glDisable(GL_TEXTURE_2D);
     }
+  }
+}
+void GpuTextCache::draw_paints(const std::vector<TextPaint> &paints,
+                               const SceneTransform &transform,
+                               Fl_Gl_Window &host) {
+  DrawingState state(host.w(), host.h());
+  glDisable(GL_TEXTURE_2D);
+  glDisable(GL_TEXTURE_RECTANGLE_ARB);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_LIGHTING);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  double dpi_x = double(host.pixel_w()) / host.w(),
+         dpi_y = double(host.pixel_h()) / host.h();
+  auto density = [&](bool horizontal) {
+    double tx = (horizontal ? transform.a : transform.c) * dpi_x,
+           ty = (horizontal ? transform.b : transform.d) * dpi_y,
+           nx = (horizontal ? transform.c : transform.a) * dpi_x,
+           ny = (horizontal ? transform.d : transform.b) * dpi_y;
+    double length = std::hypot(tx, ty);
+    return length > 0 ? std::abs(tx * ny - ty * nx) / length : 0.;
+  };
+  double horizontal = density(true), vertical = density(false);
+  static const auto circle = [] {
+    std::array<ClipPoint, 24> points;
+    for (size_t i = 0; i < points.size(); ++i) {
+      double angle = 2 * std::numbers::pi * i / points.size();
+      points[i] = {std::cos(angle), std::sin(angle)};
+    }
+    return points;
+  }();
+  for (const auto &paint : paints) {
+    auto r = paint.rect;
+    double alpha = paint.color.alpha;
+    if (r.width <= 0 || r.height <= 0 || alpha <= 0)
+      continue;
+    if (paint.ellipse) {
+      double width = vertical > 0 ? std::max(r.width, 1 / vertical) : r.width,
+             height =
+                 horizontal > 0 ? std::max(r.height, 1 / horizontal) : r.height;
+      alpha *= r.width * r.height / (width * height);
+      r.x -= (width - r.width) / 2;
+      r.y -= (height - r.height) / 2;
+      r.width = width;
+      r.height = height;
+    } else if (paint.coverage == TextPaint::Horizontal && horizontal > 0) {
+      double h = std::max(r.height, 1 / horizontal);
+      alpha *= r.height / h;
+      r.y -= (h - r.height) / 2;
+      r.height = h;
+    } else if (paint.coverage == TextPaint::Vertical && vertical > 0) {
+      double w = std::max(r.width, 1 / vertical);
+      alpha *= r.width / w;
+      r.x -= (w - r.width) / 2;
+      r.width = w;
+    }
+    std::array<ClipPoint, 24> points;
+    size_t n = paint.ellipse ? 24 : 4;
+    if (paint.ellipse)
+      for (size_t i = 0; i < n; ++i)
+        points[i] = {r.x + r.width * (circle[i].x + 1) / 2,
+                     r.y + r.height * (circle[i].y + 1) / 2};
+    else {
+      points[0] = {r.x, r.y};
+      points[1] = {r.x + r.width, r.y};
+      points[2] = {r.x + r.width, r.y + r.height};
+      points[3] = {r.x, r.y + r.height};
+    }
+    auto polygon =
+        clip_polygon(std::span<const ClipPoint>(points.data(), n), paint.clip);
+    if (polygon.size < 3)
+      continue;
+    glColor4d(paint.color.red / 255., paint.color.green / 255.,
+              paint.color.blue / 255., alpha);
+    glBegin(GL_TRIANGLE_FAN);
+    for (size_t i = 0; i < polygon.size; ++i) {
+      auto p = transform.map({polygon.points[i].x, polygon.points[i].y});
+      glVertex2d(p.x, p.y);
+    }
+    glEnd();
   }
 }
 uint64_t GpuTextCache::rasterizations() const { return impl_->rasterizations; }

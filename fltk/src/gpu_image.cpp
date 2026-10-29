@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "gpu_image.h"
+#include "gpu_clip.h"
 #include <FL/Fl.H>
 #include <FL/Fl_BMP_Image.H>
 #include <FL/Fl_GIF_Image.H>
@@ -298,7 +299,19 @@ struct GpuImageCache::Impl {
   }
   bool draw(const std::shared_ptr<const ImageAsset> &asset,
             const SceneTransform &transform, double width, double height,
-            Fl_Gl_Window &host) {
+            Fl_Gl_Window &host, std::optional<TextRect> clip) {
+    if (width <= 0 || height <= 0 ||
+        (clip && (clip->width <= 0 || clip->height <= 0)))
+      return true;
+    double left = 0, top = 0, right = width, bottom = height;
+    if (clip) {
+      left = std::max(left, clip->x);
+      top = std::max(top, clip->y);
+      right = std::min(right, clip->x + clip->width);
+      bottom = std::min(bottom, clip->y + clip->height);
+    }
+    if (right <= left || bottom <= top)
+      return true;
     prepare(host);
     State state(host);
     GLint max = 0;
@@ -327,14 +340,14 @@ struct GpuImageCache::Impl {
       glBindTexture(GL_TEXTURE_2D, texture);
       glColor4d(1, 1, 1, 1);
       glBegin(GL_QUADS);
-      glTexCoord2f(0, 0);
-      vertex(0, 0);
-      glTexCoord2f(1, 0);
-      vertex(width, 0);
-      glTexCoord2f(1, 1);
-      vertex(width, height);
-      glTexCoord2f(0, 1);
-      vertex(0, height);
+      glTexCoord2d(left / width, top / height);
+      vertex(left, top);
+      glTexCoord2d(right / width, top / height);
+      vertex(right, top);
+      glTexCoord2d(right / width, bottom / height);
+      vertex(right, bottom);
+      glTexCoord2d(left / width, bottom / height);
+      vertex(left, bottom);
       glEnd();
       return true;
     }
@@ -343,18 +356,35 @@ struct GpuImageCache::Impl {
     Fl::get_color(FL_INACTIVE_COLOR, r, g, b);
     glColor4ub(r, g, b, 255);
     glLineWidth(1);
-    glBegin(GL_LINE_LOOP);
-    vertex(0, 0);
-    vertex(width, 0);
-    vertex(width, height);
-    vertex(0, height);
-    glEnd();
-    glBegin(GL_LINES);
-    vertex(0, 0);
-    vertex(width, height);
-    vertex(0, height);
-    vertex(width, 0);
-    glEnd();
+    if (!clip) {
+      glBegin(GL_LINE_LOOP);
+      vertex(0, 0);
+      vertex(width, 0);
+      vertex(width, height);
+      vertex(0, height);
+      glEnd();
+      glBegin(GL_LINES);
+      vertex(0, 0);
+      vertex(width, height);
+      vertex(0, height);
+      vertex(width, 0);
+      glEnd();
+    } else {
+      auto line = [&](ClipPoint a, ClipPoint b) {
+        if (clip_segment(a, b, clip)) {
+          vertex(a.x, a.y);
+          vertex(b.x, b.y);
+        }
+      };
+      glBegin(GL_LINES);
+      line({0, 0}, {width, 0});
+      line({width, 0}, {width, height});
+      line({width, height}, {0, height});
+      line({0, height}, {0, 0});
+      line({0, 0}, {width, height});
+      line({0, height}, {width, 0});
+      glEnd();
+    }
     return false;
   }
 };
@@ -366,8 +396,8 @@ void GpuImageCache::begin_frame(Fl_Gl_Window &host) {
 }
 bool GpuImageCache::draw(const std::shared_ptr<const ImageAsset> &asset,
                          const SceneTransform &t, double w, double h,
-                         Fl_Gl_Window &host) {
-  return impl_->draw(asset, t, w, h, host);
+                         Fl_Gl_Window &host, std::optional<TextRect> clip) {
+  return impl_->draw(asset, t, w, h, host, clip);
 }
 void GpuImageCache::clear() { impl_->clear(); }
 uint64_t GpuImageCache::decodes() const { return impl_->decodes; }

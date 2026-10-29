@@ -10,7 +10,8 @@ public:
   ~GpuImageCache();
   void begin_frame(Fl_Gl_Window &);
   bool draw(const std::shared_ptr<const ImageAsset> &, const SceneTransform &,
-            double width, double height, Fl_Gl_Window &);
+            double width, double height, Fl_Gl_Window &,
+            std::optional<TextRect> clip = {});
   void clear();
   uint64_t decodes() const;
   uint64_t uploads() const;

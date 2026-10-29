@@ -53,9 +53,9 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts | Full IME/preedit validation, accessibility, session recovery, printing/export UI, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, table/list/section layout, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, document ink/page colors, keep/widow/orphan rules, existing span/link preservation, flat paragraph insertion/deletion, text undo/redo, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, rich formatting controls, paginated table/section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
-| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, list/table/column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/adjustment handles/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
+| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
 | Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
@@ -105,8 +105,9 @@ not imply correct display or editing support.
 
 Words provides text editing and a separate native paginated view. It preserves span/link
 attributes during text edits, but structural edits in nested tables/lists and
-paragraphs containing embedded objects are intentionally restricted. Mixed
-inline line breaks and paragraph breaks need a richer editing model. Undo
+paragraphs containing embedded objects are intentionally restricted. Contiguous text-only edits preserve existing inline line breaks separately from
+paragraph boundaries. Inserting/removing those breaks and other rich structural
+edits still need a richer editing model. Undo
 history is bounded to 100 text states and a 32 MiB history budget. The page view
 does not implement direct rich editing, complete typography or the advanced
 structural layout listed above. Document-font fallback is selected through a
@@ -159,8 +160,8 @@ Stage resolves referenced ODP masters and page layouts rather than using the
 first stored layout. It renders solid basic vectors, transformed images and
 native text, with stable group/z ordering and inverse frame hit testing. Rich
 text retains paragraph/inline font and color styles with continuous clipped
-flow, including the shared textual list engine. Full table/column/vertical
-layout, remaining list features above, auto-growth, fit-to-size and rich
+flow, including the shared textual list and continuous table engines. Column/vertical
+layout, structural table editing, remaining list features above, auto-growth, fit-to-size and rich
 editing controls remain incomplete. Gradient/bitmap/hatch fills, stroke dashes/caps/joins,
 custom preset lookup, stretch points, extrusion, text on
 paths, master placeholder fields and image crop remain incomplete. Explicit
@@ -204,9 +205,21 @@ are represented without Qt. Repeated content shares original paragraph identitie
 hidden source text in covered cells retains its editing offsets. A million-record
 expansion budget, 1,024 columns, 100,000 rows and 16 nested tables bound input.
 
-This is a source-model milestone. The existing page/frame previews still flatten
-paragraphs and explicitly report native cell layout as unsupported. They do not
-yet paint or paginate this grid. Cell text-style inheritance, width/height
-resolution, border conflict/painting, repeated headers, split/merged row pagination
-and source-aware cell selection are the next implementation stage. No claim of
-rendered table support or completed Words structure parity follows from this model.
+The continuous frame path now lays out and paints this grid. Cell text styles
+inherit before paragraph/span overrides; repeated instances share source identity
+while retaining distinct inherited formatting. Fixed/relative columns, hidden
+rows/columns, auto/minimum/fixed row heights, spans, cell padding, RTL columns and
+vertical alignment resolve in native geometry. Empty cells have a formatting
+strut without inventing an editable source paragraph. Backgrounds and separate/
+collapsed borders use bounded GPU paint lists, including solid, double, dashed,
+dotted, groove, ridge, inset and outset patterns. Cell clipping applies to glyphs,
+tab leaders and image bullets before frame transforms, including rotated frames.
+Optimal column sizing currently uses declared widths and reports that limitation.
+Page/keep properties are retained but diagnosed as ignored in unlinked frames.
+
+Words still flattens table paragraphs in its page preview and explicitly reports
+native table pagination as unsupported. Repeated page headers, split rows and
+merged-cell continuation, page-width reflow and source-aware page/cell selection
+remain to be implemented. The frame renderer does not establish paginated table
+support or complete Words structure parity. Structural cell/row editing is also
+unfinished; the tested edit path preserves original grid and inline-break XML.

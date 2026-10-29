@@ -121,9 +121,12 @@ struct TextPageStyle {
 // Blocks preserve source paragraph identity while tables add a structural grid.
 // Repeated ODF rows/cells share their source blocks; editing remains source
 // based.
+struct TextTable;
 struct TextBlock {
   enum Kind { Paragraph, Table } kind = Paragraph;
   size_t index = 0;
+  std::shared_ptr<const TextParagraph> formatted;
+  std::shared_ptr<const TextTable> table;
 };
 struct TextTableBorder {
   enum Style {
@@ -153,6 +156,7 @@ struct TextTableCell {
   size_t row = 0, column = 0, rows = 1, columns = 1;
   TextCellStyle style;
   std::vector<TextBlock> blocks;
+  std::shared_ptr<const TextParagraph> empty_format;
 };
 struct TextTableRow {
   std::optional<double> height;
@@ -198,12 +202,28 @@ struct TextFragment {
   double x = 0, width = 0;
   std::optional<TextColor> color;
 };
+struct TextRect {
+  double x = 0, y = 0, width = 0, height = 0;
+};
+struct TextPaint {
+  TextRect rect;
+  TextColor color;
+  enum Coverage { Fill, Horizontal, Vertical } coverage = Fill;
+  bool ellipse = false;
+  std::optional<TextRect> clip;
+};
+struct TextCellBox {
+  size_t table = 0, row = 0, column = 0, rows = 1, columns = 1;
+  TextRect rect;
+  bool header = false, continued = false;
+};
 struct TextLine {
   size_t paragraph = 0, begin = 0, end = 0;
   double x = 0, y = 0, baseline = 0, height = 0, width = 0;
   std::vector<TextFragment>
       fragments; // Logical source runs; shaped has visual glyph positions.
   std::shared_ptr<const struct ShapedText> shaped;
+  std::shared_ptr<const TextParagraph> style;
   struct Label {
     Text text;
     TextFont font;
@@ -215,10 +235,14 @@ struct TextLine {
   };
   std::optional<Label> label;
   std::vector<TextTabPlacement> tabs; // Relative to line.x and its baseline.
+  std::optional<TextRect>
+      clip; // Layout coordinates; glyph offsets remain local.
 };
 struct TextPage {
   TextPageStyle style;
   std::vector<TextLine> lines;
+  std::vector<TextPaint> paints;
+  std::vector<TextCellBox> cells;
 };
 struct TextPagination {
   std::vector<TextPage> pages;
@@ -241,6 +265,8 @@ struct TextBoxLayout {
   std::vector<TextLine> lines;
   double height = 0;
   std::vector<Text> unsupported;
+  std::vector<TextPaint> paints;
+  std::vector<TextCellBox> cells;
 };
 TextBoxLayout layout_text_box(const TextFlow &, double width,
                               const MeasureText &);

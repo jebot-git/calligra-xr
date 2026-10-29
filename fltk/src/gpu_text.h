@@ -9,9 +9,11 @@ public:
   GpuTextCache();
   ~GpuTextCache();
   void draw(const ShapedText &, const SceneTransform &, SceneColor,
-            Fl_Gl_Window &);
+            Fl_Gl_Window &, std::optional<TextRect> clip = {});
   void draw_tabs(const std::vector<TextTabPlacement> &, const SceneTransform &,
-                 SceneColor, Fl_Gl_Window &);
+                 SceneColor, Fl_Gl_Window &, std::optional<TextRect> clip = {});
+  void draw_paints(const std::vector<TextPaint> &, const SceneTransform &,
+                   Fl_Gl_Window &);
   uint64_t rasterizations() const;
 
 private:

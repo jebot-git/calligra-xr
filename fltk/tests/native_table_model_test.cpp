@@ -147,9 +147,6 @@ int main(int argc, char **argv) {
   }
   assert(table.cells[5].style.background->red ==
          255); // Column default survives repetition.
-  assert(std::find(flow.unsupported.begin(), flow.unsupported.end(),
-                   Text("Native table cell layout is not implemented")) !=
-         flow.unsupported.end());
   std::cout << "PASS ordered blocks, nested source identity, repeated "
                "rows/cells, merged spans, header rows and scoped styles\n";
   auto grouped = read_text_flow(

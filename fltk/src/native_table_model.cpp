@@ -231,6 +231,13 @@ struct OdfTableModelReader::Impl {
 OdfTableModelReader::OdfTableModelReader(
     const std::vector<XmlDocument> &documents)
     : impl_(std::make_shared<Impl>(documents)) {}
+std::vector<XmlElement>
+OdfTableModelReader::cell_styles(const Text &name, bool styles_source) const {
+  std::vector<XmlElement> result;
+  impl_->chain("table-cell", name, styles_source,
+               [&](const XmlElement &style) { result.push_back(style); });
+  return result;
+}
 TextTable OdfTableModelReader::read(const XmlElement &node,
                                     const ReadCell &read_cell, size_t &budget,
                                     bool styles_source) const {
