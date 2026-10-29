@@ -81,7 +81,8 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.
   The shared glyph cache is bounded to 64 MiB/4,096 entries; the shared Words/Stage image cache to
-  128 MiB/4,096 entries. Polygon tessellation uses GLU with at most 1,024 input points.
+  128 MiB/4,096 entries, keyed by encoded content and SVG raster size so inline
+  images survive reflow and undo without repeated uploads. Polygon tessellation uses GLU with at most 1,024 input points.
   Native ODP frame text retains separate paragraphs, inherited paragraph styles,
   styled spans/links, fonts and foreground colors. The shared reader resolves
   automatic styles and font declarations in their original XML scopes. Frame

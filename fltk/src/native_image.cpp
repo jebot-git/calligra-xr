@@ -12,8 +12,16 @@ make_image_asset(const Text &source, std::shared_ptr<const Bytes> bytes) {
   if (!bytes || bytes->empty() || bytes->size() > 16 * 1024 * 1024)
     return {};
   static std::atomic<uint64_t> next{1};
-  return std::make_shared<const ImageAsset>(ImageAsset{
-      next.fetch_add(1, std::memory_order_relaxed), source, std::move(bytes)});
+  std::unique_ptr<gchar, decltype(&g_free)> digest(
+      g_compute_checksum_for_data(
+          G_CHECKSUM_SHA256, reinterpret_cast<const guchar *>(bytes->data()),
+          bytes->size()),
+      g_free);
+  if (!digest)
+    throw std::runtime_error("Cannot identify native image data");
+  return std::make_shared<const ImageAsset>(
+      ImageAsset{next.fetch_add(1, std::memory_order_relaxed), source,
+                 std::move(bytes), digest.get()});
 }
 std::optional<Text> package_image_path(const Text &reference) {
   if (reference.empty() || reference.contains('?') || reference.contains('#') ||

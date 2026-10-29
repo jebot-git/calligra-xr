@@ -42,7 +42,8 @@ geometry, wrapping, RTL, both spacing modes, vertical alignment and save/reload.
 Independent odfpy/Pillow fixtures exercise PNG/JPEG/SVG/GIF/BMP and inline labels
 in both applications. Actual pixels verify colors and PNG/GIF transparency.
 Keyboard tests verify unchanged style/image payloads through edit/save/reopen,
-missing/corrupt placeholders, repeated-frame cache reuse, and Stage fullscreen
+missing/corrupt placeholders, content-based cache reuse through page reflow and
+slide undo/redo, repeated-frame reuse, and Stage fullscreen
 context changes. The Present toolbar control also receives a real mouse click.
 These checks run with system FLTK; they do not establish broad image/SVG fidelity.
 

@@ -67,6 +67,10 @@ int main() {
     retained = ephemeral.image_asset("Pictures/red%20bullet.svg");
   }
   assert(retained && *retained->data == IMAGE);
+  assert(retained->id != first->id &&
+         retained->fingerprint == first->fingerprint);
+  assert(first->fingerprint.size() == 64 &&
+         changed->fingerprint != first->fingerprint);
   std::cout << "PASS immutable shared archive bytes, cache identity, "
                "replacement and retained lifetime\n";
   assert(!make_image_asset("empty", Bytes()));

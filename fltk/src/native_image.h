@@ -8,6 +8,8 @@ struct ImageAsset {
   uint64_t id;
   Text source;
   std::shared_ptr<const Bytes> data;
+  // Encoded-content identity survives source-model rebuilds and new archives.
+  std::string fingerprint;
 };
 std::shared_ptr<const ImageAsset> make_image_asset(const Text &, Bytes);
 std::shared_ptr<const ImageAsset>

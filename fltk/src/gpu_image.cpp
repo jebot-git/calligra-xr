@@ -163,7 +163,7 @@ int bucket(double value, int max) {
 }
 } // namespace
 struct GpuImageCache::Impl {
-  using Key = std::tuple<uint64_t, int, int>;
+  using Key = std::tuple<std::string, int, int>;
   struct Entry {
     GLuint texture = 0;
     size_t bytes = 0;
@@ -223,7 +223,7 @@ struct GpuImageCache::Impl {
                    int h) {
     if (!vector_data(*asset->data))
       w = h = 0;
-    Key key{asset->id, w, h};
+    Key key{asset->fingerprint, w, h};
     if (auto it = entries.find(key); it != entries.end()) {
       order.splice(order.end(), order, it->second.position);
       return it->second;
@@ -234,11 +234,11 @@ struct GpuImageCache::Impl {
     auto position = entries.emplace(key, Entry{}).first;
     auto &entry = position->second;
     entry.position = std::prev(order.end());
-    entry.error = "Cannot decode image: " + asset->source.toStdString();
+    entry.error = "Cannot decode image";
     ++decodes;
     auto image = decode(*asset->data, w, h);
     if (!image || image->fail() || !image->data() || !image->data()[0])
-      entry.error = "Cannot decode image: " + asset->source.toStdString();
+      entry.error = "Cannot decode image";
     else {
       entry.error.clear();
       int width = image->w(), height = image->h(), depth = image->d();
@@ -246,8 +246,7 @@ struct GpuImageCache::Impl {
       glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max);
       if (width < 1 || height < 1 || width > max || height > max || depth < 1 ||
           depth > 4 || uint64_t(width) * height > 16000000)
-        entry.error = "Image exceeds native raster limits: " +
-                      asset->source.toStdString();
+        entry.error = "Image exceeds native raster limits";
       else {
         size_t size = size_t(width) * height * 4;
         while (!entries.empty() && bytes + size > 128 * 1024 * 1024)
@@ -286,8 +285,7 @@ struct GpuImageCache::Impl {
           if (uploaded_width != width) {
             glDeleteTextures(1, &entry.texture);
             entry.texture = 0;
-            entry.error =
-                "Cannot upload image texture: " + asset->source.toStdString();
+            entry.error = "Cannot upload image texture";
           } else {
             entry.bytes = size;
             bytes += size;
@@ -317,7 +315,7 @@ struct GpuImageCache::Impl {
               bucket(std::clamp(height * scale * dpi, 1., 4000.), max));
       texture = entry.texture;
       if (!entry.error.empty())
-        error(entry.error);
+        error(entry.error + ": " + asset->source.toStdString());
     } else
       error("Image data is unavailable");
     auto vertex = [&](double x, double y) {

@@ -503,6 +503,14 @@ with tempfile.TemporaryDirectory(prefix='calligra-ui-') as temp:
                     for name,content in original.items():
                         if name!='content.xml':assert z.read(name)==content,name
                     assert structure(ET.fromstring(z.read('content.xml')))==structure(ET.fromstring(original['content.xml']))
+                if app=='words':
+                    click(host,610,25);wait(lambda:state()['visible'] and len(state()['image_labels'])==9)
+                    assert (state()['image_decodes'],state()['image_uploads'])==stable,state()
+                else:
+                    for action,slides in [('m',2),('z',1),('y',2),('z',1)]:
+                        key(action,('Control_L',));wait(lambda:data()['scene']['slides']==slides)
+                    wait(lambda:state()['image_labels']==9)
+                    assert (state()['image_decodes'],state()['image_uploads'])==stable,state()
                 key('q',('Control_L',));assert process.wait(timeout=10)==0
                 # Reopen saved documents with a fresh process to exercise retained
                 # encoded data, inline payloads and percent-encoded package paths.
