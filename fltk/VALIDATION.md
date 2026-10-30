@@ -1657,3 +1657,37 @@ first-word offsets follow the edited page margins while retaining the paragraph'
 ODF packages pass offline version-matched schemas. Page setup preserves header/
 footer data but does not implement its editing or rendering. Words layout and
 editing remain first, Sheets functions next, Stage last.
+
+
+## Native Words tab-stop editing — 2026-10-30
+
+All 43 core suites pass in optimized Release and ASan/UBSan with core leak
+checking. New tab-editing cases cover effective paragraph/default/table-cell
+inheritance, common and automatic leader-font name collisions, external
+master-automatic font copying, exact archive-part undo, stale revisions,
+grouped cancellation and atomic rollback after a staged default change.
+Explicit new ODF 1.4 fixtures exercise document-relative origins; older 1.2/1.3
+versions are retained. Width lexical forms match the ODF schema; invalid,
+duplicate and out-of-range stops reject atomically. Thirteen generated ODT
+packages pass the official offline version-matched schemas.
+
+The independent Words/Stage tab producer retains its original ODF 1.2 version.
+It no longer emits the 1.4-only relative-origin attribute into those fixtures;
+the redundant true default and ignored non-default false did not change native
+1.2 rendering. New 1.4 origin behavior has separate declared-version coverage.
+
+The FLTK tab controls pass real menu/keyboard checks on X11, native Wayland and
+ASan/UBSan Wayland. They exercise staged add/delete no-op, correction of invalid
+width/default and duplicate-position inputs, double dotted and wave leaders,
+character alignment and styled text leaders, document defaults, older-version
+retention, mixed selection no-op, clear versus inherit, and one-step exact
+content/styles/manifest undo. The full native X11 editor and native Wayland
+Fcitx/Anthy composition, commit/cancel and candidate anchoring also pass.
+GUI leak checking remains disabled for third-party libraries.
+
+Private CUPS integration now completes 23 jobs, including documents saved by the
+new tab UI. Explicit blue leader pixels and Unicode text survive native PDF,
+ODF export/reopen and CUPS raster comparison. All nine accepted suite baseline
+page PNGs remain byte-identical. This retains the export/printing floor;
+structural tables/lists, sections/columns, headers/footers, notes and anchored
+images still require further Words work before Sheets functions and Stage.

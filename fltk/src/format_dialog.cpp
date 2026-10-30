@@ -801,4 +801,416 @@ std::optional<OdfPackage> page_setup_dialog(Fl_Window &window,
     }
   }
 }
+namespace {
+Text tab_value(const WordsTabStopSpec &stop, const Text &key,
+               const Text &fallback = {}) {
+  auto found = stop.properties.find(key);
+  return found == stop.properties.end() ? fallback : found->second;
+}
+Text tab_pattern(const WordsTabStopSpec &stop) {
+  if (!tab_value(stop, "leader-text").empty())
+    return "text";
+  auto type = tab_value(stop, "leader-type");
+  if (type == "none")
+    return "none";
+  return tab_value(stop, "leader-style",
+                   type == "single" || type == "double" ? Text("solid")
+                                                        : Text("none"));
+}
+std::optional<WordsTabStopSpec> edit_tab_stop(Fl_Window &window,
+                                              const OdfPackage &package,
+                                              WordsTabStopSpec initial,
+                                              const WordsTabSet &existing,
+                                              std::optional<size_t> edited) {
+  constexpr double mm = 72 / 25.4;
+  const int width = 640, height = 400,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height,
+                        edited ? "Edit tab stop" : "Add tab stop");
+  background.hint.copy_label("Unchanged fields retain their source formatting");
+  Fl_Input position(x + 170, y + 50, 120, 30, "Position (mm):");
+  const auto initial_position =
+      Text::number(words_tab_position(initial) / mm, 'g', 9);
+  position.value(initial_position.toUtf8().c_str());
+  StyleChoice alignments;
+  for (const auto &value : TextList{"left", "right", "center", "char"})
+    alignments.add(value, value == "char"    ? "Character"
+                          : value == "left"  ? "Left"
+                          : value == "right" ? "Right"
+                                             : "Center");
+  auto initial_type = tab_value(initial, "type", "left");
+  if (alignments.find(initial_type) < 0)
+    alignments.add(initial_type, "Current alignment");
+  Fl_Choice alignment(x + 425, y + 50, 190, 30, "Alignment:");
+  alignments.attach(alignment, initial_type);
+  Fl_Input delimiter(x + 170, y + 95, 120, 30, "Delimiter:");
+  auto initial_delimiter = tab_value(initial, "char", ".");
+  delimiter.value(initial_delimiter.toUtf8().c_str());
+  StyleChoice patterns;
+  for (const auto &value :
+       TextList{"none", "solid", "dotted", "dash", "long-dash", "dot-dash",
+                "dot-dot-dash", "wave", "text"})
+    patterns.add(value, value == "none"           ? "None"
+                        : value == "solid"        ? "Solid"
+                        : value == "dotted"       ? "Dotted"
+                        : value == "dash"         ? "Dash"
+                        : value == "long-dash"    ? "Long dash"
+                        : value == "dot-dash"     ? "Dot dash"
+                        : value == "dot-dot-dash" ? "Dot dot dash"
+                        : value == "wave"         ? "Wave"
+                                                  : "Text");
+  const auto initial_pattern = tab_pattern(initial);
+  if (patterns.find(initial_pattern) < 0)
+    patterns.add(initial_pattern, "Current leader");
+  Fl_Choice pattern(x + 425, y + 95, 190, 30, "Leader:");
+  patterns.attach(pattern, initial_pattern);
+  Fl_Input thickness(x + 170, y + 140, 120, 30, "Width (pt / %):");
+  auto initial_width = tab_value(initial, "leader-width", "auto");
+  thickness.value(initial_width.toUtf8().c_str());
+  thickness.tooltip("A number in points, a length, a percentage, or "
+                    "auto/normal/bold/thin/medium/thick");
+  Fl_Check_Button doubled(x + 425, y + 140, 180, 30, "Double line");
+  const bool initial_double = tab_value(initial, "leader-type") == "double";
+  doubled.value(initial_double);
+  Fl_Input color(x + 170, y + 185, 165, 30, "Color:");
+  auto initial_color = tab_value(initial, "leader-color", "font-color");
+  color.value(initial_color.toUtf8().c_str());
+  color.tooltip("#RRGGBB or font-color");
+  Fl_Input text(x + 425, y + 185, 190, 30, "Text:");
+  auto initial_text = tab_value(initial, "leader-text", "·");
+  text.value(initial_text.toUtf8().c_str());
+  StyleChoice fonts;
+  fonts.add({}, "(Tab text font)");
+  auto named = words_character_styles(package);
+  for (const auto &style : named) {
+    auto label = style.label;
+    if (std::count_if(named.begin(), named.end(), [&](const auto &other) {
+          return other.label == style.label;
+        }) > 1)
+      label += " (" + style.name + ")";
+    fonts.add(style.name, label);
+  }
+  auto initial_font = tab_value(initial, "leader-text-style");
+  Text initial_font_choice = initial_font;
+  if (!initial_font.empty() &&
+      (initial.leader_scope != WordsTabStopSpec::Common ||
+       fonts.find(initial_font) < 0)) {
+    fonts.add(":current-source", "Current source style");
+    initial_font_choice = ":current-source";
+  }
+  Fl_Choice font(x + 170, y + 230, 445, 30, "Leader text style:");
+  fonts.attach(font, initial_font_choice);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  std::function<void()> enable = [&] {
+    if (alignments.selected(alignment) == "char")
+      delimiter.activate();
+    else
+      delimiter.deactivate();
+    auto mode = patterns.selected(pattern);
+    const bool line = mode != "none" && mode != "text";
+    if (line) {
+      doubled.activate();
+      thickness.activate();
+    } else {
+      doubled.deactivate();
+      thickness.deactivate();
+    }
+    if (mode == "text") {
+      text.activate();
+      font.activate();
+    } else {
+      text.deactivate();
+      font.deactivate();
+    }
+    if (mode != "none")
+      color.activate();
+    else
+      color.deactivate();
+  };
+  auto changed = [](Fl_Widget *, void *data) {
+    (*static_cast<std::function<void()> *>(data))();
+  };
+  alignment.callback(changed, &enable);
+  pattern.callback(changed, &enable);
+  enable();
+  while (panel.run(position)) {
+    try {
+      auto result = initial;
+      auto raw = Text(position.value());
+      if (raw != initial_position) {
+        bool ok = false;
+        auto points = raw.trimmed().toDouble(&ok) * mm;
+        if (!ok || !std::isfinite(points))
+          throw std::runtime_error("Enter a valid tab position in millimetres");
+        result.properties["position"] =
+            words_new_tab_stop(points).properties.at("position");
+      }
+      auto type = alignments.selected(alignment);
+      if (type != initial_type)
+        result.properties["type"] = type;
+      if (type == "char") {
+        auto value = Text(delimiter.value());
+        if (type != initial_type || value != initial_delimiter)
+          result.properties["char"] = value;
+      } else
+        result.properties.erase("char");
+      const auto mode = patterns.selected(pattern);
+      if (mode != initial_pattern) {
+        result.properties["leader-style"] =
+            mode == "text" ? Text("solid") : mode;
+        result.properties["leader-type"] = mode == "none"    ? "none"
+                                           : mode == "text"  ? "single"
+                                           : doubled.value() ? "double"
+                                                             : "single";
+        if (mode != "text")
+          result.properties.erase("leader-text");
+      } else if (mode != "none" && mode != "text" &&
+                 bool(doubled.value()) != initial_double)
+        result.properties["leader-type"] =
+            doubled.value() ? "double" : "single";
+      if (mode == "text" &&
+          (mode != initial_pattern || Text(text.value()) != initial_text))
+        result.properties["leader-text"] = Text(text.value());
+      if (Text(thickness.value()) != initial_width) {
+        auto value = Text(thickness.value()).trimmed();
+        bool numeric = false;
+        auto points = value.toDouble(&numeric);
+        result.properties["leader-width"] =
+            numeric ? words_new_tab_stop(points).properties.at("position")
+                    : value;
+      }
+      if (Text(color.value()) != initial_color) {
+        auto value = Text(color.value()).trimmed();
+        if (value.empty())
+          result.properties.erase("leader-color");
+        else
+          result.properties["leader-color"] = value;
+      }
+      auto selected_font = fonts.selected(font);
+      auto ref =
+          selected_font == ":current-source" ? initial_font : selected_font;
+      auto ref_scope = selected_font == ":current-source"
+                           ? initial.leader_scope
+                           : WordsTabStopSpec::Common;
+      if (ref != initial_font || ref_scope != initial.leader_scope) {
+        if (ref.empty())
+          result.properties.erase("leader-text-style");
+        else
+          result.properties["leader-text-style"] = ref;
+        result.leader_scope = ref_scope;
+      }
+      auto check = existing;
+      if (edited)
+        check.stops.at(*edited) = result;
+      else
+        check.stops.push_back(result);
+      WordsTabsFormat format;
+      format.stops = std::move(check);
+      validate_words_tabs(format);
+      return result;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+  return {};
+}
+} // namespace
+std::optional<OdfPackage> tab_stops_dialog(Fl_Window &window,
+                                           OdfPackage original, size_t begin,
+                                           size_t end) {
+  constexpr double mm = 72 / 25.4;
+  const auto initial = read_words_tabs(original, begin, end);
+  auto current = initial.stops;
+  std::optional<WordsTabSet> replacement;
+  bool inherit = false;
+  const int width = 680, height = 500,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Tab stops");
+  background.hint.copy_label(
+      "Changes are staged until Apply; Cancel discards them");
+  Fl_Hold_Browser browser(x + 20, y + 50, width - 40, 210);
+  browser.format_char(0);
+  browser.textfont(dx::font);
+  browser.textsize(dx::size);
+  Fl_Box scope(x + 20, y + 270, width - 40, 28);
+  scope.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  int action = 0;
+  ActionButton add(panel, action, 1, x + 20, y + 310, 90, "Add…"),
+      edit(panel, action, 2, x + 120, y + 310, 90, "Edit…"),
+      remove(panel, action, 3, x + 220, y + 310, 90, "Delete"),
+      clear(panel, action, 4, x + 320, y + 310, 100, "Clear all"),
+      parent(panel, action, 5, x + 430, y + 310, 230, "Use inherited");
+  Fl_Box global(x + 20, y + 345, width - 40, 20,
+                "Document defaults (affect all paragraphs)");
+  global.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+  Fl_Input distance(x + 175, y + 370, 110, 30, "Interval (mm):");
+  const auto initial_distance =
+      Text::number(initial.default_distance / mm, 'g', 9);
+  distance.value(initial_distance.toUtf8().c_str());
+  distance.tooltip("0 uses the default 12.5mm interval");
+  Fl_Choice origin(x + 430, y + 370, 230, 30, "Origin:");
+  origin.add("Paragraph indent|Page margin");
+  origin.value(initial.relative ? 0 : 1);
+  if (!initial.origin_editable) {
+    origin.deactivate();
+    origin.tooltip("Changing the origin requires ODF 1.4; the current document "
+                   "version is preserved");
+  }
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  std::function<void()> availability = [&] {
+    auto chosen = browser.value();
+    if (current && chosen > 0 && size_t(chosen) <= current->stops.size()) {
+      edit.activate();
+      remove.activate();
+    } else {
+      edit.deactivate();
+      remove.deactivate();
+    }
+  };
+  browser.callback(
+      [](Fl_Widget *, void *data) {
+        (*static_cast<std::function<void()> *>(data))();
+      },
+      &availability);
+  auto refresh = [&](std::optional<double> selected = {}) {
+    browser.clear();
+    add.label(current ? "Add…" : "Replace…");
+    if (!current) {
+      browser.add("(Mixed tab stops)");
+      scope.copy_label(
+          "Mixed selection: Replace or Clear all assigns one tab list");
+    } else {
+      scope.copy_label(current->stops.empty()
+                           ? "No explicit stops; the default interval is used"
+                           : "Tab stops apply to the selected paragraphs");
+      std::stable_sort(current->stops.begin(), current->stops.end(),
+                       [](const auto &a, const auto &b) {
+                         return words_tab_position(a) < words_tab_position(b);
+                       });
+      if (replacement)
+        replacement = current;
+      for (size_t i = 0; i < current->stops.size(); ++i) {
+        auto &stop = current->stops[i];
+        auto type = tab_value(stop, "type", "left");
+        auto caption = Text::number(words_tab_position(stop) / mm, 'g', 9) +
+                       " mm    " + type + "    " + tab_pattern(stop);
+        browser.add(caption.toUtf8().c_str());
+        if (selected && std::abs(words_tab_position(stop) - *selected) < 1e-7)
+          browser.value(int(i + 1));
+      }
+    }
+    availability();
+  };
+  refresh();
+  while (true) {
+    action = 0;
+    if (!panel.run(browser))
+      return {};
+    try {
+      std::optional<size_t> chosen;
+      if (current && browser.value() > 0 &&
+          size_t(browser.value()) <= current->stops.size())
+        chosen = size_t(browser.value() - 1);
+      if (action == 1 || action == 2) {
+        if (action == 2 && !chosen)
+          throw std::runtime_error("Choose a tab stop to edit");
+        WordsTabSet base = current.value_or(WordsTabSet{});
+        double next = base.stops.empty()
+                          ? initial.default_distance
+                          : words_tab_position(base.stops.back()) +
+                                initial.default_distance;
+        if (std::abs(next) > 100000)
+          next = 0;
+        auto spec =
+            action == 2 ? base.stops[*chosen] : words_new_tab_stop(next);
+        auto changed = edit_tab_stop(window, original, spec, base,
+                                     action == 2 ? chosen : std::nullopt);
+        if (changed) {
+          if (action == 2)
+            base.stops[*chosen] = *changed;
+          else
+            base.stops.push_back(*changed);
+          // Keep source-scoped specs rather than reading generated aliases
+          // back into the form. The final candidate is compiled only once.
+          if (action != 2 || changed->properties != spec.properties ||
+              changed->leader_scope != spec.leader_scope) {
+            current = std::move(base);
+            replacement = current;
+            inherit = false;
+          }
+          refresh(words_tab_position(*changed));
+        }
+        continue;
+      }
+      if (action == 3) {
+        if (!chosen)
+          throw std::runtime_error("Choose a tab stop to delete");
+        current->stops.erase(current->stops.begin() + *chosen);
+        replacement = current;
+        inherit = false;
+        refresh();
+        continue;
+      }
+      if (action == 4) {
+        current = WordsTabSet{};
+        replacement = current;
+        inherit = false;
+        refresh();
+        continue;
+      }
+      if (action == 5) {
+        auto preview = style_copy(original);
+        WordsTabsFormat format;
+        format.inherit = true;
+        format_words_tabs(preview, begin, end, format);
+        current = read_words_tabs(preview, begin, end).stops;
+        replacement.reset();
+        inherit = true;
+        refresh();
+        continue;
+      }
+      WordsTabsFormat format;
+      format.stops = replacement;
+      format.inherit = inherit;
+      auto raw = Text(distance.value());
+      if (raw != initial_distance && !raw.trimmed().empty()) {
+        bool ok = false;
+        auto value = raw.trimmed().toDouble(&ok);
+        if (!ok || !std::isfinite(value))
+          throw std::runtime_error(
+              "Enter a valid default interval in millimetres");
+        format.default_distance = value * mm;
+      }
+      if (initial.origin_editable &&
+          bool(origin.value() == 0) != initial.relative)
+        format.relative = origin.value() == 0;
+      auto candidate = style_copy(original);
+      auto changed = format_words_tabs(candidate, begin, end, format);
+      if (changed) {
+        NativeTextShaper shaper(
+            Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+        (void)paginate_text(read_text_flow(candidate), shaper);
+      }
+      return candidate;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+}
 } // namespace DomeOffice

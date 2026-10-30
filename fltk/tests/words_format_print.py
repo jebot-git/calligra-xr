@@ -169,6 +169,7 @@ def main():
                         help='Optional named character style UI snapshots (defaults to --ui-artifacts)')
     parser.add_argument('--page-setup-artifacts', type=Path,
                         help='Optional native page setup UI snapshots (defaults to --ui-artifacts)')
+    parser.add_argument('--tabs-artifacts', type=Path, help='Optional native tab control UI snapshots')
     parser.add_argument('--test-bin-dir', type=Path,
                         help='Native geometry test binary directory (defaults to --bin-dir)')
     args = parser.parse_args()
@@ -210,6 +211,11 @@ def main():
         for name,file in [('setup-landscape','page-setup-letter-landscape.odt'),
                           ('setup-portrait','page-setup-a4-portrait.odt')]:
             if (page_setup_artifacts/file).is_file(): cases.append((name,page_setup_artifacts/file))
+        if args.tabs_artifacts:
+            for name in ('created','edited'):
+                source=args.tabs_artifacts.resolve()/('tabs-'+name+'.odt')
+                assert source.is_file(), source
+                cases.append(('tabs-'+name,source))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
@@ -274,6 +280,20 @@ def main():
                 assert '日本語' in text
             pages = render(output, art / ('formatted-' + name + '-page'))
             assert len(pages) == len(reader.pages)
+            if name.startswith('tabs-'):
+                picture=Image.open(pages[0]).convert('RGB')
+                # The first UI-created stop has an explicit blue double leader.
+                # PDF antialiasing may remove exact-color pixels from thin dots.
+                pixels=picture.load()
+                blue=0
+                for y in range(picture.height):
+                    for x in range(picture.width):
+                        r,g,b=pixels[x,y]
+                        if b>100 and g>40 and r<50 and b>g*1.2:
+                            blue+=1
+                assert blue>40,(name,blue)
+                extracted=subprocess.check_output(['pdftotext',str(output),'-'],text=True)
+                assert 'Start' in extracted and 'Český' in extracted and '日本語' in extracted
             if name == 'font':
                 faces = subprocess.check_output(['pdffonts', str(output)], text=True)
                 (art / 'formatted-font-faces.txt').write_text(faces)

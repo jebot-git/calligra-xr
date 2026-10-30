@@ -430,6 +430,12 @@ struct Reader {
     if (container.isNull())
       return;
     paragraph.tabs.clear();
+    paragraph.tab_source = container;
+    paragraph.tab_source_master =
+        !styles_root.isNull() &&
+        style.ownerDocument().documentElement() == styles_root;
+    paragraph.tab_source_common = style.parentNode().localName() == "styles" ||
+                                  style.localName() == "default-style";
     for (auto node : children(container, STYLE, "tab-stop")) {
       if (paragraph.tabs.size() >= 4096)
         fail("Too many paragraph tab stops");

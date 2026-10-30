@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_format.h"
+#include "native_words_tabs.h"
 #include "native_font_family.h"
 #include <functional>
 namespace DomeOffice {
@@ -164,7 +165,9 @@ bool equivalent(XmlElement a, XmlElement b, bool style_root = false) {
 class Catalogue {
   OdfPackage &package;
   XmlDocument external;
-  std::map<std::pair<Text, Text>, XmlElement> common, automatic;
+  std::map<std::pair<Text, Text>, XmlElement> common, automatic,
+      master_automatic;
+  XmlElement paragraph_default;
   std::set<Text> names;
   XmlElement group() {
     auto root = package.xml.documentElement();
@@ -194,15 +197,21 @@ class Catalogue {
 public:
   explicit Catalogue(OdfPackage &p) : package(p) {
     auto scan = [&](const XmlDocument &doc, bool content) {
+      for (auto node : doc.elementsByTagNameNS(STYLE, "default-style"))
+        if (node.attributeNS(STYLE, "family") == "paragraph")
+          paragraph_default = node;
       for (auto style : doc.elementsByTagNameNS(STYLE, "style")) {
         auto name = style.attributeNS(STYLE, "name");
         names.insert(name);
         if (style.parentNode().namespaceURI() == OFFICE &&
             style.parentNode().localName() == "styles")
           common[{style.attributeNS(STYLE, "family"), name}] = style;
-        else if (content && style.parentNode().namespaceURI() == OFFICE &&
+        else if (style.parentNode().namespaceURI() == OFFICE &&
                  style.parentNode().localName() == "automatic-styles")
-          automatic[{style.attributeNS(STYLE, "family"), name}] = style;
+          (content
+               ? automatic
+               : master_automatic)[{style.attributeNS(STYLE, "family"), name}] =
+              style;
       }
     };
     auto bytes = package.entry("styles.xml");
@@ -450,6 +459,152 @@ public:
       package.set_entry("styles.xml", external.toByteArray(), "text/xml");
     return true;
   }
+  WordsTabSet tab_set(const TextParagraph &paragraph) const {
+    WordsTabSet result;
+    result.source = paragraph.tab_source;
+    for (auto node : children(paragraph.tab_source, STYLE, "tab-stop")) {
+      WordsTabStopSpec spec;
+      spec.source = node;
+      for (const auto &a : node.attributes())
+        if (a.uri == STYLE)
+          spec.properties[a.name.mid(a.name.indexOf(':') + 1)] = a.value;
+      auto ref = node.attributeNS(STYLE, "leader-text-style");
+      if (!paragraph.tab_source_common) {
+        if (paragraph.tab_source_master &&
+            master_automatic.contains({"text", ref}))
+          spec.leader_scope = WordsTabStopSpec::MasterAutomatic;
+        else if (!paragraph.tab_source_master &&
+                 automatic.contains({"text", ref}))
+          spec.leader_scope = WordsTabStopSpec::ContentAutomatic;
+      }
+      result.stops.push_back(std::move(spec));
+    }
+    std::stable_sort(result.stops.begin(), result.stops.end(),
+                     [](const auto &a, const auto &b) {
+                       return words_tab_position(a) < words_tab_position(b);
+                     });
+    for (size_t i = 1; i < result.stops.size();) {
+      if (words_tab_position(result.stops[i - 1]) ==
+          words_tab_position(result.stops[i]))
+        result.stops.erase(result.stops.begin() + i - 1);
+      else
+        ++i;
+    }
+    return result;
+  }
+  bool direct_tabs(XmlElement paragraph) const {
+    auto name = paragraph.attributeNS(TEXT, "style-name");
+    auto found = automatic.find({"paragraph", name});
+    return found != automatic.end() &&
+           !child(child(found->second, STYLE, "paragraph-properties"), STYLE,
+                  "tab-stops")
+                .isNull();
+  }
+  bool tab_origin_editable() const {
+    if (package.xml.documentElement().attributeNS(OFFICE, "version") != "1.4")
+      return false;
+    auto root = paragraph_default.isNull()
+                    ? external.documentElement()
+                    : paragraph_default.ownerDocument().documentElement();
+    return root.isNull() || root.attributeNS(OFFICE, "version") == "1.4";
+  }
+  void tab_defaults(std::optional<double> distance,
+                    std::optional<bool> relative) {
+    if (!distance && !relative)
+      return;
+    if (relative && !tab_origin_editable())
+      fail("Changing tab origin requires an ODF 1.4 document and style part");
+    auto before = external.toByteArray();
+    if (paragraph_default.isNull()) {
+      if (external.documentElement().isNull()) {
+        external = read_document_xml(
+            ("<office:document-styles xmlns:office=\"" + OFFICE + "\"/>")
+                .toUtf8());
+        external.documentElement().setAttributeNS(
+            OFFICE, "office:version",
+            package.xml.documentElement().attributeNS(OFFICE, "version",
+                                                      "1.3"));
+      }
+      auto root = external.documentElement();
+      auto group = child(root, OFFICE, "styles");
+      if (group.isNull()) {
+        group = external.createElementNS(OFFICE, "office:styles");
+        auto next = child(root, OFFICE, "automatic-styles");
+        if (next.isNull())
+          next = child(root, OFFICE, "master-styles");
+        root.insertBefore(group, next);
+      }
+      paragraph_default =
+          external.createElementNS(STYLE, "style:default-style");
+      paragraph_default.setAttributeNS(STYLE, "style:family", "paragraph");
+      group.insertBefore(paragraph_default, group.firstChild());
+    }
+    auto doc = paragraph_default.ownerDocument();
+    auto props = child(paragraph_default, STYLE, "paragraph-properties");
+    if (props.isNull()) {
+      props = doc.createElementNS(STYLE, "style:paragraph-properties");
+      paragraph_default.insertBefore(props, paragraph_default.firstChild());
+    }
+    if (distance)
+      props.setAttributeNS(STYLE, "style:tab-stop-distance",
+                           decimal(*distance) + "pt");
+    if (relative)
+      props.setAttributeNS(TEXT, "text:relative-tab-stop-position",
+                           *relative ? "true" : "false");
+    if (external.toByteArray() != before)
+      package.set_entry("styles.xml", external.toByteArray(), "text/xml");
+  }
+  Text master_tab_leader(const Text &name, std::set<Text> &seen) {
+    if (!seen.insert(name).second || seen.size() > 64)
+      fail("Cyclic tab leader style");
+    auto found = master_automatic.find({"text", name});
+    if (found == master_automatic.end())
+      return name;
+    auto node = package.xml.importNode(found->second, true).toElement();
+    auto parent = node.attributeNS(STYLE, "parent-style-name");
+    if (!parent.empty() && !common.contains({"text", parent}) &&
+        master_automatic.contains({"text", parent}))
+      node.setAttributeNS(STYLE, "style:parent-style-name",
+                          master_tab_leader(parent, seen));
+    std::function<void(XmlNode)> strip = [&](XmlNode n) {
+      n.removeAttributeNS(XML, "id");
+      for (auto c = n.firstChild(); !c.isNull(); c = c.nextSibling())
+        strip(c);
+    };
+    strip(node);
+    return store(node, "WordsTabLeader");
+  }
+  XmlElement tab_node(const WordsTabStopSpec &spec) {
+    auto node = spec.source.isNull()
+                    ? package.xml.createElementNS(STYLE, "style:tab-stop")
+                    : package.xml.importNode(spec.source, true).toElement();
+    for (const auto &a : node.attributes())
+      if (a.uri == STYLE &&
+          !spec.properties.contains(a.name.mid(a.name.indexOf(':') + 1)))
+        node.removeAttributeNS(STYLE, a.name.mid(a.name.indexOf(':') + 1));
+    for (const auto &[key, value] : spec.properties) {
+      auto written = value;
+      if (key == "leader-text-style" && !value.empty()) {
+        if (spec.leader_scope == WordsTabStopSpec::Common &&
+            common.contains({"text", value}))
+          written = named_reference("text", value);
+        else if (spec.leader_scope == WordsTabStopSpec::MasterAutomatic) {
+          std::set<Text> seen;
+          written = master_tab_leader(value, seen);
+        }
+      }
+      if (!node.hasAttributeNS(STYLE, key) ||
+          node.attributeNS(STYLE, key) != written)
+        node.setAttributeNS(STYLE, "style:" + key, written);
+    }
+    std::function<void(XmlNode)> strip = [&](XmlNode n) {
+      n.removeAttributeNS(XML, "id");
+      for (auto c = n.firstChild(); !c.isNull(); c = c.nextSibling())
+        strip(c);
+    };
+    strip(node);
+    return node;
+  }
   // A simple leaf wrapper can be split/replaced instead of nesting another
   // direct-format span on every toggle. Other source wrappers stay intact.
   std::optional<Properties> simple(XmlElement span) const {
@@ -509,7 +664,9 @@ public:
     return store(style, "WordsText");
   }
   Text paragraph_style(XmlElement paragraph, const WordsParagraphFormat *format,
-                       const WordsCharacterFormat *character) {
+                       const WordsCharacterFormat *character,
+                       const WordsTabsFormat *tabs = nullptr,
+                       XmlElement tab_source = {}) {
     auto name = paragraph.attributeNS(TEXT, "style-name");
     XmlElement style;
     if (automatic.contains({"paragraph", name}))
@@ -550,6 +707,22 @@ public:
         props.removeAttributeNS(a.uri, a.name.mid(a.name.indexOf(':') + 1));
       for (auto &[key, value] : values)
         props.setAttributeNS(key.first, key.second, value);
+    } else if (tabs) {
+      auto old = child(props, STYLE, "tab-stops");
+      if (!old.isNull())
+        props.removeChild(old);
+      if (tabs->stops) {
+        auto container =
+            tab_source.isNull()
+                ? package.xml.createElementNS(STYLE, "style:tab-stops")
+                : package.xml.importNode(tab_source, true).toElement();
+        strip_ids(container);
+        for (auto node : children(container, STYLE, "tab-stop"))
+          container.removeChild(node);
+        for (const auto &stop : tabs->stops->stops)
+          container.appendChild(tab_node(stop));
+        props.insertBefore(container, props.firstChild());
+      }
     } else {
       overlay_paragraph(props, *format);
     }
@@ -729,6 +902,61 @@ void assign_character_inlines(XmlElement parent, size_t begin, size_t end,
   for (auto node : result)
     parent.appendChild(node);
 }
+Text tab_property(const WordsTabStopSpec &stop, const Text &name,
+                  const Text &fallback = {}) {
+  auto found = stop.properties.find(name);
+  return found == stop.properties.end() ? fallback : found->second;
+}
+bool same_tab_set(const WordsTabSet &a, const WordsTabSet &b) {
+  if (a.stops.size() != b.stops.size())
+    return false;
+  for (size_t i = 0; i < a.stops.size(); ++i) {
+    const auto &x = a.stops[i], &y = b.stops[i];
+    if (x.properties != y.properties)
+      return false;
+    if (!tab_property(x, "leader-text-style").empty() &&
+        x.leader_scope != y.leader_scope)
+      return false;
+    auto opaque = [](XmlElement node) {
+      auto attrs = attributes(node);
+      for (auto it = attrs.begin(); it != attrs.end();)
+        if (it->first.first == STYLE)
+          it = attrs.erase(it);
+        else
+          ++it;
+      return attrs;
+    };
+    if (opaque(x.source) != opaque(y.source))
+      return false;
+    auto nx = x.source.firstChild(), ny = y.source.firstChild();
+    for (; !nx.isNull() && !ny.isNull();
+         nx = nx.nextSibling(), ny = ny.nextSibling())
+      if (!equivalent(nx, ny))
+        return false;
+    if (!nx.isNull() || !ny.isNull())
+      return false;
+  }
+  return true;
+}
+std::vector<const TextParagraph *> tab_paragraphs(const TextFlow &flow) {
+  std::vector<const TextParagraph *> result;
+  for (const auto &p : flow.paragraphs)
+    result.push_back(&p);
+  std::set<size_t> seen;
+  std::function<void(const std::vector<TextBlock> &)> walk =
+      [&](const auto &list) {
+        for (const auto &b : list) {
+          if (b.kind == TextBlock::Paragraph && b.formatted &&
+              seen.insert(b.index).second)
+            result.at(b.index) = b.formatted.get();
+          else if (b.kind == TextBlock::Table && b.table)
+            for (const auto &cell : b.table->cells)
+              walk(cell.blocks);
+        }
+      };
+  walk(flow.blocks);
+  return result;
+}
 template <class T>
 void common(std::optional<T> &value, const T &next, bool first) {
   if (first)
@@ -761,6 +989,200 @@ const char *alignment(TextParagraph::Alignment value) {
   }
 }
 } // namespace
+double words_tab_position(const WordsTabStopSpec &stop) {
+  auto value = tab_property(stop, "position").trimmed();
+  static const Regex pattern(
+      "^([+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+))(cm|mm|in|pt|pc|px)$");
+  auto match = pattern.match(value);
+  if (!match.hasMatch())
+    fail("Enter a valid tab position");
+  auto unit = match.captured(2);
+  double factor = unit == "cm"   ? 72 / 2.54
+                  : unit == "mm" ? 72 / 25.4
+                  : unit == "in" ? 72
+                  : unit == "pc" ? 12
+                  : unit == "px" ? .75
+                                 : 1;
+  auto result = match.captured(1).toDouble() * factor;
+  if (!std::isfinite(result) || std::abs(result) > 100000)
+    fail("Tab position exceeds the native limit");
+  return result;
+}
+WordsTabStopSpec words_new_tab_stop(double points) {
+  if (!std::isfinite(points) || std::abs(points) > 100000)
+    fail("Tab position exceeds the native limit");
+  WordsTabStopSpec result;
+  result.properties = {{"position", decimal(points) + "pt"}, {"type", "left"}};
+  return result;
+}
+void validate_words_tabs(const WordsTabsFormat &format) {
+  if (format.inherit && format.stops)
+    fail("Choose replacement tabs or inherited tabs");
+  if (format.default_distance &&
+      (!std::isfinite(*format.default_distance) ||
+       *format.default_distance < 0 || *format.default_distance > 100000))
+    fail("Invalid default tab interval");
+  if (!format.stops)
+    return;
+  if (format.stops->stops.size() > 4096)
+    fail("Too many paragraph tab stops");
+  auto xml_character = [](char32_t c) {
+    return c == 9 || c == 10 || c == 13 || (c >= 0x20 && c <= 0xd7ff) ||
+           (c >= 0xe000 && c <= 0xfffd) || (c >= 0x10000 && c <= 0x10ffff);
+  };
+  std::set<double> positions;
+  for (const auto &stop : format.stops->stops) {
+    static const Regex position_lexical(
+        "^-?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:cm|mm|in|pt|pc|px)$");
+    if (!position_lexical.match(tab_property(stop, "position")).hasMatch())
+      fail("Invalid ODF tab position");
+    if (!positions.insert(words_tab_position(stop)).second)
+      fail("Two tab stops cannot share a position");
+    auto type = tab_property(stop, "type", "left");
+    if (!TextList{"left", "right", "center", "char"}.contains(type))
+      fail("Invalid tab alignment");
+    auto delimiter = tab_property(stop, "char");
+    if (type == "char" &&
+        (delimiter.size() != 1 || !xml_character(delimiter[0])))
+      fail("Enter one Unicode tab delimiter");
+    if (type != "char" && stop.properties.contains("char"))
+      fail("Only character-aligned tabs have a delimiter");
+    if (!TextList{"", "none", "single", "double"}.contains(
+            tab_property(stop, "leader-type")))
+      fail("Invalid tab leader type");
+    if (!TextList{"", "none", "solid", "dotted", "dash", "long-dash",
+                  "dot-dash", "dot-dot-dash", "wave"}
+             .contains(tab_property(stop, "leader-style")))
+      fail("Invalid tab leader pattern");
+    auto width = tab_property(stop, "leader-width", "auto");
+    if (!TextList{"auto", "normal", "bold", "thin", "medium", "thick"}.contains(
+            width)) {
+      static const Regex integer("^[+]?[0-9]+$");
+      if (integer.match(width.trimmed()).hasMatch()) {
+        auto value = width.toDouble();
+        if (!std::isfinite(value) || value <= 0 || value > 1000)
+          fail("Invalid tab leader width");
+      } else if (width.endsWith('%')) {
+        bool ok = false;
+        auto value = width.left(width.size() - 1).toDouble(&ok);
+        static const Regex percent("^(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)%$");
+        if (!ok || !percent.match(width).hasMatch() || !std::isfinite(value) ||
+            value <= 0 || value > 100000)
+          fail("Invalid tab leader width");
+      } else {
+        static const Regex positive_length(
+            "^(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:cm|mm|in|pt|pc|px)$");
+        if (!positive_length.match(width).hasMatch())
+          fail("Invalid tab leader width");
+        WordsTabStopSpec length;
+        length.properties["position"] = width;
+        auto value = words_tab_position(length);
+        if (value <= 0 || value > 1000)
+          fail("Invalid tab leader width");
+      }
+    }
+    auto color = tab_property(stop, "leader-color", "font-color");
+    if (color != "font-color" &&
+        !std::regex_match(color.toUtf8().toStdString(),
+                          std::regex("#[0-9a-fA-F]{6}")))
+      fail("Leader color must be #RRGGBB or font-color");
+    auto text = tab_property(stop, "leader-text");
+    if (text.size() > 1 || (text.size() == 1 && !xml_character(text[0])))
+      fail("Enter one Unicode leader character");
+    auto ref = tab_property(stop, "leader-text-style");
+    if (!ref.empty() && xmlValidateNCName(BAD_CAST ref.toUtf8().c_str(), 0))
+      fail("Invalid tab leader style reference");
+    if (stop.leader_scope < WordsTabStopSpec::Common ||
+        stop.leader_scope > WordsTabStopSpec::MasterAutomatic)
+      fail("Invalid tab leader style scope");
+  }
+}
+WordsTabsInfo read_words_tabs(const OdfPackage &package, size_t begin,
+                              size_t end) {
+  if (package.kind() != Kind::Words)
+    fail("Tab formatting requires a Words document");
+  auto copy = package;
+  copy.xml = read_document_xml(package.xml.toByteArray());
+  auto all = blocks(copy);
+  check_range(all, begin, end);
+  if (all.empty())
+    all.push_back({{}, {}, 0});
+  auto flow = read_text_flow(copy);
+  auto paragraphs = tab_paragraphs(flow);
+  if (paragraphs.size() != all.size())
+    fail("Source tabs do not match layout paragraphs");
+  Catalogue styles(copy);
+  WordsTabsInfo result;
+  result.origin_editable = styles.tab_origin_editable();
+  bool first = true;
+  for (size_t i = 0; i < all.size(); ++i)
+    if (touches(all[i], begin, end)) {
+      auto current = styles.tab_set(*paragraphs[i]);
+      if (first) {
+        result.stops = current;
+        result.default_distance = paragraphs[i]->default_tab;
+        result.relative = paragraphs[i]->relative_tabs;
+        first = false;
+      } else if (result.stops && !same_tab_set(*result.stops, current))
+        result.stops.reset();
+    }
+  return result;
+}
+bool format_words_tabs(OdfPackage &package, size_t begin, size_t end,
+                       const WordsTabsFormat &format) {
+  if (package.kind() != Kind::Words || package.read_only())
+    fail("This document cannot be formatted");
+  validate_words_tabs(format);
+  auto original = blocks(package);
+  check_range(original, begin, end);
+  if (!format.stops && !format.inherit && !format.default_distance &&
+      !format.relative)
+    return false;
+  const auto before = package.xml.toByteArray();
+  auto candidate = package;
+  candidate.xml = read_document_xml(before);
+  auto info = read_words_tabs(candidate, begin, end);
+  Catalogue styles(candidate);
+  auto distance = format.default_distance;
+  auto relative = format.relative;
+  if (distance && std::abs(*distance - info.default_distance) < 1e-9)
+    distance.reset();
+  if (relative && *relative == info.relative)
+    relative.reset();
+  styles.tab_defaults(distance, relative);
+  if (format.stops || format.inherit) {
+    auto all = blocks(candidate);
+    if (all.empty() && format.stops) {
+      auto empty_flow = read_text_flow(candidate);
+      if (!same_tab_set(styles.tab_set(empty_flow.paragraphs.front()),
+                        *format.stops)) {
+        auto p = candidate.xml.createElementNS(TEXT, "text:p");
+        candidate.body().appendChild(p);
+        all.push_back({p, {}, 0});
+      }
+    }
+    auto flow = read_text_flow(candidate);
+    auto paragraphs = tab_paragraphs(flow);
+    for (size_t i = 0; i < all.size(); ++i)
+      if (touches(all[i], begin, end)) {
+        if (format.inherit && !styles.direct_tabs(all[i].node))
+          continue;
+        auto current = styles.tab_set(*paragraphs.at(i));
+        if (format.stops && same_tab_set(current, *format.stops))
+          continue;
+        all[i].node.setAttributeNS(
+            TEXT, "text:style-name",
+            styles.paragraph_style(all[i].node, nullptr, nullptr, &format,
+                                   paragraphs.at(i)->tab_source));
+      }
+  }
+  (void)read_text_flow(candidate);
+  auto changed = candidate.xml.toByteArray() != before ||
+                 !candidate.part_changes_from(package).empty();
+  if (changed)
+    package = std::move(candidate);
+  return changed;
+}
 bool WordsCharacterFormat::empty() const {
   return !family && !color && !highlight && !size && !weight && !italic &&
          !underline && !strike;

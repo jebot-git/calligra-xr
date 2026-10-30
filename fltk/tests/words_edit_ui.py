@@ -164,12 +164,15 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--tabs-only', action='store_true', help='Run focused native tab stop UI checks')
 parser.add_argument('--page-setup-only', action='store_true', help='Run focused native page setup UI checks')
 parser.add_argument('--character-styles-only', action='store_true', help='Run focused named character style UI checks')
 parser.add_argument('--styles-only', action='store_true', help='Run focused named paragraph style UI checks')
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.tabs_only and (args.page_only or args.page_setup_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
+    parser.error('--tabs-only is incompatible with other focused modes or --ime')
 if args.page_setup_only and (args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
     parser.error('--page-setup-only is incompatible with other focused modes or --ime')
 if args.character_styles_only and (args.page_only or args.styles_only or args.format_only or args.ime):
@@ -474,7 +477,7 @@ try:
                 return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                         for e in root.iter(STYLE+'style')}
 
-            if not (args.styles_only or args.character_styles_only or args.page_setup_only):
+            if not (args.styles_only or args.character_styles_only or args.page_setup_only or args.tabs_only):
                 # Invalid fields stay in the panel and cannot consume redo or saved
                 # state. Correcting a quoted fallback list must render and round-trip.
                 go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
@@ -720,7 +723,7 @@ try:
                 delta=index-current
                 key('Down' if delta>=0 else 'Up', count=abs(delta))
                 key('Return'); time.sleep(.15)
-            if not (args.character_styles_only or args.page_setup_only):
+            if not (args.character_styles_only or args.page_setup_only or args.tabs_only):
                 style_id = []
                 def definition_check(label, size):
                     def check(raw):
@@ -850,7 +853,7 @@ try:
                         'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
                     raise FormatComplete
-            if not args.page_setup_only:
+            if not (args.page_setup_only or args.tabs_only):
                 # Named character styles replace selected inline overrides and can
                 # remain as a named reference for future typing at a caret.
                 char_ids = []
@@ -964,6 +967,122 @@ try:
                     (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_named_character_styles':True,
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named character style UI, range/default handling, named typing, source/archive undo and links',flush=True)
+                    raise FormatComplete
+            if not args.page_setup_only:
+                # Direct tab stops stage one transaction, including document defaults.
+                def open_tabs():
+                    menu_action('Tabs…'); wait(lambda:data()['format_dialog']); time.sleep(.2)
+                    return panel_origin(680,500)
+                def tab_child(x,y,edit=False,row=0):
+                    if edit: click(x+100,y+62+row*18)
+                    click(x+(165 if edit else 65),y+325); time.sleep(.2)
+                    return panel_origin(640,400)
+                def stop_nodes(root):
+                    paragraph=next(e for e in root.iter(TEXT+'p') if e.get(XML+'id')=='first')
+                    style=next(e for e in root.iter(STYLE+'style') if e.get(STYLE+'name')==paragraph.get(TEXT+'style-name'))
+                    return style.findall('./'+STYLE+'paragraph-properties/'+STYLE+'tab-stops/'+STYLE+'tab-stop')
+                def tabs_save(name,styles):
+                    root,xml=save(name,exact_styles(styles) if styles is not None else lambda _:None)
+                    assert data()['text']==tab_text
+                    assert next(e for e in root.iter(TEXT+'p') if e.get(XML+'id')=='first') is not None
+                    return root,xml,parts(name)
+                go(5); key('Tab'); tab_text=original[:5]+'\t'+original[5:]
+                check_text(tab_text,6)
+                _,tab_xml=save('tabs-source'); tab_parts=parts('tabs-source')
+                go(0); key('Right',('Shift_L',),count=13)
+                selected={k:data()['editing'][k] for k in ('anchor','cursor')}
+                revision=data()['editing']['revision']
+                x,y=open_tabs(); click(x+605,y+465); wait(lambda:not data()['format_dialog'])
+                assert tabs_save('tabs-no-op',original_styles)[2]==tab_parts
+                assert data()['editing']['revision']==revision
+                # Adding and deleting within the staged dialog is an exact no-op.
+                x,y=open_tabs(); cx,cy=tab_child(x,y); field(cx+225,cy+65,'60')
+                click(cx+565,cy+365); time.sleep(.2); click(x+265,y+325)
+                click(x+605,y+465); wait(lambda:not data()['format_dialog'])
+                assert tabs_save('tabs-staged-no-op',original_styles)[2]==tab_parts
+                assert data()['editing']['revision']==revision
+                x,y=open_tabs(); cx,cy=tab_child(x,y); field(cx+225,cy+65,'60')
+                choice(cx+515,cy+110,2); field(cx+220,cy+155,'-1')
+                click(cx+565,cy+365); time.sleep(.3)
+                assert data()['format_dialog'] and data()['editing']['revision']==revision
+                capture_window('tabs-invalid-width')
+                field(cx+220,cy+155,'0.8'); click(cx+435,cy+155)
+                field(cx+250,cy+200,'#0066cc'); capture_window('tabs-stop-dialog')
+                click(cx+565,cy+365); time.sleep(.2)
+                # Duplicate numeric positions are rejected inside the child panel.
+                cx,cy=tab_child(x,y); field(cx+225,cy+65,'60'); click(cx+565,cy+365); time.sleep(.2)
+                assert data()['editing']['revision']==revision
+                capture_window('tabs-duplicate-position')
+                field(cx+225,cy+65,'90'); choice(cx+515,cy+65,3)
+                choice(cx+515,cy+110,8); field(cx+515,cy+200,'.')
+                choice(cx+350,cy+245,1); click(cx+565,cy+365); time.sleep(.2)
+                field(x+225,y+385,'-1'); click(x+605,y+465); time.sleep(.3)
+                assert data()['format_dialog'] and data()['editing']['revision']==revision and not data()['modified']
+                field(x+225,y+385,'20'); capture_window('tabs-dialog')
+                click(x+605,y+465); wait(lambda:not data()['format_dialog'] and data()['modified'])
+                root,_,created=tabs_save('tabs-created',None)
+                stops=stop_nodes(root); assert len(stops)==2
+                assert abs(float(stops[0].get(STYLE+'position')[:-2])-60*72/25.4)<1e-5
+                assert stops[0].get(STYLE+'leader-style')=='dotted' and stops[0].get(STYLE+'leader-type')=='double'
+                assert stops[0].get(STYLE+'leader-width')=='0.8pt' and stops[0].get(STYLE+'leader-color')=='#0066cc'
+                assert stops[1].get(STYLE+'type')=='char' and stops[1].get(STYLE+'char')=='.'
+                assert stops[1].get(STYLE+'leader-text')=='.' and stops[1].get(STYLE+'leader-text-style')
+                default=ET.fromstring(created[1]).find('.//'+STYLE+'default-style/'+STYLE+'paragraph-properties')
+                assert abs(float(default.get(STYLE+'tab-stop-distance')[:-2])-20*72/25.4)<1e-5
+                assert default.get(TEXT+'relative-tab-stop-position') is None
+                assert root.get(O+'version')=='1.2'
+                assert {k:data()['editing'][k] for k in selected}==selected
+                view_labels('tabs-created-layout')
+                leaders=[t for t in data()['page_layout']['tabs'] if t['source']==5]
+                assert leaders and leaders[0]['strokes']>0,leaders
+                key('z',('Control_L',)); assert tabs_save('tabs-created-undone',original_styles)[2]==tab_parts
+                key('y',('Control_L',)); assert tabs_save('tabs-created-redone',created[1])[2]==created
+                # A changed stop, deletion, defaults and inherited controls remain
+                # local until Apply; Cancel keeps both the source and redo state.
+                x,y=open_tabs(); cx,cy=tab_child(x,y,edit=True)
+                field(cx+225,cy+65,'65'); click(cx+565,cy+365); time.sleep(.2)
+                click(x+500,y+465); wait(lambda:not data()['format_dialog'])
+                assert tabs_save('tabs-staged-cancelled',created[1])[2]==created
+                x,y=open_tabs(); cx,cy=tab_child(x,y,edit=True)
+                field(cx+225,cy+65,'65'); choice(cx+515,cy+65,1)
+                choice(cx+515,cy+110,7,current=2); click(cx+565,cy+365); time.sleep(.2)
+                click(x+605,y+465); wait(lambda:not data()['format_dialog'] and data()['modified'])
+                root,_,edited=tabs_save('tabs-edited',created[1])
+                stops=stop_nodes(root); assert len(stops)==2
+                assert stops[0].get(STYLE+'type')=='right' and stops[0].get(STYLE+'leader-style')=='wave'
+                view_labels('tabs-edited-layout')
+                x,y=open_tabs(); click(x+545,y+325); click(x+605,y+465)
+                wait(lambda:not data()['format_dialog'] and data()['modified'])
+                root,_,_=tabs_save('tabs-inherited',created[1]); assert not stop_nodes(root)
+                key('z',('Control_L',)); assert tabs_save('tabs-inherited-undone',created[1])[2]==edited
+                x,y=open_tabs(); click(x+370,y+325); click(x+605,y+465)
+                wait(lambda:not data()['format_dialog'] and data()['modified'])
+                root,_,_=tabs_save('tabs-cleared',created[1]); assert not stop_nodes(root)
+                paragraph=next(e for e in root.iter(TEXT+'p') if e.get(XML+'id')=='first')
+                style=next(e for e in root.iter(STYLE+'style') if e.get(STYLE+'name')==paragraph.get(TEXT+'style-name'))
+                assert style.find('./'+STYLE+'paragraph-properties/'+STYLE+'tab-stops') is not None
+                key('z',('Control_L',)); assert tabs_save('tabs-clear-undone',created[1])[2]==edited
+                x,y=open_tabs(); click(x+100,y+62); click(x+265,y+325); click(x+605,y+465)
+                wait(lambda:not data()['format_dialog'] and data()['modified'])
+                root,_,_=tabs_save('tabs-deleted',created[1]); assert len(stop_nodes(root))==1
+                key('z',('Control_L',)); assert tabs_save('tabs-delete-undone',created[1])[2]==edited
+                key('z',('Control_L',)); assert tabs_save('tabs-edit-undone',created[1])[2]==created
+                # Mixed selections retain their differing lists on unchanged Apply.
+                select_all(); x,y=open_tabs(); capture_window('tabs-mixed-dialog')
+                click(x+605,y+465); wait(lambda:not data()['format_dialog'])
+                assert tabs_save('tabs-mixed-no-op',created[1])[2]==created
+                key('z',('Control_L',)); assert tabs_save('tabs-all-restored',original_styles)[2]==tab_parts
+                key('z',('Control_L',)); check_text(original)
+                assert save('tabs-source-restored')[1]==original_xml
+                assert parts('tabs-source-restored')==original_parts
+                layout_report['tab_stops']={'staged_no_op_cancel':True,'invalid_correction':True,'position_alignment_leaders':True,
+                    'document_defaults':True,'older_version_retained':True,'mixed_no_op':True,'clear_inherit_delete':True,
+                    'one_step_exact_part_undo':True,'native_leader_strokes':True}
+                if args.tabs_only:
+                    key('q',('Control_L',)); assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_tab_stops':True,
+                        'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
+                    print('PASS native Words tab controls, leaders, defaults, no-op/cancel and exact archive-part history',flush=True)
                     raise FormatComplete
             # Page setup changes the active master layout as one archive-part
             # transaction; it does not rewrite body text or paragraph styles.

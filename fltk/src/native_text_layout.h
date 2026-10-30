@@ -129,6 +129,9 @@ struct TextParagraph {
   TextDecorations decorations;
   std::vector<TextSpan> spans;
   std::vector<TextTabStop> tabs;
+  // Effective ODF source for lossless tab editing, including cell inheritance.
+  XmlElement tab_source;
+  bool tab_source_common = true, tab_source_master = false;
   double default_tab = 72 * 1.25 / 2.54;
   bool relative_tabs = true;
   double left = 0, right = 0, indent = 0, before = 0, after = 0;

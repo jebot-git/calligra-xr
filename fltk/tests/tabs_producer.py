@@ -16,7 +16,7 @@ def produce(directory, test_bin=None):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     definitions=[('Solid','left','solid','single'),('Dotted','right','dotted','single'),('Dash','center','dash','single'),('LongDash','char','long-dash','single'),('DotDash','left','dot-dash','single'),('DotDotDash','right','dot-dot-dash','single'),('Wave','center','wave','single'),('Double','left','solid','double'),('Text','right','solid','single'),('RTL','char','solid','single'),('Clear','left','none','none'),('Centered','center','solid','single'),('Justified','left','dotted','single'),('Automatic','left','solid','single')]
     for app,create,ext in [('words',OpenDocumentText,'odt'),('stage',OpenDocumentPresentation,'odp')]:
-        doc=create();default=DefaultStyle(family='paragraph');props=ParagraphProperties(tabstopdistance='64pt',lineheight='24pt',marginbottom='2pt');props.setAttrNS(TEXTNS,'relative-tab-stop-position','true');default.addElement(props);default.addElement(TextProperties(fontfamily='DejaVu Sans Mono',fontsize='14pt'));doc.styles.addElement(default)
+        doc=create();default=DefaultStyle(family='paragraph');props=ParagraphProperties(tabstopdistance='64pt',lineheight='24pt',marginbottom='2pt');default.addElement(props);default.addElement(TextProperties(fontfamily='DejaVu Sans Mono',fontsize='14pt'));doc.styles.addElement(default)
         layout=PageLayout(name='Paper');layout.addElement(PageLayoutProperties(pagewidth='620pt',pageheight='500pt',margin='24pt'));doc.automaticstyles.addElement(layout);master=MasterPage(name='Default',pagelayoutname=layout);doc.masterstyles.addElement(master)
         ink=Style(name='LeaderInk',family='text');ink.addElement(TextProperties(color='#7820cc',fontsize='150%',fontweight='bold'));doc.styles.addElement(ink)
         auto_ink=Style(name='LeaderInk',family='text');auto_ink.addElement(TextProperties(color='#cc2040',fontsize='120%'));doc.automaticstyles.addElement(auto_ink)
@@ -37,7 +37,7 @@ def produce(directory, test_bin=None):
                     stop.setAttribute('leadertext','·');stop.setAttribute('leadertextstyle','LeaderInk')
                 stops.addElement(stop)
             props.addElement(stops)
-            if name=='Solid':props.setAttribute('tabstopdistance','12pt');props.setAttrNS(TEXTNS,'relative-tab-stop-position','false') # ignored outside defaults
+            if name=='Solid':props.setAttribute('tabstopdistance','12pt') # ignored outside defaults
             if name=='RTL':props.setAttribute('writingmode','rl-tb')
             if name=='Centered':props.setAttribute('textalign','center')
             if name=='Justified':props.setAttribute('textalign','justify')

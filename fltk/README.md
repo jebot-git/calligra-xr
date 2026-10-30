@@ -156,6 +156,15 @@ CUPS test queues.
   Page definitions use the same archive-part undo, including creating a missing
   styles part and restoring its absence. Existing headers/footers remain a
   rendering limitation; page setup does not add their editor.
+  Format → Tabs adds, edits and deletes stops for the selected paragraphs.
+  Stops support left/right/center/Unicode-character alignment, line patterns,
+  double strokes, color, width and text leaders with named character styles.
+  Clear all explicitly suppresses inherited stops; Use inherited removes the
+  paragraph's own override. Mixed selections remain unchanged until replaced.
+  The interval is a document-wide paragraph default, not a per-selection value.
+  Changing the default origin requires an existing ODF 1.4 document; older
+  versions remain unchanged. Apply validates the candidate's native pagination
+  and commits source/defaults as one undo step; Cancel discards staged changes.
   Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical
