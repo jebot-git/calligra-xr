@@ -146,6 +146,16 @@ CUPS test queues.
   changes and undo end transient typing styles. Definitions and range assignment
   share the source/ZIP undo transaction. Visited-link/style-class assignment and
   outline-number editing still need their specialized controls.
+  File → Page setup edits the page style at the caret in either editor view.
+  A4/A5/Letter/Legal presets, orientation, custom paper dimensions and margins
+  use millimetres. Apply checks native pagination before committing; an invalid
+  area stays in the dialog for correction. Cancel and unchanged Apply preserve
+  the document. Shared layout definitions are copied when editing one master;
+  private layouts are updated without accumulating unused definitions. Other
+  masters, source units/properties, headers and footer data are retained.
+  Page definitions use the same archive-part undo, including creating a missing
+  styles part and restoring its absence. Existing headers/footers remain a
+  rendering limitation; page setup does not add their editor.
   Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical

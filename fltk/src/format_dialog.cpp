@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "format_dialog.h"
+#include "native_text_shaper.h"
 #include "suite/fltk_appearance.h"
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
@@ -632,5 +633,172 @@ std::optional<WordsStylesDialogResult>
 character_styles_dialog(Fl_Window &window, OdfPackage working,
                         std::optional<Text> selected) {
   return styles_dialog(window, std::move(working), selected, true);
+}
+std::optional<OdfPackage> page_setup_dialog(Fl_Window &window,
+                                            OdfPackage working,
+                                            const Text &page_style) {
+  auto initial = words_page_style(working, page_style);
+  constexpr double mm = 72 / 25.4;
+  const int width = 620, height = 420,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Page setup");
+  background.hint.copy_label("Blank fields keep their current value");
+  auto caption = ("Page style: " + initial.label).toUtf8().toStdString();
+  std::string escaped;
+  for (auto c : caption) {
+    escaped += c;
+    if (c == '@')
+      escaped += c;
+  }
+  Fl_Box label(x + 20, y + 45, width - 40, 25);
+  label.copy_label(escaped.c_str());
+  label.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+  Fl_Choice paper(x + 155, y + 85, 180, 30, "Paper:");
+  paper.add("Custom|A4|A5|Letter|Legal");
+  paper.value(0);
+  Fl_Choice orientation(x + 435, y + 85, 160, 30, "Orientation:");
+  orientation.add("Portrait|Landscape");
+  orientation.value(initial.geometry.width > initial.geometry.height ? 1 : 0);
+  Fl_Input page_width(x + 155, y + 130, 120, 30, "Width (mm):"),
+      page_height(x + 435, y + 130, 120, 30, "Height (mm):");
+  Fl_Input left(x + 155, y + 180, 120, 30, "Left (mm):"),
+      right(x + 435, y + 180, 120, 30, "Right (mm):");
+  Fl_Input top(x + 155, y + 225, 120, 30, "Top (mm):"),
+      bottom(x + 435, y + 225, 120, 30, "Bottom (mm):");
+  std::array<Fl_Input *, 6> fields{&page_width, &page_height, &left,
+                                   &right,      &top,         &bottom};
+  std::array<double, 6> values{initial.geometry.width, initial.geometry.height,
+                               initial.geometry.left,  initial.geometry.right,
+                               initial.geometry.top,   initial.geometry.bottom};
+  std::array<Text, 6> originals;
+  auto display = [](double value) { return Text::number(value, 'g', 9); };
+  for (size_t i = 0; i < fields.size(); ++i) {
+    originals[i] = display(values[i] / mm);
+    fields[i]->value(originals[i].toUtf8().c_str());
+  }
+  const std::array<std::pair<double, double>, 5> sizes{
+      {{0, 0}, {210, 297}, {148, 210}, {215.9, 279.4}, {215.9, 355.6}}};
+  for (size_t i = 1; i < sizes.size(); ++i) {
+    auto [w, h] = sizes[i];
+    if (orientation.value())
+      std::swap(w, h);
+    if (std::abs(values[0] / mm - w) < 1e-6 &&
+        std::abs(values[1] / mm - h) < 1e-6)
+      paper.value(int(i));
+  }
+  int action = 0;
+  struct Queue {
+    Panel &panel;
+    int &action;
+    int value;
+  };
+  Queue paper_action{panel, action, 1}, orientation_action{panel, action, 2};
+  auto queue = [](Fl_Widget *, void *data) {
+    auto &q = *static_cast<Queue *>(data);
+    q.action = q.value;
+    q.panel.done = q.panel.accepted = true;
+  };
+  paper.callback(queue, &paper_action);
+  orientation.callback(queue, &orientation_action);
+  int last_orientation = orientation.value();
+  std::function<void()> clear_hint = [&] {
+    background.hint.copy_label("Blank fields keep their current value");
+    background.hint.labelcolor(FL_FOREGROUND_COLOR);
+    background.hint.redraw();
+  };
+  std::function<void()> custom = [&] {
+    clear_hint();
+    paper.value(0);
+    bool a = false, b = false;
+    auto w = Text(page_width.value()).toDouble(&a),
+         h = Text(page_height.value()).toDouble(&b);
+    if (a && b && std::isfinite(w) && std::isfinite(h) && w > 0 && h > 0) {
+      orientation.value(w > h ? 1 : 0);
+      last_orientation = orientation.value();
+    }
+  };
+  auto custom_callback = [](Fl_Widget *, void *data) {
+    (*static_cast<std::function<void()> *>(data))();
+  };
+  page_width.when(FL_WHEN_CHANGED);
+  page_height.when(FL_WHEN_CHANGED);
+  page_width.callback(custom_callback, &custom);
+  page_height.callback(custom_callback, &custom);
+  for (auto *field : {&left, &right, &top, &bottom}) {
+    field->when(FL_WHEN_CHANGED);
+    field->callback(custom_callback, &clear_hint);
+  }
+  Fl_Box scope(x + 20, y + 280, width - 40, 28,
+               "Changes apply to every page using this style");
+  scope.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  while (true) {
+    action = 0;
+    if (!panel.run(page_width))
+      return {};
+    try {
+      if (action == 1) {
+        if (paper.value() > 0) {
+          auto [w, h] = sizes.at(size_t(paper.value()));
+          if (orientation.value())
+            std::swap(w, h);
+          page_width.value(display(w).toUtf8().c_str());
+          page_height.value(display(h).toUtf8().c_str());
+        }
+        continue;
+      }
+      if (action == 2) {
+        bool a = false, b = false;
+        auto w = Text(page_width.value()).toDouble(&a),
+             h = Text(page_height.value()).toDouble(&b);
+        if (!a || !b || !std::isfinite(w) || !std::isfinite(h) || w <= 0 ||
+            h <= 0) {
+          orientation.value(last_orientation);
+          throw std::runtime_error(
+              "Enter positive width and height before changing orientation");
+        }
+        const bool landscape = orientation.value() != 0;
+        if ((landscape && w < h) || (!landscape && w > h))
+          std::swap(w, h);
+        page_width.value(display(w).toUtf8().c_str());
+        page_height.value(display(h).toUtf8().c_str());
+        last_orientation = orientation.value();
+        continue;
+      }
+      WordsPageFormat format;
+      std::array<std::optional<double> *, 6> patch{
+          &format.width, &format.height, &format.left,
+          &format.right, &format.top,    &format.bottom};
+      for (size_t i = 0; i < fields.size(); ++i) {
+        auto raw = Text(fields[i]->value()).trimmed();
+        if (raw.empty() || raw == originals[i])
+          continue;
+        bool ok = false;
+        auto value = raw.toDouble(&ok);
+        if (!ok || !std::isfinite(value))
+          throw std::runtime_error("Enter a valid dimension in millimetres");
+        *patch[i] = value * mm;
+      }
+      auto candidate = style_copy(working);
+      if (format_words_page(candidate, page_style, format)) {
+        // Page dimensions alone do not prove that paragraph/table constraints
+        // can lay out. Reject a failed native pagination before committing.
+        NativeTextShaper shaper(
+            Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+        (void)paginate_text(read_text_flow(candidate), shaper);
+      }
+      return candidate;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
 }
 } // namespace DomeOffice

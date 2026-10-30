@@ -1625,3 +1625,35 @@ PDF/CUPS rasters. All nine accepted baseline page PNGs are byte-identical.
 Generated packages pass offline version-matched OpenDocument schemas. These
 checks retain the export/printing baseline, without claiming complete Words
 layout/editing parity. Words remains first, Sheets functions next, Stage last.
+
+
+## Native Words page setup — 2026-10-30
+
+All 42 core suites pass in optimized Release and ASan/UBSan with core leak
+checking. Page setup checks effective dimensions/margins, single-master isolation
+of shared layouts, preservation of the following master and header data, native
+mixed-size pagination, exact XML/ZIP undo and saved-state tracking. Sixty-four
+private-layout changes do not accumulate new layout definitions. Missing styles
+and layout definitions are created with document-version metadata; undo restores
+an originally absent styles part exactly. Invalid geometry, stale revisions,
+grouped cancellation, signed documents and wrong application kinds are covered.
+
+Actual Page setup menu/keyboard checks pass on native Wayland, ASan/UBSan Wayland
+and the explicit Text view, alongside the full X11 native editor regression.
+They cover unchanged Apply, Cancel, presets/orientation, mm margins, invalid
+number/margin correction, preserved body/paragraph/master XML, source-unit
+retention, native paper dimensions, selection and exact one-step archive undo.
+A 1mm paper with zero page margins is valid scalar geometry but leaves no area
+for an existing 5pt paragraph margin. Candidate native pagination now rejects
+that change inside the dialog before source/history commit. GUI leak checking
+remains disabled for third-party libraries. Native Wayland page/IME editing
+also passes on this increment.
+
+The private CUPS integration completes 21 jobs. New Letter-landscape and
+A4-portrait snapshots retain body XML, export/reopen, and produce identical
+PDF/reopen/CUPS pixels. Their MediaBoxes match the chosen paper dimensions;
+first-word offsets follow the edited page margins while retaining the paragraph's
+5pt inset. All nine accepted baseline PNGs remain byte-identical. Generated
+ODF packages pass offline version-matched schemas. Page setup preserves header/
+footer data but does not implement its editing or rendering. Words layout and
+editing remain first, Sheets functions next, Stage last.

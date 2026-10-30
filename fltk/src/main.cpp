@@ -82,6 +82,7 @@ enum Command {
     ParagraphFormat,
     ParagraphStyles,
     CharacterStyles,
+    PageSetup,
     Bold,
     Italic,
     Underline,
@@ -348,6 +349,8 @@ public:
         add("&File/&Save", FL_CTRL + 's', Save);
         add("&File/Save &as…", FL_CTRL + FL_SHIFT + 's', SaveAs);
         add("&File/&Print…", FL_CTRL + 'p', Print);
+        if (kind == Kind::Words)
+            add("&File/Page &setup…", 0, PageSetup);
         add("&File/&Quit", FL_CTRL + 'q', Quit);
         add("&Edit/&Undo", FL_CTRL + 'z', Undo);
         add("&Edit/&Redo", FL_CTRL + FL_SHIFT + 'z', Redo);
@@ -859,11 +862,61 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == ParagraphStyles || action == CharacterStyles)
+                if (action == PageSetup)
+                    office->word_page_setup();
+                else if (action == ParagraphStyles || action == CharacterStyles)
                     office->word_styles(action == CharacterStyles);
                 else
                     office->word_format(action);
             });
+    }
+    void word_page_setup()
+    {
+        if (kind != Kind::Words || !words)
+            return;
+        if (words->read_only())
+            throw std::runtime_error("This document is read-only");
+        cancel_word_composition();
+        finish_word_edit();
+        auto selection = word_selection();
+        auto revision = words->revision();
+        auto snapshot = words->style_snapshot();
+        auto selected = read_text_flow(snapshot).first_master;
+        // Resolve the caret's actual page style in either editor view.
+        bool resolved_page = true;
+        if (page_revision != revision || text_font_revision != dx::font_revision) {
+            try {
+                refresh_pages();
+            } catch (const std::exception&) {
+                // Page setup can repair an imported layout that cannot yet paginate.
+                resolved_page = false;
+            }
+        }
+        if (resolved_page && !text_pages->pagination.pages.empty()) {
+            auto page = text_pages->caret_page().value_or(text_pages->current_page());
+            if (page < text_pages->pagination.pages.size())
+                selected = text_pages->pagination.pages[page].style.name;
+        }
+        formatting_dialog = true;
+        std::optional<OdfPackage> result;
+        try {
+            result = page_setup_dialog(window, std::move(snapshot), selected);
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        if (result) {
+            words->commit_styles(std::move(*result), selection, revision);
+            if (!page_view)
+                refresh_pages();
+        }
+        restore_word_selection(selection);
+        modified = words->modified();
+        title();
+        sync_pages();
+        if (result)
+            message("Page setup updated");
     }
     void word_styles(bool character_styles)
     {
@@ -1326,7 +1379,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);
@@ -1514,13 +1567,15 @@ public:
             data["editing"] = { { "anchor", selection.anchor }, { "cursor", selection.cursor },
                 { "can_undo", words->can_undo() }, { "can_redo", words->can_redo() }, { "revision", words->revision() }, { "typing_format", words->has_typing_format() } };
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
-            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array();
+            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array(), papers = Json::array();
             size_t table_paints = 0;
             std::vector<std::string> unsupported;
             for (const auto& feature : text_pages->pagination.unsupported)
                 unsupported.push_back(utf8(feature));
             size_t page_index = 0;
             for (const auto& page : text_pages->pagination.pages) {
+                papers.push_back({ { "name", utf8(page.style.name) }, { "width", page.style.width }, { "height", page.style.height },
+                    { "left", page.style.left }, { "right", page.style.right }, { "top", page.style.top }, { "bottom", page.style.bottom } });
                 table_paints += page.paints.size();
                 for (const auto& cell : page.cells)
                     cells.push_back({ { "table", cell.table }, { "row", cell.row }, { "column", cell.column }, { "rows", cell.rows }, { "columns", cell.columns }, { "header", cell.header }, { "continued", cell.continued }, { "page", page_index }, { "x", cell.rect.x }, { "y", cell.rect.y }, { "width", cell.rect.width }, { "height", cell.rect.height }, { "page_width", page.style.width }, { "page_height", page.style.height } });
@@ -1567,6 +1622,7 @@ public:
                 { "preedit", static_cast<WordsEditor*>(editor)->composing },
                 { "caret_page", text_pages->caret_page() ? *text_pages->caret_page() + 1 : 0 },
                 { "pages", text_pages->pagination.pages.size() },
+                { "paper_styles", papers },
                 { "page", text_pages->current_page() + 1 },
                 { "render_error", text_pages->render_error() },
                 { "rasterizations", text_pages->rasterizations() },

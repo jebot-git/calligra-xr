@@ -167,6 +167,8 @@ def main():
                         help='Optional named paragraph style UI snapshots (defaults to --ui-artifacts)')
     parser.add_argument('--character-style-artifacts', type=Path,
                         help='Optional named character style UI snapshots (defaults to --ui-artifacts)')
+    parser.add_argument('--page-setup-artifacts', type=Path,
+                        help='Optional native page setup UI snapshots (defaults to --ui-artifacts)')
     parser.add_argument('--test-bin-dir', type=Path,
                         help='Native geometry test binary directory (defaults to --bin-dir)')
     args = parser.parse_args()
@@ -204,6 +206,10 @@ def main():
                            ('character-edited','character-style-edited.odt'),
                            ('character-typed','character-style-typed.odt')]:
             if (character_artifacts/file).is_file(): cases.append((name,character_artifacts/file))
+        page_setup_artifacts = (args.page_setup_artifacts or args.ui_artifacts).resolve()
+        for name,file in [('setup-landscape','page-setup-letter-landscape.odt'),
+                          ('setup-portrait','page-setup-a4-portrait.odt')]:
+            if (page_setup_artifacts/file).is_file(): cases.append((name,page_setup_artifacts/file))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
@@ -370,6 +376,20 @@ def main():
                     root=ET.fromstring(bbox.read_text()); ns='{http://www.w3.org/1999/xhtml}'
                     word=next(w for w in root.iter(ns+'word') if w.text=='Český')
                     results[name+'-word']={'height':float(word.get('yMax'))-float(word.get('yMin'))}
+            if name.startswith('setup-'):
+                dimensions=(279.4,215.9) if name=='setup-landscape' else (210,297)
+                for page in reader.pages:
+                    assert abs(float(page.mediabox.width)-dimensions[0]*72/25.4)<.001
+                    assert abs(float(page.mediabox.height)-dimensions[1]*72/25.4)<.001
+                bbox=art/(name+'-bounds.html')
+                subprocess.run(['pdftotext','-bbox',str(output),str(bbox)],check=True)
+                root=ET.fromstring(bbox.read_text()); ns='{http://www.w3.org/1999/xhtml}'
+                word=next(w for w in root.iter(ns+'word') if w.text=='Start')
+                x,y=float(word.get('xMin')),float(word.get('yMin'))
+                left=18 if name=='setup-landscape' else 10
+                assert abs(x-(left*72/25.4+5))<.001,(name,x)
+                results[name+'-geometry']={'width_mm':dimensions[0],'height_mm':dimensions[1],
+                    'text_x':x,'text_y':y,'retained_paragraph_margin_points':5}
             if name == 'quoted-family':
                 faces = subprocess.check_output(['pdffonts', str(output)], text=True)
                 assert 'Hack-Bold' in faces, faces
@@ -418,6 +438,13 @@ def main():
             small=results['character-created-word']['height']; large=results['character-edited-word']['height']
             assert abs(large/small-24/18)<.03,(small,large)
             with zipfile.ZipFile(character_artifacts/'character-style-created.odt') as a, zipfile.ZipFile(character_artifacts/'character-style-edited.odt') as b:
+                assert a.read('content.xml')==b.read('content.xml')
+                assert a.read('styles.xml')!=b.read('styles.xml')
+        if 'setup-landscape-geometry' in results and 'setup-portrait-geometry' in results:
+            a,b=results['setup-landscape-geometry'],results['setup-portrait-geometry']
+            assert abs(a['text_x']-b['text_x']-8*72/25.4)<.001
+            assert abs(a['text_y']-b['text_y']-6*72/25.4)<.001
+            with zipfile.ZipFile(page_setup_artifacts/'page-setup-letter-landscape.odt') as a, zipfile.ZipFile(page_setup_artifacts/'page-setup-a4-portrait.odt') as b:
                 assert a.read('content.xml')==b.read('content.xml')
                 assert a.read('styles.xml')!=b.read('styles.xml')
         assert len(cups.completed(completed_jobs)) == completed_jobs

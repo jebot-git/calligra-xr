@@ -164,11 +164,14 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--page-setup-only', action='store_true', help='Run focused native page setup UI checks')
 parser.add_argument('--character-styles-only', action='store_true', help='Run focused named character style UI checks')
 parser.add_argument('--styles-only', action='store_true', help='Run focused named paragraph style UI checks')
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.page_setup_only and (args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
+    parser.error('--page-setup-only is incompatible with other focused modes or --ime')
 if args.character_styles_only and (args.page_only or args.styles_only or args.format_only or args.ime):
     parser.error('--character-styles-only is incompatible with other focused modes or --ime')
 if args.styles_only and (args.page_only or args.format_only or args.ime):
@@ -471,7 +474,7 @@ try:
                 return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                         for e in root.iter(STYLE+'style')}
 
-            if not (args.styles_only or args.character_styles_only):
+            if not (args.styles_only or args.character_styles_only or args.page_setup_only):
                 # Invalid fields stay in the panel and cannot consume redo or saved
                 # state. Correcting a quoted fallback list must render and round-trip.
                 go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
@@ -717,7 +720,7 @@ try:
                 delta=index-current
                 key('Down' if delta>=0 else 'Up', count=abs(delta))
                 key('Return'); time.sleep(.15)
-            if not args.character_styles_only:
+            if not (args.character_styles_only or args.page_setup_only):
                 style_id = []
                 def definition_check(label, size):
                     def check(raw):
@@ -847,119 +850,213 @@ try:
                         'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
                     raise FormatComplete
-            # Named character styles replace selected inline overrides and can
-            # remain as a named reference for future typing at a caret.
-            char_ids = []
-            def char_definition(label, size):
+            if not args.page_setup_only:
+                # Named character styles replace selected inline overrides and can
+                # remain as a named reference for future typing at a caret.
+                char_ids = []
+                def char_definition(label, size):
+                    def check(raw):
+                        group = ET.fromstring(raw).find(O+'styles')
+                        old_group = original_style_tree.find(O+'styles')
+                        assert [canonical(e) for e in list(group)[:len(old_group)]] == [canonical(e) for e in old_group]
+                        assert len(group) == len(old_group)+1
+                        named = [e for e in group if e.get(STYLE+'display-name') == label]
+                        assert len(named) == 1
+                        node = named[0]
+                        identifier = node.get(STYLE+'name')
+                        assert node.get(STYLE+'family') == 'text' and identifier.startswith('WordsCharacterNamed')
+                        if char_ids: assert char_ids[0] == identifier
+                        else: char_ids.append(identifier)
+                        assert node.get(STYLE+'parent-style-name') == 'Bold'
+                        props = node.find(STYLE+'text-properties')
+                        assert props.get(FO+'font-family') == 'Hack' and props.get(FO+'font-size') == str(size)+'pt'
+                        assert props.get(FO+'font-weight') == '400' and props.get(FO+'font-style') == 'italic'
+                        assert props.get(FO+'color') == '#165aa7' and props.get(FO+'background-color') == '#fff176'
+                        assert props.get(STYLE+'text-underline-style') == 'solid'
+                    return check
+                def open_character_styles():
+                    menu_action('Character styles…'); wait(lambda: data()['format_dialog']); time.sleep(.2)
+                    return panel_origin(680,480)
+                go(6); key('Right', ('Shift_L',), count=5)
+                x,y = open_character_styles(); click(x+65,y+390); time.sleep(.2)
+                x,y = panel_origin(650,340); field(x+300,y+65,'Temporary character')
+                click(x+575,y+305); time.sleep(.3)
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                assert save('character-style-staged-cancelled')[1] == original_xml
+                assert parts('character-style-staged-cancelled') == original_parts
+                x,y = open_character_styles(); click(x+65,y+390); time.sleep(.2)
+                x,y = panel_origin(650,340); field(x+300,y+65,'Emphasis')
+                click(x+250,y+155); time.sleep(.2)
+                x,y = panel_origin(560,390)
+                field(x+190,y+65,'Hack'); field(x+190,y+105,'18')
+                choice(x+190,y+145,1,current=2)  # inherited Bold: Yes -> No
+                choice(x+190,y+185,2,current=1)
+                field(x+190,y+225,'#165aa7'); field(x+190,y+265,'#fff176')
+                choice(x+460,y+145,2,current=1)
+                click(x+480,y+355); time.sleep(.3)
+                x,y = panel_origin(650,340); capture_window('character-style-editor')
+                click(x+575,y+305); time.sleep(.3)
+                x,y = panel_origin(680,480); click(x+605,y+445)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root, char_xml = save('character-style-created',char_definition('Emphasis',18))
+                char_parts = parts('character-style-created')
+                assert data()['text'] == original
+                assert root.find('.//'+TEXT+'p').get(TEXT+'style-name') == 'First'
+                assert len([e for e in root.iter() if e.get(XML+'id') == 'first']) == 1
+                assert any(e.get(TEXT+'style-name') == char_ids[0] and ''.join(e.itertext()) == 'Český' for e in root.iter(TEXT+'span'))
+                view_labels('character-style-layout')
+                key('z', ('Control_L',)); assert save('character-style-undone')[1] == original_xml
+                assert parts('character-style-undone') == original_parts
+                key('y', ('Control_L',)); assert save('character-style-redone',exact_styles(char_parts[1]))[1] == char_xml
+                assert parts('character-style-redone') == char_parts
+                x,y = open_character_styles(); key('Up',count=2); click(x+605,y+445)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root,_=save('character-style-cleared',exact_styles(char_parts[1]))
+                assert not any(e.get(TEXT+'style-name')==char_ids[0] for e in root.iter(TEXT+'span'))
+                assert any(e.get(TEXT+'style-name')=='Bold' and '日本語' in ''.join(e.itertext()) for e in root.iter(TEXT+'span'))
+                key('z', ('Control_L',)); assert save('character-style-cleared-undone',exact_styles(char_parts[1]))[1] == char_xml
+                # Definition-only edits retain body bytes and the stable style ID.
+                x,y = open_character_styles(); click(x+165,y+390); time.sleep(.2)
+                x,y = panel_origin(650,340); field(x+300,y+65,'Emphasis renamed')
+                click(x+250,y+155); time.sleep(.2)
+                x,y = panel_origin(560,390); field(x+190,y+105,'24'); click(x+480,y+355); time.sleep(.3)
+                x,y = panel_origin(650,340); click(x+575,y+305); time.sleep(.3)
+                x,y = panel_origin(680,480); click(x+30,y+430); click(x+605,y+445)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                _, char_edited_xml = save('character-style-edited',char_definition('Emphasis renamed',24))
+                char_edited = parts('character-style-edited')
+                assert char_edited_xml == char_xml and char_edited[1] != char_parts[1]
+                view_labels('character-style-edited-layout')
+                x,y = open_character_styles(); click(x+285,y+390); time.sleep(.3)
+                assert data()['format_dialog'] and not data()['modified']
+                capture_window('character-style-used-delete-rejected')
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                # At a caret, assignment changes future typing, with no source edit.
+                go(original.index('Section alpha')+3)
+                x,y = open_character_styles()
+                key('Down',count=2); time.sleep(.2)  # Default -> Bold -> Emphasis renamed
+                click(x+605,y+445); wait(lambda: not data()['format_dialog'])
+                assert data()['editing']['typing_format'] and not data()['modified']
+                key('x'); where=original.index('Section alpha')+3
+                check_text(original[:where]+'x'+original[where:],where+1)
+                root,_=save('character-style-typed',exact_styles(char_edited[1]))
+                assert any(e.get(TEXT+'style-name') == char_ids[0] and ''.join(e.itertext()) == 'x' for e in root.iter(TEXT+'span'))
+                key('z', ('Control_L',)); check_text(original)
+                assert save('character-style-typed-undone',exact_styles(char_edited[1]))[1] == char_xml
+                # Apply the same style to a hyperlink without splitting the link.
+                where=original.index('link'); go(where); key('Right', ('Shift_L',), count=4)
+                x,y=open_character_styles(); key('Down',count=2); click(x+605,y+445)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root,_=save('character-style-link',exact_styles(char_edited[1]))
+                links=root.findall('.//'+TEXT+'a'); assert len(links)==1 and links[0].get(XLINK+'href')=='https://example.invalid/document'
+                assert any(e.get(TEXT+'style-name') == char_ids[0] for e in links[0].iter(TEXT+'span'))
+                key('z', ('Control_L',)); assert save('character-style-link-undone',exact_styles(char_edited[1]))[1] == char_xml
+                key('z', ('Control_L',)); assert save('character-style-definition-undone',exact_styles(char_parts[1]))[1] == char_xml
+                assert parts('character-style-definition-undone') == char_parts
+                key('y', ('Control_L',)); assert save('character-style-definition-redone',exact_styles(char_edited[1]))[1] == char_xml
+                key('z', ('Control_L',)); key('z', ('Control_L',))
+                assert save('character-style-all-restored')[1] == original_xml
+                assert parts('character-style-all-restored') == original_parts
+                layout_report['named_character_styles']={'staged_cancel':True,'absolute_range_assignment':True,
+                    'one_step_zip_source_undo':True,'definition_only_body_retention':True,'named_caret_typing':True,'link_retention':True}
+                if args.character_styles_only:
+                    key('q', ('Control_L',)); assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_named_character_styles':True,
+                        'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
+                    print('PASS named character style UI, range/default handling, named typing, source/archive undo and links',flush=True)
+                    raise FormatComplete
+            # Page setup changes the active master layout as one archive-part
+            # transaction; it does not rewrite body text or paragraph styles.
+            def open_page_setup():
+                menu_action('Page setup…'); wait(lambda: data()['format_dialog']); time.sleep(.2)
+                return panel_origin(620,420)
+            def page_geometry_check(width, height, left, right, top, bottom, orientation):
                 def check(raw):
-                    group = ET.fromstring(raw).find(O+'styles')
-                    old_group = original_style_tree.find(O+'styles')
-                    assert [canonical(e) for e in list(group)[:len(old_group)]] == [canonical(e) for e in old_group]
-                    assert len(group) == len(old_group)+1
-                    named = [e for e in group if e.get(STYLE+'display-name') == label]
-                    assert len(named) == 1
-                    node = named[0]
-                    identifier = node.get(STYLE+'name')
-                    assert node.get(STYLE+'family') == 'text' and identifier.startswith('WordsCharacterNamed')
-                    if char_ids: assert char_ids[0] == identifier
-                    else: char_ids.append(identifier)
-                    assert node.get(STYLE+'parent-style-name') == 'Bold'
-                    props = node.find(STYLE+'text-properties')
-                    assert props.get(FO+'font-family') == 'Hack' and props.get(FO+'font-size') == str(size)+'pt'
-                    assert props.get(FO+'font-weight') == '400' and props.get(FO+'font-style') == 'italic'
-                    assert props.get(FO+'color') == '#165aa7' and props.get(FO+'background-color') == '#fff176'
-                    assert props.get(STYLE+'text-underline-style') == 'solid'
+                    tree=ET.fromstring(raw)
+                    for group in ('styles','master-styles'):
+                        assert canonical(tree.find(O+group)) == canonical(original_style_tree.find(O+group))
+                    layouts=tree.findall('.//'+STYLE+'page-layout')
+                    assert len(layouts)==1 and layouts[0].get(STYLE+'name')=='Page'
+                    props=layouts[0].find(STYLE+'page-layout-properties')
+                    expected={'page-width':width,'page-height':height,'margin-left':left,'margin-right':right,'margin-top':top,'margin-bottom':bottom}
+                    for attr,value in expected.items():
+                        raw_value=props.get(FO+attr)
+                        if raw_value is not None:
+                            unit=raw_value[-2:]; scale={'pt':1,'cm':72/2.54,'mm':72/25.4}[unit]
+                            assert abs(float(raw_value[:-2])*scale-value*72/25.4)<.00001,(attr,raw_value,value)
+                        else:
+                            raw_margin=props.get(FO+'margin'); assert attr.startswith('margin-') and raw_margin is not None
+                            scale={'pt':1,'cm':72/2.54,'mm':72/25.4}[raw_margin[-2:]]
+                            assert abs(float(raw_margin[:-2])*scale-value*72/25.4)<.00001
+                    if orientation is not None: assert props.get(STYLE+'print-orientation')==orientation
                 return check
-            def open_character_styles():
-                menu_action('Character styles…'); wait(lambda: data()['format_dialog']); time.sleep(.2)
-                return panel_origin(680,480)
             go(6); key('Right', ('Shift_L',), count=5)
-            x,y = open_character_styles(); click(x+65,y+390); time.sleep(.2)
-            x,y = panel_origin(650,340); field(x+300,y+65,'Temporary character')
-            click(x+575,y+305); time.sleep(.3)
-            key('Escape'); wait(lambda: not data()['format_dialog'])
-            assert save('character-style-staged-cancelled')[1] == original_xml
-            assert parts('character-style-staged-cancelled') == original_parts
-            x,y = open_character_styles(); click(x+65,y+390); time.sleep(.2)
-            x,y = panel_origin(650,340); field(x+300,y+65,'Emphasis')
-            click(x+250,y+155); time.sleep(.2)
-            x,y = panel_origin(560,390)
-            field(x+190,y+65,'Hack'); field(x+190,y+105,'18')
-            choice(x+190,y+145,1,current=2)  # inherited Bold: Yes -> No
-            choice(x+190,y+185,2,current=1)
-            field(x+190,y+225,'#165aa7'); field(x+190,y+265,'#fff176')
-            choice(x+460,y+145,2,current=1)
-            click(x+480,y+355); time.sleep(.3)
-            x,y = panel_origin(650,340); capture_window('character-style-editor')
-            click(x+575,y+305); time.sleep(.3)
-            x,y = panel_origin(680,480); click(x+605,y+445)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root, char_xml = save('character-style-created',char_definition('Emphasis',18))
-            char_parts = parts('character-style-created')
-            assert data()['text'] == original
-            assert root.find('.//'+TEXT+'p').get(TEXT+'style-name') == 'First'
-            assert len([e for e in root.iter() if e.get(XML+'id') == 'first']) == 1
-            assert any(e.get(TEXT+'style-name') == char_ids[0] and ''.join(e.itertext()) == 'Český' for e in root.iter(TEXT+'span'))
-            view_labels('character-style-layout')
-            key('z', ('Control_L',)); assert save('character-style-undone')[1] == original_xml
-            assert parts('character-style-undone') == original_parts
-            key('y', ('Control_L',)); assert save('character-style-redone',exact_styles(char_parts[1]))[1] == char_xml
-            assert parts('character-style-redone') == char_parts
-            x,y = open_character_styles(); key('Up',count=2); click(x+605,y+445)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root,_=save('character-style-cleared',exact_styles(char_parts[1]))
-            assert not any(e.get(TEXT+'style-name')==char_ids[0] for e in root.iter(TEXT+'span'))
-            assert any(e.get(TEXT+'style-name')=='Bold' and '日本語' in ''.join(e.itertext()) for e in root.iter(TEXT+'span'))
-            key('z', ('Control_L',)); assert save('character-style-cleared-undone',exact_styles(char_parts[1]))[1] == char_xml
-            # Definition-only edits retain body bytes and the stable style ID.
-            x,y = open_character_styles(); click(x+165,y+390); time.sleep(.2)
-            x,y = panel_origin(650,340); field(x+300,y+65,'Emphasis renamed')
-            click(x+250,y+155); time.sleep(.2)
-            x,y = panel_origin(560,390); field(x+190,y+105,'24'); click(x+480,y+355); time.sleep(.3)
-            x,y = panel_origin(650,340); click(x+575,y+305); time.sleep(.3)
-            x,y = panel_origin(680,480); click(x+30,y+430); click(x+605,y+445)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            _, char_edited_xml = save('character-style-edited',char_definition('Emphasis renamed',24))
-            char_edited = parts('character-style-edited')
-            assert char_edited_xml == char_xml and char_edited[1] != char_parts[1]
-            view_labels('character-style-edited-layout')
-            x,y = open_character_styles(); click(x+285,y+390); time.sleep(.3)
+            selected={'anchor':6,'cursor':11}
+            wait(lambda:all(data()['editing'][k]==value for k,value in selected.items()))
+            initial_revision=data()['editing']['revision']
+            x,y=open_page_setup(); click(x+545,y+385)
+            wait(lambda:not data()['format_dialog'])
+            assert not data()['modified'] and data()['editing']['revision']==initial_revision
+            assert save('page-setup-noop')[1]==original_xml and parts('page-setup-noop')==original_parts
+            x,y=open_page_setup(); field(x+210,y+195,'18')
+            key('Escape'); wait(lambda:not data()['format_dialog'])
+            assert save('page-setup-cancelled')[1]==original_xml and parts('page-setup-cancelled')==original_parts
+            x,y=open_page_setup(); choice(x+230,y+100,3,current=0)  # Custom -> Letter
+            choice(x+490,y+100,1,current=0)  # Portrait -> Landscape
+            field(x+210,y+195,'300'); field(x+490,y+195,'12')
+            field(x+210,y+240,'16'); field(x+490,y+240,'20')
+            click(x+545,y+385); time.sleep(.3)
+            assert data()['format_dialog'] and not data()['modified'] and data()['editing']['revision']==initial_revision
+            capture_window('page-setup-invalid-margins')
+            # The page's own margins fit, but the first paragraph's 5pt
+            # inset cannot fit a 1mm paper width. Native pagination must reject
+            # the candidate before the source/history transaction commits.
+            field(x+210,y+195,'0'); field(x+490,y+195,'0'); field(x+210,y+145,'1')
+            click(x+545,y+385); time.sleep(.3)
+            assert data()['format_dialog'] and not data()['modified'] and data()['editing']['revision']==initial_revision
+            capture_window('page-setup-unprintable-width')
+            field(x+210,y+195,'18'); field(x+490,y+195,'12'); field(x+210,y+145,'oops')
+            click(x+545,y+385); time.sleep(.3)
             assert data()['format_dialog'] and not data()['modified']
-            capture_window('character-style-used-delete-rejected')
-            key('Escape'); wait(lambda: not data()['format_dialog'])
-            # At a caret, assignment changes future typing, with no source edit.
-            go(original.index('Section alpha')+3)
-            x,y = open_character_styles()
-            key('Down',count=2); time.sleep(.2)  # Default -> Bold -> Emphasis renamed
-            click(x+605,y+445); wait(lambda: not data()['format_dialog'])
-            assert data()['editing']['typing_format'] and not data()['modified']
-            key('x'); where=original.index('Section alpha')+3
-            check_text(original[:where]+'x'+original[where:],where+1)
-            root,_=save('character-style-typed',exact_styles(char_edited[1]))
-            assert any(e.get(TEXT+'style-name') == char_ids[0] and ''.join(e.itertext()) == 'x' for e in root.iter(TEXT+'span'))
-            key('z', ('Control_L',)); check_text(original)
-            assert save('character-style-typed-undone',exact_styles(char_edited[1]))[1] == char_xml
-            # Apply the same style to a hyperlink without splitting the link.
-            where=original.index('link'); go(where); key('Right', ('Shift_L',), count=4)
-            x,y=open_character_styles(); key('Down',count=2); click(x+605,y+445)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root,_=save('character-style-link',exact_styles(char_edited[1]))
-            links=root.findall('.//'+TEXT+'a'); assert len(links)==1 and links[0].get(XLINK+'href')=='https://example.invalid/document'
-            assert any(e.get(TEXT+'style-name') == char_ids[0] for e in links[0].iter(TEXT+'span'))
-            key('z', ('Control_L',)); assert save('character-style-link-undone',exact_styles(char_edited[1]))[1] == char_xml
-            key('z', ('Control_L',)); assert save('character-style-definition-undone',exact_styles(char_parts[1]))[1] == char_xml
-            assert parts('character-style-definition-undone') == char_parts
-            key('y', ('Control_L',)); assert save('character-style-definition-redone',exact_styles(char_edited[1]))[1] == char_xml
-            key('z', ('Control_L',)); key('z', ('Control_L',))
-            assert save('character-style-all-restored')[1] == original_xml
-            assert parts('character-style-all-restored') == original_parts
-            layout_report['named_character_styles']={'staged_cancel':True,'absolute_range_assignment':True,
-                'one_step_zip_source_undo':True,'definition_only_body_retention':True,'named_caret_typing':True,'link_retention':True}
-            if args.character_styles_only:
+            field(x+210,y+145,'279.4'); capture_window('page-setup-dialog')
+            click(x+545,y+385); wait(lambda:not data()['format_dialog'] and data()['modified'])
+            _,landscape_xml=save('page-setup-letter-landscape',page_geometry_check(279.4,215.9,18,12,16,20,'landscape'))
+            landscape_parts=parts('page-setup-letter-landscape')
+            assert landscape_xml==original_xml and landscape_parts[1]!=original_parts[1]
+            assert {k:data()['editing'][k] for k in selected}==selected
+            paper=wait(lambda:data()['page_layout'].get('paper_styles'))[0]
+            for attr,value in [('width',279.4),('height',215.9),('left',18),('right',12),('top',16),('bottom',20)]:
+                assert abs(paper[attr]-value*72/25.4)<.00001,(attr,paper[attr])
+            view_labels('page-setup-landscape-layout')
+            key('z', ('Control_L',)); assert save('page-setup-landscape-undone')[1]==original_xml
+            assert parts('page-setup-landscape-undone')==original_parts
+            key('y', ('Control_L',)); assert save('page-setup-landscape-redone',exact_styles(landscape_parts[1]))[1]==original_xml
+            assert parts('page-setup-landscape-redone')==landscape_parts
+            key('z', ('Control_L',)); assert save('page-setup-landscape-restored')[1]==original_xml
+            # A margin-only change keeps untouched dimensions in their source
+            # cm units and does not invent a print-orientation attribute.
+            x,y=open_page_setup(); field(x+210,y+195,'25'); click(x+545,y+385)
+            wait(lambda:not data()['format_dialog'] and data()['modified'])
+            def margin_only(raw):
+                page_geometry_check(180,240,25,10,10,10,None)(raw)
+                props=ET.fromstring(raw).find('.//'+STYLE+'page-layout-properties')
+                assert props.get(FO+'page-width')=='18cm' and props.get(FO+'page-height')=='24cm'
+                assert props.get(FO+'margin')=='1cm' and props.get(STYLE+'print-orientation') is None
+            assert save('page-setup-margin-only',margin_only)[1]==original_xml
+            key('z', ('Control_L',)); assert save('page-setup-margin-restored')[1]==original_xml
+            x,y=open_page_setup(); choice(x+230,y+100,1,current=0); click(x+545,y+385)
+            wait(lambda:not data()['format_dialog'] and data()['modified'])
+            assert save('page-setup-a4-portrait',page_geometry_check(210,297,10,10,10,10,'portrait'))[1]==original_xml
+            view_labels('page-setup-a4-layout')
+            key('z', ('Control_L',)); assert save('page-setup-all-restored')[1]==original_xml
+            assert parts('page-setup-all-restored')==original_parts
+            layout_report['page_setup']={'no_op_cancel':True,'invalid_correction':True,'paper_orientation_margins':True,
+                'native_geometry':True,'failed_pagination_rejected':True,'body_retention':True,'one_step_exact_part_undo':True,'unchanged_unit_retention':True}
+            if args.page_setup_only:
                 key('q', ('Control_L',)); assert process.wait(timeout=15)==0
-                (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_named_character_styles':True,
+                (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_page_setup':True,
                     'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
-                print('PASS named character style UI, range/default handling, named typing, source/archive undo and links',flush=True)
+                print('PASS native Words page setup UI, presets/orientation, margins, source retention and exact archive-part undo',flush=True)
                 raise FormatComplete
             # FLTK removes the selection and inserts text in separate callbacks.
             # They must form one command, including on a failed replacement.
@@ -1906,6 +2003,7 @@ try:
                    'native_underline_strike_highlight': True,
                    'native_named_paragraph_styles': True,
                    'native_named_character_styles': True,
+                   'native_page_setup': not args.page_only,
                    'font_validation_and_inline_correction': True,
                    'select_all_clears_typing_format': True,
                    'native_page_click_scalar_position': True,
