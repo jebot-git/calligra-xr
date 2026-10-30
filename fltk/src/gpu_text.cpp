@@ -185,7 +185,9 @@ GpuTextCache::GpuTextCache() : impl_(std::make_unique<Impl>()) {}
 GpuTextCache::~GpuTextCache() = default;
 void GpuTextCache::draw(const ShapedText &text, const SceneTransform &transform,
                         SceneColor color, Fl_Gl_Window &window,
-                        std::optional<TextRect> clip) {
+                        std::optional<TextRect> clip, bool backgrounds) {
+  if (backgrounds)
+    draw_paints(text_backgrounds(text, clip), transform, window);
   impl_->draw(text, transform, color, window, clip);
 }
 void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,

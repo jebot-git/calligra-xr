@@ -21,7 +21,7 @@ OdfPackage fixture() {
   assert(p.xml.setContent(
       R"XML(<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.3"><office:automatic-styles>
 <style:style style:name="Bold" style:family="text"><style:text-properties fo:font-weight="700"/></style:style><style:style style:name="Bold" style:family="paragraph"><style:paragraph-properties fo:margin-left="9pt"/></style:style>
-<style:style style:name="Cell" style:family="table-cell"><style:text-properties fo:font-size="18pt" fo:font-style="italic"/></style:style>
+<style:style style:name="Cell" style:family="table-cell"><style:text-properties fo:font-size="18pt" fo:font-style="italic" fo:background-color="#ffeeaa"/></style:style>
 <style:style style:name="WordsText1" style:family="text"><style:text-properties fo:color="#223344"/></style:style>
 </office:automatic-styles><office:body><office:text>
 <text:p xml:id="first" text:style-name="Body">Alpha <text:span text:style-name="Bold">Český<text:a xlink:href="https://example.invalid/" xlink:type="simple"> 日本語</text:a></text:span> tail<text:s text:c="3"/><text:tab/>end<text:line-break/>soft</text:p>
@@ -75,6 +75,33 @@ int main(int argc, char **argv) {
          book.format_info(range).bold == true);
   auto mixed = book.format_info({0, end}).character;
   assert(!mixed.weight);
+  // Highlight is independent of ink; clears override inherited backgrounds.
+  WordsCharacterFormat highlight;
+  highlight.highlight = "#FFF176";
+  assert(book.format_characters(range, highlight));
+  assert(book.format_info(range).character.highlight == "#fff176");
+  assert(!book.format_info({0, end}).character.highlight);
+  auto highlight_xml = snapshot("highlight");
+  assert(book.undo() == range && snapshot("highlight-undone") == original_xml);
+  assert(book.redo() == range && snapshot("highlight-redone") == highlight_xml);
+  WordsCharacterFormat clear;
+  clear.highlight = "transparent";
+  assert(book.format_characters(range, clear));
+  assert(book.format_info(range).character.highlight == "transparent");
+  snapshot("highlight-cleared");
+  book.load(input);
+  highlight.highlight = "#00ffcc";
+  assert(!book.format_characters(point(2), highlight) &&
+         book.has_typing_format());
+  book.replace(2, 0, "世界");
+  assert(book.format_info({2, 4}).character.highlight == "#00ffcc");
+  snapshot("highlight-typed");
+  book.load(input);
+  rejects([&] {
+    highlight.highlight = "auto";
+    book.format_characters(range, highlight);
+  });
+  assert(!book.modified() && !book.can_undo());
   WordsCharacterFormat font;
   font.weight = 400;
   font.italic = true;
@@ -132,7 +159,12 @@ int main(int argc, char **argv) {
   // Query includes the cell's inherited style, not only its source paragraph.
   auto cell = at(book, "Left cell");
   auto cell_info = book.format_info({cell, cell + 9});
-  assert(cell_info.character.size == 18 && cell_info.character.italic == true);
+  assert(cell_info.character.size == 18 && cell_info.character.italic == true &&
+         cell_info.character.highlight == "#ffeeaa");
+  assert(book.format_characters({cell, cell + 9}, clear));
+  assert(book.format_info({cell, cell + 9}).character.highlight ==
+         "transparent");
+  snapshot("cell-highlight-cleared");
   WordsCharacterFormat cell_font;
   cell_font.weight = 700;
   assert(book.format_characters({cell, cell + 9}, cell_font));

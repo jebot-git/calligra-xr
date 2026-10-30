@@ -115,7 +115,11 @@ CUPS test queues.
   the same quote/comma parser as rendering; invalid or empty names cannot be
   committed. Select All ends a transient typing format.
   The edit buffer stays plain text; Pages and print output display formatting.
-  Underline/strike/highlight and named styles remain unfinished.
+  The Font dialog also sets character highlighting (`#RRGGBB`) or clears it
+  (`transparent`), preserving inherited styles, mixed selections and typing
+  formats. Native pages and PDF/CUPS share cluster background geometry, including
+  bidi, justified spaces and tab gaps; selection remains visible over highlights.
+  Underline/strike and named styles remain unfinished.
   Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical

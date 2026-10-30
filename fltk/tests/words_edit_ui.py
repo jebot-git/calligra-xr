@@ -41,6 +41,12 @@ XML = '{http://www.w3.org/XML/1998/namespace}'
 XLINK = '{http://www.w3.org/1999/xlink}'
 
 
+def color_count(picture, color):
+    pixels = picture.load()
+    return sum(pixels[x,y] == color for y in range(picture.height)
+               for x in range(picture.width))
+
+
 def produce(path, conditional=False):
     doc = OpenDocumentText()
     layout = PageLayout(name='Page')
@@ -456,24 +462,29 @@ try:
             assert data()['editing']['can_redo'] and not data()['modified']
             go(6); key('Right', ('Shift_L',), count=5)
             key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
-            x, y = panel_origin(560, 350)
+            x, y = panel_origin(560, 390)
             revision = data()['editing']['revision']
             for name in ("Hack'", '"Hack', ", '', "):
                 field(x+250, y+65, name)
-                click(x+480, y+315); time.sleep(.25)
+                click(x+480, y+355); time.sleep(.25)
                 assert data()['format_dialog'] and not data()['modified']
                 assert data()['editing']['can_redo'] and data()['editing']['revision'] == revision
             capture_window('invalid-family-dialog')
             field(x+250, y+65, "'Unavailable, Font', \"Hack\"")
             field(x+190, y+105, '0')
-            click(x+480, y+315); time.sleep(.25)
+            click(x+480, y+355); time.sleep(.25)
             assert data()['format_dialog'] and not data()['modified']
             field(x+190, y+105, '12')
             field(x+220, y+225, '#gggggg')
-            click(x+480, y+315); time.sleep(.25)
+            click(x+480, y+355); time.sleep(.25)
             assert data()['format_dialog'] and not data()['modified']
             field(x+220, y+225, '#102030')
-            click(x+480, y+315)
+            field(x+220, y+265, 'auto')
+            click(x+480, y+355); time.sleep(.25)
+            assert data()['format_dialog'] and not data()['modified']
+            assert data()['editing']['can_redo']
+            field(x+220, y+265, 'transparent')
+            click(x+480, y+355)
             wait(lambda: not data()['format_dialog'] and data()['modified'])
             root, _ = save('format-quoted-family')
             assert any(p is not None and p.get(FO+'font-family') == "'Unavailable, Font', \"Hack\""
@@ -484,7 +495,7 @@ try:
             go(2); key('b', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
             key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
             field(x+250, y+65, "Hack'")
-            click(x+480, y+315); time.sleep(.25)
+            click(x+480, y+355); time.sleep(.25)
             assert data()['format_dialog'] and not data()['modified']
             key('Escape'); wait(lambda: not data()['format_dialog'])
             assert data()['editing']['typing_format'] and not data()['modified']
@@ -531,28 +542,52 @@ try:
 
             key('d', ('Control_L',))
             wait(lambda: data()['format_dialog'])
-            x, y = panel_origin(560, 350)
+            x, y = panel_origin(560, 390)
             field(x+250, y+65, 'Hack')
             field(x+190, y+105, '22')
             click(x+220, y+145); key('Up'); key('Return')  # Bold: Yes -> No
             click(x+220, y+185); key('Down'); key('Return')  # Italic: No -> Yes
             field(x+220, y+225, '#b02040')
+            field(x+220, y+265, '#fff176')
             capture_window('character-dialog')
-            click(x+480, y+315)
+            click(x+480, y+355)
             wait(lambda: not data()['format_dialog'] and data()['modified'])
             root, font_xml = save('format-font')
             assert any(p is not None and p.get(FO+'font-size') == '22pt' and
                        p.get(FO+'font-family') == 'Hack' and p.get(FO+'color') == '#b02040' and
-                       p.get(FO+'font-weight') == '400' and p.get(FO+'font-style') == 'italic'
+                       p.get(FO+'font-weight') == '400' and p.get(FO+'font-style') == 'italic' and
+                       p.get(FO+'background-color') == '#fff176'
                        for p in text_properties(root).values())
             view_labels('character-formatted-layout')
+            menu_action('Page layout')
+            wait(lambda: data()['page_layout']['visible'])
+            key('Right'); time.sleep(.4)
+            unselected = capture_window('highlight-unselected')
+            yellow_before = color_count(unselected, (255,241,118))
+            assert yellow_before > 100, yellow_before
+            go(6); key('Right', ('Shift_L',), count=5); time.sleep(.4)
+            selected = capture_window('highlight-selected')
+            yellow_after = color_count(selected, (255,241,118))
+            assert yellow_after < yellow_before, (yellow_before, yellow_after)
+            layout_report['highlight'] = {'unselected_yellow_pixels': yellow_before,
+                                          'selected_yellow_pixels': yellow_after,
+                                          'selection_visible_over_highlight': True}
+            primary_view()
+            key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+            field(x+220, y+265, 'transparent')
+            click(x+480, y+355); wait(lambda: not data()['format_dialog'])
+            cleared, _ = save('format-highlight-cleared')
+            assert any(p is not None and p.get(FO+'background-color') == 'transparent'
+                       for p in text_properties(cleared).values())
+            key('z', ('Control_L',))
+            assert save('format-highlight-restored')[1] == font_xml
             # Cancel and unchanged Apply must not consume an undo entry or redo.
             menu_action('Font…'); wait(lambda: data()['format_dialog'])
             field(x+190, y+105, '30')
             key('Escape'); wait(lambda: not data()['format_dialog'])
             assert not data()['modified'] and save('format-font-cancelled')[1] == font_xml
             key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
-            click(x+480, y+315); wait(lambda: not data()['format_dialog'])
+            click(x+480, y+355); wait(lambda: not data()['format_dialog'])
             assert not data()['modified'] and save('format-font-unchanged')[1] == font_xml
             key('z', ('Control_L',))
             assert save('format-font-undone')[1] == original_xml

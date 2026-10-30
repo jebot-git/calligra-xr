@@ -5,7 +5,8 @@ namespace DomeOffice {
 // Missing fields leave source formatting unchanged (or indicate mixed values
 // in a selection query). Lengths are points; line spacing is a multiplier.
 struct WordsCharacterFormat {
-  std::optional<Text> family, color;
+  // A highlight of "transparent" explicitly clears an inherited background.
+  std::optional<Text> family, color, highlight;
   std::optional<double> size;
   std::optional<int> weight;
   std::optional<bool> italic;

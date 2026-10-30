@@ -30,6 +30,7 @@ struct ShapedCluster {
     double fraction = 0; // Position across this cluster's visual advance.
   };
   std::vector<Caret> carets; // Unicode grapheme boundaries in logical order.
+  std::optional<TextColor> background;
 };
 struct ShapedText {
   TextMetrics metrics;
@@ -42,6 +43,10 @@ struct ShapedText {
   // text/cluster mapping. Decorative repeated leaders intentionally omit it.
   std::shared_ptr<const Text> source;
 };
+// Baseline-relative character backgrounds; joins adjacent boxes of the same
+// color without changing glyph shaping or source/caret coordinates.
+std::vector<TextPaint> text_backgrounds(const ShapedText &,
+                                        std::optional<TextRect> clip = {});
 struct GlyphBitmap {
   int width = 0, height = 0, left = 0, top = 0;
   double pixels_per_em = 1;

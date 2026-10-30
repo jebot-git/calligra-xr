@@ -25,6 +25,7 @@ struct TextSpan {
   size_t begin = 0, end = 0;
   TextFont font;
   std::optional<TextColor> color;
+  std::optional<TextColor> background;
 };
 struct TextFontPatch {
   std::optional<Text> family, language;
@@ -83,7 +84,7 @@ struct TextListLabel {
   Text text, style;
   int level = 1;
   TextFont font;
-  std::optional<TextColor> color;
+  std::optional<TextColor> color, background;
   enum Alignment { Left, Right, Center, Start, End } alignment = Start;
   enum Follow { Tab, Space, Nothing } follow = Tab;
   bool alignment_mode = false, visible = true;
@@ -97,7 +98,7 @@ struct TextListLabel {
 struct TextParagraph {
   Text text, master;
   TextFont font;
-  std::optional<TextColor> color;
+  std::optional<TextColor> color, background;
   std::vector<TextSpan> spans;
   std::vector<TextTabStop> tabs;
   double default_tab = 72 * 1.25 / 2.54;

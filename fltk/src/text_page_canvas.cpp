@@ -186,6 +186,17 @@ void TextPageCanvas::draw() {
             continue;
           if (!line.shaped || !host)
             throw std::runtime_error("Native page glyph positions are missing");
+          SceneTransform transform{zoom,
+                                   0,
+                                   0,
+                                   zoom,
+                                   left + line.x * zoom,
+                                   top + line.baseline * zoom};
+          glyphs_->draw_paints(
+              text_backgrounds(
+                  *line.shaped,
+                  relative_text_clip(line.clip, line.x, line.baseline)),
+              transform, *host);
           if (editing() && selection) {
             auto range = selection();
             auto begin = std::min(range.anchor, range.cursor),
@@ -215,14 +226,9 @@ void TextPageCanvas::draw() {
                                    *host);
             }
           }
-          SceneTransform transform{zoom,
-                                   0,
-                                   0,
-                                   zoom,
-                                   left + line.x * zoom,
-                                   top + line.baseline * zoom};
           glyphs_->draw(*line.shaped, transform, {r, g, b}, *host,
-                        relative_text_clip(line.clip, line.x, line.baseline));
+                        relative_text_clip(line.clip, line.x, line.baseline),
+                        false);
           glyphs_->draw_tabs(
               line.tabs, transform, {r, g, b}, *host,
               relative_text_clip(line.clip, line.x, line.baseline));

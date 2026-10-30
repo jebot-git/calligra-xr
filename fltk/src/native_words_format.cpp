@@ -96,6 +96,8 @@ void overlay(Properties &p, const WordsCharacterFormat &f) {
   if (f.italic)
     scripts("fo:font-style", "style:font-style-asian",
             "style:font-style-complex", *f.italic ? "italic" : "normal");
+  if (f.highlight)
+    put(p, FO, "fo:background-color", f.highlight->toLower());
   if (f.color) {
     if (*f.color == "auto") {
       p.erase({FO, "fo:color"});
@@ -424,13 +426,15 @@ const char *alignment(TextParagraph::Alignment value) {
 }
 } // namespace
 bool WordsCharacterFormat::empty() const {
-  return !family && !color && !size && !weight && !italic;
+  return !family && !color && !highlight && !size && !weight && !italic;
 }
 void WordsCharacterFormat::overlay(const WordsCharacterFormat &f) {
   if (f.family)
     family = f.family;
   if (f.color)
     color = f.color;
+  if (f.highlight)
+    highlight = f.highlight;
   if (f.size)
     size = f.size;
   if (f.weight)
@@ -458,6 +462,10 @@ void validate_words_format(const WordsCharacterFormat &f) {
       !std::regex_match(f.color->toUtf8().toStdString(),
                         std::regex("#[0-9a-fA-F]{6}")))
     fail("Color must be #RRGGBB or auto");
+  if (f.highlight && *f.highlight != "transparent" &&
+      !std::regex_match(f.highlight->toUtf8().toStdString(),
+                        std::regex("#[0-9a-fA-F]{6}")))
+    fail("Highlight must be #RRGGBB or transparent");
 }
 void validate_words_format(const WordsParagraphFormat &f) {
   if (f.alignment &&
@@ -558,10 +566,14 @@ WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
       common(f.orphans, p.orphans, first_p);
       common(f.widows, p.widows, first_p);
       first_p = false;
-      auto add = [&](const TextFont &font, std::optional<TextColor> color) {
+      auto add = [&](const TextFont &font, std::optional<TextColor> color,
+                     std::optional<TextColor> background) {
         auto &c = result.character;
         common(c.family, font.family, first_c);
         common(c.color, color_text(color), first_c);
+        common(c.highlight,
+               background ? color_text(background) : Text("transparent"),
+               first_c);
         common(c.size, font.size, first_c);
         common(c.weight, font.weight, first_c);
         common(result.bold, font.weight >= 600, first_c);
@@ -569,13 +581,13 @@ WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
         first_c = false;
       };
       if (p.spans.empty())
-        add(p.font, p.color);
+        add(p.font, p.color, p.background);
       else
         for (auto &s : p.spans) {
           auto a = all[i].start + s.begin, b = all[i].start + s.end;
           if (begin == end ? (begin >= a && begin <= b)
                            : (a < end && b > begin)) {
-            add(s.font, s.color);
+            add(s.font, s.color, s.background);
             if (begin == end)
               break;
           }

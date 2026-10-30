@@ -137,7 +137,7 @@ void changed_boolean(Fl_Choice &choice, const std::optional<bool> &initial,
 std::optional<WordsCharacterFormat>
 character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
                         std::optional<bool> initial_bold) {
-  int width = 560, height = 350, x = std::max(0, (window.w() - width) / 2),
+  int width = 560, height = 390, x = std::max(0, (window.w() - width) / 2),
       y = std::max(0, (window.h() - height) / 2);
   auto previous = Fl_Group::current();
   window.begin();
@@ -150,6 +150,10 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
   Fl_Choice italic(x + 155, y + 170, 180, 30, "Italic:");
   Fl_Input color(x + 155, y + 210, 180, 30, "Color:");
   color.tooltip("#RRGGBB or auto");
+  Fl_Input highlight(x + 155, y + 250, 180, 30, "Highlight:");
+  highlight.tooltip("#RRGGBB or transparent to clear highlighting");
+  if (initial.highlight)
+    highlight.value(initial.highlight->toUtf8().c_str());
   if (initial.family)
     family.value(initial.family->toUtf8().c_str());
   number(size, initial.size);
@@ -168,6 +172,10 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
         result.family = name;
       if (!ink.empty() && (!initial.color || ink != *initial.color))
         result.color = ink;
+      auto background = Text(highlight.value()).trimmed();
+      if (!background.empty() &&
+          (!initial.highlight || background != *initial.highlight))
+        result.highlight = background;
       changed_number(size, initial.size, result.size);
       if (bold.value() &&
           (!initial_bold || *initial_bold != (bold.value() == 2)))

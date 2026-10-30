@@ -167,6 +167,73 @@ int main(int argc, char **argv) {
   for (const auto &g : mixed.glyphs)
     order.push_back(g.begin);
   assert((order == std::vector<size_t>{0, 1, 2, 3, 8, 9, 10, 7, 6, 5, 4}));
+  // Character backgrounds follow visual pen advances through bidi, ligatures,
+  // wrapping, tabs and justification, without including adjacent clear text.
+  const TextColor yellow{255, 241, 118};
+  TextParagraph highlighted;
+  highlighted.text = "office affine tail";
+  highlighted.font = latin;
+  highlighted.background = yellow;
+  auto highlighted_shape = engine.prepare(highlighted).whole();
+  auto boxes = text_backgrounds(highlighted_shape);
+  assert(boxes.size() == 1 && boxes[0].color == yellow);
+  assert(std::abs(boxes[0].rect.width - highlighted_shape.metrics.width) <
+         1e-7);
+  highlighted.text = "office אבג tail";
+  highlighted.spans = {{0, 7, latin, {}, yellow},
+                       {7, 10, latin, {}, {}},
+                       {10, highlighted.text.size(), latin, {}, yellow}};
+  auto separated = engine.prepare(highlighted).whole();
+  boxes = text_backgrounds(separated);
+  assert(!boxes.empty());
+  double covered_width = 0, expected_width = 0;
+  for (const auto &box : boxes)
+    covered_width += box.rect.width;
+  for (const auto &cluster : separated.clusters) {
+    const bool highlighted = cluster.begin < 7 || cluster.begin >= 10;
+    assert(bool(cluster.background) == highlighted);
+    if (highlighted)
+      expected_width += cluster.metrics.width;
+    double middle = cluster.x + cluster.metrics.width / 2;
+    bool covered =
+        std::any_of(boxes.begin(), boxes.end(), [&](const auto &box) {
+          return box.rect.x < middle && middle < box.rect.x + box.rect.width;
+        });
+    assert(covered == highlighted);
+  }
+  assert(std::abs(covered_width - expected_width) < 1e-7);
+  auto wrapped_highlight = engine.prepare(highlighted).line(0, 6);
+  assert(text_backgrounds(*wrapped_highlight).size() == 1);
+  TextFlow highlighted_flow;
+  highlighted.text = "one two three four five six seven eight nine ten";
+  highlighted.spans.clear();
+  highlighted.alignment = TextParagraph::Justify;
+  highlighted_flow.paragraphs.push_back(highlighted);
+  TextPageStyle highlight_page;
+  highlight_page.width = 180;
+  highlight_page.left = highlight_page.right = 20;
+  highlighted_flow.masters[{}] = highlight_page;
+  auto justified_highlight = paginate_text(highlighted_flow, engine);
+  const auto &justified_first = justified_highlight.pages[0].lines[0];
+  boxes = text_backgrounds(*justified_first.shaped);
+  assert(std::abs(justified_first.width - 140) < 1e-7);
+  // Visible width omits trailing source spaces; their original advances still
+  // belong to the highlighted source and must be included in the paint.
+  assert(boxes.size() == 1 &&
+         std::abs(boxes[0].rect.width - justified_first.shaped->metrics.width) <
+             1e-7);
+  assert(boxes[0].rect.width >= justified_first.width - 1e-7);
+  highlighted_flow.paragraphs[0].text = "left\tright";
+  highlighted_flow.paragraphs[0].alignment = TextParagraph::Start;
+  auto tab_highlight = paginate_text(highlighted_flow, engine);
+  for (const auto &page : tab_highlight.pages)
+    for (const auto &line : page.lines) {
+      boxes = text_backgrounds(*line.shaped);
+      assert(boxes.size() == 1);
+      assert(std::abs(boxes[0].rect.width - line.width) < 1e-7);
+      for (const auto &cluster : line.shaped->clusters)
+        assert(cluster.background == yellow);
+    }
   auto fallback = engine.shape(Text::fromUtf8("Latin 日本語"), font("Liberation Mono"));
   coverage(fallback, 9);
   assert(!fallback.missing_glyphs);

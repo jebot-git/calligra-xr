@@ -281,19 +281,20 @@ struct ShapingParagraph::Impl {
     TextFont font;
     UScriptCode script;
     std::shared_ptr<NativeTypeface> face;
-    std::optional<TextColor> color;
+    std::optional<TextColor> color, background;
   };
   std::vector<Segment> segments;
   ShapedText whole;
   Impl(std::shared_ptr<NativeTextShaper::Impl> e, const TextParagraph &p)
       : engine(std::move(e)), paragraph(p) {
     if (p.text.size() > 1'000'000 || !valid_font(p.font) ||
-        !valid_color(p.color))
+        !valid_color(p.color) || !valid_color(p.background))
       fail("Invalid native shaping paragraph");
     size_t end = 0;
     for (const auto &s : p.spans) {
       if (s.begin != end || s.end <= s.begin || s.end > p.text.size() ||
-          !valid_font(s.font) || !valid_color(s.color))
+          !valid_font(s.font) || !valid_color(s.color) ||
+          !valid_color(s.background))
         fail("Invalid native shaping span");
       end = s.end;
     }
@@ -341,7 +342,7 @@ struct ShapingParagraph::Impl {
       size_t begin, end;
       TextFont font;
       UScriptCode script;
-      std::optional<TextColor> color;
+      std::optional<TextColor> color, background;
     };
     std::vector<Atom> atoms;
     int32_t start = ubrk_first(iter.get());
@@ -354,6 +355,8 @@ struct ShapingParagraph::Impl {
         ++span;
       TextFont font = p.spans.empty() ? p.font : p.spans[span].font;
       auto color = p.spans.empty() ? p.color : p.spans[span].color;
+      auto background =
+          p.spans.empty() ? p.background : p.spans[span].background;
       UScriptCode script = USCRIPT_COMMON;
       for (size_t i = a; i < b; ++i) {
         auto candidate = uscript_getScript(scalars[i], &status);
@@ -362,7 +365,7 @@ struct ShapingParagraph::Impl {
           break;
         }
       }
-      atoms.push_back({a, b, font, script, color});
+      atoms.push_back({a, b, font, script, color, background});
     }
     UScriptCode previous = USCRIPT_COMMON;
     for (auto &a : atoms) {
@@ -411,6 +414,7 @@ struct ShapingParagraph::Impl {
             segments.back().face == face &&
             segments.back().font == atoms[i].font &&
             segments.back().color == atoms[i].color &&
+            segments.back().background == atoms[i].background &&
             segments.back().script == atoms[i].script &&
             !hard(scalars[atoms[i].begin]) &&
             !hard(scalars[segments.back().begin]) &&
@@ -419,7 +423,8 @@ struct ShapingParagraph::Impl {
           segments.back().end = atoms[i].end;
         else
           segments.push_back({atoms[i].begin, atoms[i].end, atoms[i].font,
-                              atoms[i].script, face, atoms[i].color});
+                              atoms[i].script, face, atoms[i].color,
+                              atoms[i].background});
       }
       first = last;
     }
@@ -526,7 +531,8 @@ struct ShapingParagraph::Impl {
                          {0, ascent, descent},
                          output->metrics.width,
                          rtl,
-                         {{lo, rtl ? 1. : 0.}, {hi, rtl ? 0. : 1.}}};
+                         {{lo, rtl ? 1. : 0.}, {hi, rtl ? 0. : 1.}},
+                         segment->background};
           continue; // Position-dependent tab expansion belongs to native
                     // layout.
         }
@@ -570,6 +576,7 @@ struct ShapingParagraph::Impl {
           if (output->glyphs.size() > 4'000'000)
             fail("Native shaping glyph limit exceeded");
           auto &cluster = logical[source];
+          cluster.background = segment->background;
           cluster.begin = source;
           cluster.end = *next;
           cluster.metrics.width += advance;
@@ -578,6 +585,7 @@ struct ShapingParagraph::Impl {
         }
         for (auto &[source, range] : glyph_ranges) {
           auto &cluster = logical[source];
+          cluster.background = segment->background;
           auto first =
               std::lower_bound(graphemes.begin(), graphemes.end(), source);
           auto last = std::upper_bound(first, graphemes.end(), cluster.end);
@@ -634,6 +642,38 @@ struct ShapingParagraph::Impl {
     return output;
   }
 };
+std::vector<TextPaint> text_backgrounds(const ShapedText &text,
+                                        std::optional<TextRect> clip) {
+  std::vector<TextPaint> paints;
+  for (const auto &cluster : text.clusters) {
+    if (!cluster.background || cluster.background->alpha <= 0 ||
+        cluster.metrics.width <= 0)
+      continue;
+    paints.push_back(
+        {{cluster.x, -cluster.metrics.ascent, cluster.metrics.width,
+          cluster.metrics.ascent + cluster.metrics.descent},
+         *cluster.background,
+         TextPaint::Fill,
+         false,
+         clip});
+  }
+  // Logical clusters may run in either direction; merge in visual order.
+  std::sort(paints.begin(), paints.end(),
+            [](const auto &a, const auto &b) { return a.rect.x < b.rect.x; });
+  size_t count = 0;
+  for (const auto &paint : paints) {
+    if (count && paints[count - 1].color == paint.color &&
+        paints[count - 1].rect.y == paint.rect.y &&
+        paints[count - 1].rect.height == paint.rect.height &&
+        std::abs(paints[count - 1].rect.x + paints[count - 1].rect.width -
+                 paint.rect.x) < 1e-7)
+      paints[count - 1].rect.width += paint.rect.width;
+    else
+      paints[count++] = paint;
+  }
+  paints.resize(count);
+  return paints;
+}
 NativeTextShaper::NativeTextShaper(const Text &family, int pixels)
     : impl_(std::make_shared<Impl>(family, pixels)) {}
 ShapingParagraph NativeTextShaper::prepare(const TextParagraph &p) const {

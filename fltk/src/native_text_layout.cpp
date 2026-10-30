@@ -306,9 +306,15 @@ struct Reader {
     }
   }
   void character(TextFont &f, std::optional<TextColor> &color,
+                 std::optional<TextColor> &background,
                  const XmlElement &style) {
     font(f, style);
     auto p = child(style, STYLE, "text-properties");
+    if (p.hasAttributeNS(FO, "background-color"))
+      background = p.attributeNS(FO, "background-color") == "transparent"
+                       ? std::nullopt
+                       : std::optional(
+                             text_color(p.attributeNS(FO, "background-color")));
     if (p.hasAttributeNS(FO, "color"))
       color = text_color(p.attributeNS(FO, "color"));
     if (p.attributeNS(STYLE, "use-window-font-color") == "true")
@@ -453,7 +459,7 @@ struct Reader {
     }
   }
   void properties(TextParagraph &p, const XmlElement &style) {
-    character(p.font, p.color, style);
+    character(p.font, p.color, p.background, style);
     tab_properties(p, style);
     if (style.hasAttributeNS(STYLE, "master-page-name"))
       p.master = style.attributeNS(STYLE, "master-page-name");
@@ -562,7 +568,7 @@ struct Reader {
   }
   void inlines(TextParagraph &paragraph, const XmlElement &parent,
                TextFont current, std::optional<TextColor> color,
-               int depth = 0) {
+               std::optional<TextColor> background, int depth = 0) {
     if (depth > 256)
       fail("Excessive inline text depth");
     for (auto n = parent.firstChild(); !n.isNull(); n = n.nextSibling()) {
@@ -577,11 +583,12 @@ struct Reader {
         if (!text.empty()) {
           if (!paragraph.spans.empty() &&
               paragraph.spans.back().font == current &&
-              paragraph.spans.back().color == color)
+              paragraph.spans.back().color == color &&
+              paragraph.spans.back().background == background)
             paragraph.spans.back().end = paragraph.text.size();
           else
             paragraph.spans.push_back(
-                {begin, paragraph.text.size(), current, color});
+                {begin, paragraph.text.size(), current, color, background});
         }
       };
       if (n.isText() || n.isCDATASection())
@@ -593,9 +600,12 @@ struct Reader {
              e.localName() == "meta")) {
           auto next = current;
           auto next_color = color;
+          auto next_background = background;
           chain(true, e.attributeNS(TEXT, "style-name"),
-                [&](const XmlElement &s) { character(next, next_color, s); });
-          inlines(paragraph, e, next, next_color, depth + 1);
+                [&](const XmlElement &s) {
+                  character(next, next_color, next_background, s);
+                });
+          inlines(paragraph, e, next, next_color, next_background, depth + 1);
         } else if (e.namespaceURI() == TEXT && e.localName() == "s") {
           bool ok;
           int count = e.attributeNS(TEXT, "c", "1").toInt(&ok);
@@ -611,7 +621,7 @@ struct Reader {
                      "soft-page-break") { /* Reflow from styles and metrics. */
         } else {
           note(flow.unsupported, "Inline fields, notes and anchored objects");
-          inlines(paragraph, e, current, color, depth + 1);
+          inlines(paragraph, e, current, color, background, depth + 1);
         }
       }
     }
@@ -823,13 +833,17 @@ struct Reader {
     label.visible = item.first && !item.header;
     label.font = p.spans.empty() ? p.font : p.spans.front().font;
     label.color = p.spans.empty() ? p.color : p.spans.front().color;
+    label.background =
+        p.spans.empty() ? p.background : p.spans.front().background;
     bool source = !level.node.isNull() && !styles_root.isNull() &&
                   level.node.ownerDocument().documentElement() == styles_root;
     chain(
         true, level.character_style,
-        [&](const XmlElement &s) { character(label.font, label.color, s); },
+        [&](const XmlElement &s) {
+          character(label.font, label.color, label.background, s);
+        },
         source);
-    character(label.font, label.color, level.node);
+    character(label.font, label.color, label.background, level.node);
     if (level.kind == ListLevel::Bullet) {
       if (level.relative_size == 0)
         label.visible = false;
@@ -918,7 +932,7 @@ struct Reader {
                                bool in_table) {
     TextParagraph p;
     p.color = TextColor{};
-    character(p.font, p.color, text_default);
+    character(p.font, p.color, p.background, text_default);
     std::vector<XmlElement> applied;
     auto apply = [&](const XmlElement &s) {
       properties(p, s);
@@ -928,6 +942,7 @@ struct Reader {
     if (frame_base) {
       p.font = frame_base->font;
       p.color = frame_base->color;
+      p.background = frame_base->background;
     }
     for (const auto &style : cell_context)
       apply(style);
@@ -942,7 +957,7 @@ struct Reader {
         apply(*it);
     for (auto it = explicit_styles.rbegin(); it != explicit_styles.rend(); ++it)
       apply(*it);
-    inlines(p, e, p.font, p.color);
+    inlines(p, e, p.font, p.color, p.background);
     if (item)
       decorate_list(p, *item, applied);
     // ODF 19.501 ignores paragraph master assignments inside tables. Resolve
@@ -1288,7 +1303,7 @@ struct Cluster {
   TextFont font;
   TextMetrics metrics;
   bool allowed = false, hard = false;
-  std::optional<TextColor> color;
+  std::optional<TextColor> color, background;
 };
 void check_metrics(const TextMetrics &metrics) {
   if (!std::isfinite(metrics.width) || !std::isfinite(metrics.ascent) ||
@@ -1353,6 +1368,7 @@ struct Breaks {
             ++span;
           pending.font = p.spans.empty() ? p.font : p.spans[span].font;
           pending.color = p.spans.empty() ? p.color : p.spans[span].color;
+          pending.background = cluster.background;
         }
         pending.end = cluster.end;
         pending.metrics.width += cluster.metrics.width;
@@ -1389,9 +1405,11 @@ struct Breaks {
       check_metrics(metrics);
       if (hard || value == "\t")
         metrics.width = 0;
-      result.push_back({begin, end, font, metrics,
-                        std::binary_search(legal.begin(), legal.end(), end),
-                        hard, p.spans.empty() ? p.color : p.spans[span].color});
+      result.push_back(
+          {begin, end, font, metrics,
+           std::binary_search(legal.begin(), legal.end(), end), hard,
+           p.spans.empty() ? p.color : p.spans[span].color,
+           p.spans.empty() ? p.background : p.spans[span].background});
     }
     return result;
   }
@@ -1565,7 +1583,8 @@ struct TabFormatter {
                {advance, c->metrics.ascent, c->metrics.descent},
                tab.x1,
                rtl,
-               {{c->begin, rtl ? 1. : 0.}, {c->end, rtl ? 0. : 1.}}});
+               {{c->begin, rtl ? 1. : 0.}, {c->end, rtl ? 0. : 1.}},
+               c->background});
           out.shape->metrics.ascent =
               std::max(out.shape->metrics.ascent, c->metrics.ascent);
           out.shape->metrics.descent =
@@ -1625,6 +1644,7 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
         marker.text = label.text;
         marker.font = label.font;
         marker.color = label.color;
+        marker.background = label.background;
         marker.direction = rtl ? TextParagraph::RTL : TextParagraph::LTR;
         label_shape = shaper->prepare(marker).line(0, marker.text.size());
         label_metrics = label_shape->metrics;
@@ -2276,12 +2296,14 @@ static void check_paragraph(const TextParagraph &p) {
     tab.leader_font.apply(p.font);
     previous_tab = tab.position;
   }
-  if (!font_valid(p.font) || !color_valid(p.color))
+  if (!font_valid(p.font) || !color_valid(p.color) ||
+      !color_valid(p.background))
     fail("Invalid paragraph text style");
   if (p.list) {
     const auto &label = *p.list;
     if (!font_valid(label.font) || !color_valid(label.color) ||
-        label.text.size() > 4096 || label.level < 1 || label.level > 64)
+        !color_valid(label.background) || label.text.size() > 4096 ||
+        label.level < 1 || label.level > 64)
       fail("Invalid list label style");
     for (double value : {label.space_before, label.min_width,
                          label.min_distance, label.indent, label.default_tab})
@@ -2309,7 +2331,7 @@ static void check_paragraph(const TextParagraph &p) {
   for (const auto &span : p.spans) {
     if (span.begin != end || span.end <= span.begin ||
         span.end > p.text.size() || !font_valid(span.font) ||
-        !color_valid(span.color))
+        !color_valid(span.color) || !color_valid(span.background))
       fail("Invalid inline text span");
     end = span.end;
   }

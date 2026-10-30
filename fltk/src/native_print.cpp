@@ -161,6 +161,12 @@ public:
     cairo_surface_destroy(surface);
   }
   void glyphs(const ShapedText &text, TextColor fallback = {}) {
+    for (const auto &paint : text_backgrounds(text)) {
+      color(cr_, paint.color);
+      cairo_rectangle(cr_, paint.rect.x, paint.rect.y, paint.rect.width,
+                      paint.rect.height);
+      cairo_fill(cr_);
+    }
     result.missing_glyphs += text.missing_glyphs;
     std::set<std::pair<size_t, size_t>> drawn;
     for (size_t at = 0; at < text.glyphs.size(); ++at) {

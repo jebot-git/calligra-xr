@@ -9,7 +9,8 @@ public:
   GpuTextCache();
   ~GpuTextCache();
   void draw(const ShapedText &, const SceneTransform &, SceneColor,
-            Fl_Gl_Window &, std::optional<TextRect> clip = {});
+            Fl_Gl_Window &, std::optional<TextRect> clip = {},
+            bool backgrounds = true);
   void draw_tabs(const std::vector<TextTabPlacement> &, const SceneTransform &,
                  SceneColor, Fl_Gl_Window &, std::optional<TextRect> clip = {});
   void draw_paints(const std::vector<TextPaint> &, const SceneTransform &,

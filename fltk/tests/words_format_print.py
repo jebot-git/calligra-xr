@@ -17,13 +17,19 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from odf.opendocument import OpenDocumentText
-from odf.style import Style, TextProperties
-from odf.text import P, Span, LineBreak
+from odf.style import Style, TextProperties, ParagraphProperties
+from odf.text import P, Span, LineBreak, Tab
 from PIL import Image
 from pypdf import PdfReader
 
 from cups_runtime import PrivateCups
 from print_producer import ROOT, verify
+
+
+def color_count(picture, color):
+    pixels = picture.load()
+    return sum(pixels[x,y] == color for y in range(picture.height)
+               for x in range(picture.width))
 
 
 def render(pdf, prefix):
@@ -64,6 +70,37 @@ def unicode_source(path):
         archive.writestr('Extras/opaque.bin', b'\0keep\xff')
 
 
+def highlight_source(path):
+    # Independent ODF producer: common/inherited/automatic styles, explicit
+    # transparency, bidi, ligatures, tabs, soft breaks and justified wrapping.
+    doc = OpenDocumentText()
+    body = Style(name='HighlightBody', family='paragraph')
+    body.addElement(TextProperties(fontfamily='DejaVu Sans', fontsize='16pt',
+                                   backgroundcolor='#fff176'))
+    doc.styles.addElement(body)
+    clear = Style(name='Clear', family='text')
+    clear.addElement(TextProperties(backgroundcolor='transparent'))
+    doc.styles.addElement(clear)
+    green = Style(name='Green', family='text', parentstylename=clear)
+    green.addElement(TextProperties(backgroundcolor='#80ffb0'))
+    doc.automaticstyles.addElement(green)
+    p = P(stylename=body, text='Highlighted office affine ')
+    p.addElement(Span(stylename=clear, text='clear gap '))
+    p.addElement(Span(stylename=green, text='green'))
+    doc.text.addElement(p)
+    p = P(stylename=body, text='left'); p.addElement(Tab()); p.addText('right')
+    p.addElement(LineBreak()); p.addText('After soft break')
+    doc.text.addElement(p)
+    doc.text.addElement(P(stylename=body, text='אבג 123 日本語'))
+    justified = Style(name='HighlightJustify', family='paragraph', parentstylename=body)
+    justified.addElement(ParagraphProperties(textalign='justify'))
+    doc.styles.addElement(justified)
+    doc.text.addElement(P(stylename=justified, text='Wrapped highlighted words '*12))
+    doc.save(str(path))
+    with zipfile.ZipFile(path, 'a') as archive:
+        archive.writestr('Extras/opaque.bin', b'\0keep\xff')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ui-artifacts', type=Path, required=True)
@@ -96,9 +133,12 @@ def main():
             if navigation.is_file():
                 cases.append(('table-navigation', navigation))
         cases.append(('unicode-source', art / 'unicode-source.odt'))
+        cases.append(('highlight-source', art / 'highlight-source.odt'))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
+            if name == 'highlight-source':
+                highlight_source(source)
             if name == 'soft-lines':
                 source = art / 'soft-lines-source.odt'
                 soft_lines(source, 24)
@@ -124,6 +164,14 @@ def main():
                 for expected in ('BEFORE TABLE', 'xNEXT LEFT', 'RIGHT2', 'NESTED LEFT',
                                  'NESTED RIGHT2', 'MERGED1', 'AFTER MERGE', 'AFTER TABLE'):
                     assert expected in text, (expected, text)
+            elif name == 'highlight-source':
+                # pypdf ignores Cairo ActualText for the ffi ligatures; Poppler
+                # must extract the original source rather than glyph aliases.
+                extracted = subprocess.check_output(['pdftotext', str(output), '-'], text=True)
+                assert 'Highlighted office affine clear gap green' in extracted, repr(extracted)
+                (art / 'highlight-extracted.txt').write_text(extracted)
+                (art / 'highlight-pypdf-extracted.txt').write_text(text)
+                assert 'left' in text and 'right' in text and 'After soft break' in text
             elif name == 'unicode-source':
                 extracted = subprocess.check_output(['pdftotext', str(output), '-'], text=True)
                 for expected in ('office affine', 'NFD a\u0301', 'NFC á', 'CJK 日本語', 'Radical ⽇本語'):
@@ -156,6 +204,23 @@ def main():
                 assert len(red) > 100
                 height = max(y for _, y in red) - min(y for _, y in red) + 1
                 assert 20 <= height < 80, height
+                assert color_count(picture, (255, 241, 118)) > 250
+            if name == 'highlight-source':
+                picture = Image.open(pages[0]).convert('RGB')
+                assert color_count(picture, (255, 241, 118)) > 15000
+                assert color_count(picture, (128, 255, 176)) > 300
+                bbox = art / 'highlight-bounds.html'
+                subprocess.run(['pdftotext', '-bbox', str(output), str(bbox)], check=True)
+                xml = ET.fromstring(bbox.read_text())
+                ns = '{http://www.w3.org/1999/xhtml}'
+                gap = next(w for w in xml.iter(ns+'word') if w.text == 'clear')
+                scale = 100/72
+                crop = picture.crop((round(float(gap.get('xMin'))*scale),
+                                     round(float(gap.get('yMin'))*scale),
+                                     round(float(gap.get('xMax'))*scale),
+                                     round(float(gap.get('yMax'))*scale)))
+                assert color_count(crop, (255,255,255)) > 50
+                assert color_count(crop, (255,241,118)) == 0
             if name == 'quoted-family':
                 faces = subprocess.check_output(['pdffonts', str(output)], text=True)
                 assert 'Hack-Bold' in faces, faces
