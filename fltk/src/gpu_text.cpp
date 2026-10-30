@@ -4,6 +4,7 @@
 #endif
 #include "gpu_text.h"
 #include "gpu_clip.h"
+#include "native_tabs.h"
 #include "suite/fltk_appearance.h"
 #include <FL/Fl_Gl_Window.H>
 #include <FL/fl_draw.H>
@@ -189,6 +190,7 @@ void GpuTextCache::draw(const ShapedText &text, const SceneTransform &transform,
   if (backgrounds)
     draw_paints(text_backgrounds(text, clip), transform, window);
   impl_->draw(text, transform, color, window, clip);
+  draw_tabs(text_decoration_lines(text), transform, color, window, clip);
 }
 void GpuTextCache::draw_tabs(const std::vector<TextTabPlacement> &tabs,
                              const SceneTransform &transform,

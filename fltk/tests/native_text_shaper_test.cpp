@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_shaper.h"
 #include "native_font_family.h"
+#include "native_tabs.h"
 #include "text_documents.h"
 #include <cassert>
 #include <iostream>
@@ -78,6 +79,38 @@ int main(int argc, char **argv) {
   }
   const std::string config = getenv("FONTCONFIG_FILE") ? getenv("FONTCONFIG_FILE") : "";
   NativeTextShaper engine;
+  if (argc == 3 && Text::fromUtf8(argv[1]) == "--layout") {
+    OdfPackage package(Kind::Words);
+    package.load(Text::fromUtf8(argv[2]));
+    auto pages = paginate_text(read_text_flow(package), engine);
+    nlohmann::json data = nlohmann::json::array();
+    for (const auto &page : pages.pages) {
+      nlohmann::json lines = nlohmann::json::array();
+      for (const auto &line : page.lines) {
+        assert(line.shaped);
+        nlohmann::json glyphs = nlohmann::json::array(),
+                       clusters = nlohmann::json::array();
+        for (const auto &glyph : line.shaped->glyphs)
+          glyphs.push_back({glyph.face->file, glyph.face->index, glyph.glyph,
+                            glyph.begin, glyph.end, glyph.x, glyph.y,
+                            glyph.advance, glyph.size});
+        for (const auto &cluster : line.shaped->clusters) {
+          nlohmann::json carets = nlohmann::json::array();
+          for (const auto &caret : cluster.carets)
+            carets.push_back({caret.offset, caret.fraction});
+          clusters.push_back({cluster.begin, cluster.end, cluster.x,
+                              cluster.metrics.width, cluster.metrics.ascent,
+                              cluster.metrics.descent, cluster.rtl, carets});
+        }
+        lines.push_back({line.paragraph, line.begin, line.end, line.x, line.y,
+                         line.width, line.height, line.baseline, glyphs,
+                         clusters});
+      }
+      data.push_back({page.style.width, page.style.height, lines});
+    }
+    std::cout << data.dump() << '\n';
+    return 0;
+  }
   if (argc == 4 && Text::fromUtf8(argv[1]) == "--dump") {
     auto result = engine.shape(Text::fromUtf8(argv[3]), font(Text::fromUtf8(argv[2])));
     nlohmann::json data = {
@@ -234,6 +267,81 @@ int main(int argc, char **argv) {
       for (const auto &cluster : line.shaped->clusters)
         assert(cluster.background == yellow);
     }
+  // A paint boundary inside ffi keeps the original ligature and uses its
+  // GDEF/grapheme caret positions for the affected source scalars only.
+  TextDecorations effects;
+  effects.underline.style = TextDecoration::Solid;
+  TextParagraph decorated;
+  decorated.text = "office";
+  decorated.font = latin;
+  decorated.spans = {
+      {0, 2, latin}, {2, 3, latin, {}, {}, effects}, {3, 6, latin}};
+  auto partial = engine.prepare(decorated).whole();
+  assert(partial.glyphs.size() == ligatures.glyphs.size());
+  assert(partial.metrics.width == ligatures.metrics.width);
+  for (size_t i = 0; i < partial.glyphs.size(); ++i) {
+    assert(partial.glyphs[i].glyph == ligatures.glyphs[i].glyph);
+    assert(partial.glyphs[i].x == ligatures.glyphs[i].x);
+  }
+  auto decorated_lines = text_decoration_lines(partial);
+  assert(decorated_lines.size() == 1 && decorated_lines[0].strokes.size() == 1);
+  const auto &ffi_cluster = partial.clusters[1];
+  const auto &stroke = decorated_lines[0].strokes[0];
+  assert(stroke.y1 > 0 && stroke.width > 0);
+  assert(std::abs(stroke.x1 - (ffi_cluster.x + ffi_cluster.carets[1].fraction *
+                                                   ffi_cluster.metrics.width)) <
+         1e-7);
+  assert(std::abs(stroke.x2 - (ffi_cluster.x + ffi_cluster.carets[2].fraction *
+                                                   ffi_cluster.metrics.width)) <
+         1e-7);
+  // Whitespace mode follows scalar source, including position-dependent tabs.
+  decorated.spans.clear();
+  decorated.text = "ab cd";
+  decorated.decorations = effects;
+  decorated.decorations.underline.skip_space = true;
+  auto words_only = engine.prepare(decorated).whole();
+  decorated_lines = text_decoration_lines(words_only);
+  assert(decorated_lines.size() == 2);
+  for (const auto &line : decorated_lines)
+    for (const auto &stroke : line.strokes)
+      for (const auto &cluster : words_only.clusters)
+        if (cluster.begin == 2) {
+          auto center = cluster.x + cluster.metrics.width / 2;
+          assert(center < stroke.x1 || center > stroke.x2);
+        }
+  for (auto style :
+       {TextDecoration::Solid, TextDecoration::Dotted, TextDecoration::Dash,
+        TextDecoration::LongDash, TextDecoration::DotDash,
+        TextDecoration::DotDotDash, TextDecoration::Wave}) {
+    decorated.decorations.underline.style = style;
+    decorated.decorations.underline.double_line = true;
+    decorated.decorations.strike = decorated.decorations.underline;
+    auto shape = engine.prepare(decorated).whole();
+    decorated_lines = text_decoration_lines(shape);
+    assert(decorated_lines.size() == 4);
+    bool under = false, strike = false;
+    for (const auto &line : decorated_lines) {
+      assert(line.strokes.size() >= 2);
+      for (const auto &stroke : line.strokes) {
+        assert(stroke.x1 >= 0 && stroke.x2 <= shape.metrics.width + 1e-7);
+        under = under || stroke.y1 > 0;
+        strike = strike || stroke.y1 < 0;
+      }
+    }
+    assert(under && strike);
+  }
+  auto undecorated_flow = highlighted_flow;
+  auto decorated_flow = highlighted_flow;
+  decorated_flow.paragraphs[0].decorations = effects;
+  auto plain_pages = paginate_text(undecorated_flow, engine);
+  auto decorated_pages = paginate_text(decorated_flow, engine);
+  const auto &plain_tab = plain_pages.pages[0].lines[0];
+  const auto &decorated_tab = decorated_pages.pages[0].lines[0];
+  assert(plain_tab.width == decorated_tab.width);
+  auto tab_strokes = text_decoration_lines(*decorated_tab.shaped);
+  assert(tab_strokes.size() == 1 && tab_strokes[0].strokes.size() == 1);
+  assert(std::abs(tab_strokes[0].strokes[0].x2 -
+                  decorated_tab.shaped->metrics.width) < 1e-7);
   auto fallback = engine.shape(Text::fromUtf8("Latin 日本語"), font("Liberation Mono"));
   coverage(fallback, 9);
   assert(!fallback.missing_glyphs);

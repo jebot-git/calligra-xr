@@ -119,7 +119,13 @@ CUPS test queues.
   (`transparent`), preserving inherited styles, mixed selections and typing
   formats. Native pages and PDF/CUPS share cluster background geometry, including
   bidi, justified spaces and tab gaps; selection remains visible over highlights.
-  Underline/strike and named styles remain unfinished.
+  Ctrl+U toggles underline; the Character menu and Font dialog also toggle
+  strikethrough. Imported solid, dotted, dashed and wavy lines retain their
+  colors, widths, double lines and whitespace mode. Font metrics position the
+  effects; source ranges use ligature carets without changing glyph advances.
+  PDF/CUPS and native GPU pages share the same strokes. Text replacement
+  strikethrough currently uses the ODF line-style fallback. Named styles remain
+  unfinished.
   Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical

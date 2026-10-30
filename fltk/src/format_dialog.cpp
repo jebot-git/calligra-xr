@@ -124,8 +124,9 @@ void changed_integer(Fl_Input &input, const std::optional<int> &initial,
   if (!initial || parsed != *initial)
     output = parsed;
 }
-void boolean(Fl_Choice &choice, const std::optional<bool> &initial) {
-  choice.add("Mixed or unchanged|No|Yes");
+void boolean(Fl_Choice &choice, const std::optional<bool> &initial,
+             bool compact = false) {
+  choice.add(compact ? "Unchanged|No|Yes" : "Mixed or unchanged|No|Yes");
   choice.value(initial ? (*initial ? 2 : 1) : 0);
 }
 void changed_boolean(Fl_Choice &choice, const std::optional<bool> &initial,
@@ -148,6 +149,8 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
   Fl_Input size(x + 155, y + 90, 100, 30, "Size (pt):");
   Fl_Choice bold(x + 155, y + 130, 180, 30, "Bold:");
   Fl_Choice italic(x + 155, y + 170, 180, 30, "Italic:");
+  Fl_Choice underline(x + 430, y + 130, 110, 30, "Underline:");
+  Fl_Choice strike(x + 430, y + 170, 110, 30, "Strike:");
   Fl_Input color(x + 155, y + 210, 180, 30, "Color:");
   color.tooltip("#RRGGBB or auto");
   Fl_Input highlight(x + 155, y + 250, 180, 30, "Highlight:");
@@ -159,6 +162,8 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
   number(size, initial.size);
   boolean(bold, initial_bold);
   boolean(italic, initial.italic);
+  boolean(underline, initial.underline, true);
+  boolean(strike, initial.strike, true);
   if (initial.color)
     color.value(initial.color->toUtf8().c_str());
   Buttons buttons(panel, x + width - 225, y + height - 50);
@@ -181,6 +186,8 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
           (!initial_bold || *initial_bold != (bold.value() == 2)))
         result.weight = bold.value() == 2 ? 700 : 400;
       changed_boolean(italic, initial.italic, result.italic);
+      changed_boolean(underline, initial.underline, result.underline);
+      changed_boolean(strike, initial.strike, result.strike);
       validate_words_format(result);
       return result;
     } catch (const std::exception &e) {

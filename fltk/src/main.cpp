@@ -82,6 +82,8 @@ enum Command {
     ParagraphFormat,
     Bold,
     Italic,
+    Underline,
+    Strikethrough,
     AlignLeft,
     AlignCenter,
     AlignRight,
@@ -359,6 +361,8 @@ public:
             add("&Format/Character/&Font…", FL_CTRL + 'd', CharacterFormat);
             add("&Format/Character/&Bold", FL_CTRL + 'b', Bold);
             add("&Format/Character/&Italic", FL_CTRL + 'i', Italic);
+            add("&Format/Character/&Underline", FL_CTRL + 'u', Underline);
+            add("&Format/Character/&Strikethrough", 0, Strikethrough);
             add("&Format/&Paragraph…", 0, ParagraphFormat);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
             add("&Format/Alignment/&Center", FL_CTRL + 'e', AlignCenter);
@@ -529,10 +533,11 @@ public:
                     if (event == FL_PUSH || (event == FL_KEYDOWN && (key == FL_Left || key == FL_Right || key == FL_Up || key == FL_Down || key == FL_Home || key == FL_End || key == FL_Page_Up || key == FL_Page_Down)))
                         words->clear_typing_format();
                 };
-                for (int key : { 'b', 'i', 'd', 'l', 'e', 'r', 'j' }) {
+                for (int key : { 'b', 'i', 'u', 'd', 'l', 'e', 'r', 'j' }) {
                     editor->add_key_binding(key, FL_CTRL, [](int key, Fl_Text_Editor* widget) -> int {
                         auto* office = static_cast<Office*>(widget->user_data());
                         office->command(key == 'b' ? Bold : key == 'i' ? Italic
+                                : key == 'u'                           ? Underline
                                 : key == 'd'                           ? CharacterFormat
                                 : key == 'l'                           ? AlignLeft
                                 : key == 'e'                           ? AlignCenter
@@ -863,6 +868,10 @@ public:
             character.weight = info.bold.value_or(false) ? 400 : 700;
         else if (action == Italic)
             character.italic = !info.character.italic.value_or(false);
+        else if (action == Underline)
+            character.underline = !info.character.underline.value_or(false);
+        else if (action == Strikethrough)
+            character.strike = !info.character.strike.value_or(false);
         else if (action >= AlignLeft && action <= AlignJustify)
             paragraph.alignment = action == AlignLeft ? "left" : action == AlignCenter ? "center"
                 : action == AlignRight                                                 ? "right"

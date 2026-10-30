@@ -20,6 +20,20 @@ struct ShapedGlyph {
   double x = 0, y = 0, advance = 0, size = 12;
   std::optional<TextColor> color;
 };
+struct ShapedDecoration {
+  TextDecoration format;
+  double position = 0, width = 0;
+  std::optional<TextColor> color;
+  bool operator==(const ShapedDecoration &) const = default;
+};
+struct ShapedDecorations {
+  ShapedDecoration underline, strike;
+  bool operator==(const ShapedDecorations &) const = default;
+};
+struct ShapedDecorationSpan {
+  size_t begin = 0, end = 0;
+  ShapedDecorations paint;
+};
 struct ShapedCluster {
   size_t begin = 0, end = 0;
   TextMetrics metrics;
@@ -42,6 +56,9 @@ struct ShapedText {
   // Original scalar source shared by all wrapped lines, also used for PDF
   // text/cluster mapping. Decorative repeated leaders intentionally omit it.
   std::shared_ptr<const Text> source;
+  // Scalar source intervals, shared across wrapping and tab field assembly.
+  // Paint boundaries do not split ligatures or change advances.
+  std::shared_ptr<const std::vector<ShapedDecorationSpan>> decorations;
 };
 // Baseline-relative character backgrounds; joins adjacent boxes of the same
 // color without changing glyph shaping or source/caret coordinates.

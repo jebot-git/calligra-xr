@@ -5,6 +5,7 @@
 #include <ft2build.h>
 #include FT_FREETYPE_H
 #include FT_MULTIPLE_MASTERS_H
+#include FT_TRUETYPE_TABLES_H
 #include <atomic>
 #include <cmath>
 #include <hb-ft.h>
@@ -265,6 +266,47 @@ struct NativeTextShaper::Impl {
     return true;
   }
 };
+namespace {
+ShapedDecorations resolve_decorations(const TextDecorations &format,
+                                      const TextFont &font,
+                                      const NativeTypeface &face,
+                                      std::optional<TextColor> color) {
+  if (format.underline.style == TextDecoration::None &&
+      format.strike.style == TextDecoration::None)
+    return {};
+  ShapedDecorations result;
+  auto ft = face.implementation->shaping;
+  const double unit = ft->units_per_EM ? font.size / ft->units_per_EM : 0;
+  double under = ft->underline_position && unit ? -ft->underline_position * unit
+                                                : font.size * .1;
+  double under_width = ft->underline_thickness > 0 && unit
+                           ? ft->underline_thickness * unit
+                           : font.size / 18;
+  double strike = -font.size * .3, strike_width = under_width;
+  if (auto table = static_cast<TT_OS2 *>(FT_Get_Sfnt_Table(ft, FT_SFNT_OS2));
+      table && table->version != 0xffff && unit) {
+    if (table->yStrikeoutPosition)
+      strike = -table->yStrikeoutPosition * unit;
+    if (table->yStrikeoutSize > 0)
+      strike_width = table->yStrikeoutSize * unit;
+  }
+  auto resolve = [&](ShapedDecoration &line, const TextDecoration &spec,
+                     double position, double automatic) {
+    line.format = spec;
+    line.position = position;
+    line.width = spec.width_unit == TextDecoration::Points ? spec.width
+                 : spec.width_unit == TextDecoration::FontSize
+                     ? spec.width * font.size
+                     : spec.width * automatic;
+    line.color = spec.color ? spec.color : color;
+    if (!std::isfinite(line.width) || line.width <= 0 || line.width > 1000)
+      fail("Native decoration thickness exceeds the limit");
+  };
+  resolve(result.underline, format.underline, under, under_width);
+  resolve(result.strike, format.strike, strike, strike_width);
+  return result;
+}
+} // namespace
 struct ShapingParagraph::Impl {
   std::shared_ptr<NativeTextShaper::Impl> engine;
   TextParagraph paragraph;
@@ -285,16 +327,18 @@ struct ShapingParagraph::Impl {
   };
   std::vector<Segment> segments;
   ShapedText whole;
+  std::shared_ptr<const std::vector<ShapedDecorationSpan>> decoration_spans;
   Impl(std::shared_ptr<NativeTextShaper::Impl> e, const TextParagraph &p)
       : engine(std::move(e)), paragraph(p) {
     if (p.text.size() > 1'000'000 || !valid_font(p.font) ||
-        !valid_color(p.color) || !valid_color(p.background))
+        !valid_color(p.color) || !valid_color(p.background) ||
+        !p.decorations.valid())
       fail("Invalid native shaping paragraph");
     size_t end = 0;
     for (const auto &s : p.spans) {
       if (s.begin != end || s.end <= s.begin || s.end > p.text.size() ||
           !valid_font(s.font) || !valid_color(s.color) ||
-          !valid_color(s.background))
+          !valid_color(s.background) || !s.decorations.valid())
         fail("Invalid native shaping span");
       end = s.end;
     }
@@ -343,6 +387,7 @@ struct ShapingParagraph::Impl {
       TextFont font;
       UScriptCode script;
       std::optional<TextColor> color, background;
+      const TextDecorations *decorations;
     };
     std::vector<Atom> atoms;
     int32_t start = ubrk_first(iter.get());
@@ -357,6 +402,9 @@ struct ShapingParagraph::Impl {
       auto color = p.spans.empty() ? p.color : p.spans[span].color;
       auto background =
           p.spans.empty() ? p.background : p.spans[span].background;
+      const auto *decorations = paragraph.spans.empty()
+                                    ? &paragraph.decorations
+                                    : &paragraph.spans[span].decorations;
       UScriptCode script = USCRIPT_COMMON;
       for (size_t i = a; i < b; ++i) {
         auto candidate = uscript_getScript(scalars[i], &status);
@@ -365,7 +413,7 @@ struct ShapingParagraph::Impl {
           break;
         }
       }
-      atoms.push_back({a, b, font, script, color, background});
+      atoms.push_back({a, b, font, script, color, background, decorations});
     }
     UScriptCode previous = USCRIPT_COMMON;
     for (auto &a : atoms) {
@@ -389,6 +437,11 @@ struct ShapingParagraph::Impl {
       else
         previous = it->script;
     }
+    auto paints = std::make_shared<std::vector<ShapedDecorationSpan>>();
+    const TextDecorations *last_format = nullptr;
+    const NativeTypeface *last_face = nullptr;
+    double last_size = 0;
+    std::optional<TextColor> last_color;
     for (size_t first = 0; first < atoms.size();) {
       size_t last = first + 1;
       while (last < atoms.size() && atoms[last].font == atoms[first].font &&
@@ -410,6 +463,24 @@ struct ShapingParagraph::Impl {
         auto text = p.text.mid(atoms[i].begin, atoms[i].end - atoms[i].begin);
         if (!NativeTextShaper::Impl::covers(*face, text))
           face = engine->match(atoms[i].font, text, true);
+        const auto &format = *atoms[i].decorations;
+        if (format.underline.style != TextDecoration::None ||
+            format.strike.style != TextDecoration::None) {
+          if (!paints->empty() && paints->back().end == atoms[i].begin &&
+              last_format && *last_format == format &&
+              last_face == face.get() && last_size == atoms[i].font.size &&
+              last_color == atoms[i].color)
+            paints->back().end = atoms[i].end;
+          else {
+            paints->push_back({atoms[i].begin, atoms[i].end,
+                               resolve_decorations(format, atoms[i].font, *face,
+                                                   atoms[i].color)});
+            last_format = &format;
+            last_face = face.get();
+            last_size = atoms[i].font.size;
+            last_color = atoms[i].color;
+          }
+        }
         if (!segments.empty() && segments.back().end == atoms[i].begin &&
             segments.back().face == face &&
             segments.back().font == atoms[i].font &&
@@ -430,6 +501,9 @@ struct ShapingParagraph::Impl {
     }
     source = std::make_shared<const Text>(std::move(paragraph.text));
     whole.source = source;
+    if (!paints->empty())
+      decoration_spans = std::move(paints);
+    whole.decorations = decoration_spans;
     // Shape separately at explicit line/paragraph boundaries.
     size_t begin = 0;
     for (size_t i = 0; i <= scalars.size(); ++i)
@@ -465,6 +539,7 @@ struct ShapingParagraph::Impl {
       fail("Invalid native shaping line extent");
     auto output = std::make_shared<ShapedText>();
     output->source = source;
+    output->decorations = decoration_spans;
     output->rtl = ubidi_getParaLevel(bidi.get()) & 1;
     output->empty_offset = begin;
     if (begin == end) {

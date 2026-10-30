@@ -19,6 +19,7 @@ import zipfile
 from odf.opendocument import OpenDocumentText
 from odf.style import Style, TextProperties, ParagraphProperties
 from odf.text import P, Span, LineBreak, Tab
+from odf.table import Table, TableRow, TableCell, TableColumn
 from PIL import Image
 from pypdf import PdfReader
 
@@ -101,6 +102,60 @@ def highlight_source(path):
         archive.writestr('Extras/opaque.bin', b'\0keep\xff')
 
 
+def decoration_source(path, enabled=True):
+    doc = OpenDocumentText()
+    body = Style(name='DecorationBody', family='paragraph')
+    body.addElement(TextProperties(fontfamily='Noto Sans', fontsize='16pt'))
+    doc.styles.addElement(body)
+    clear = Style(name='DecorationClear', family='text')
+    clear.addElement(TextProperties(textunderlinestyle='none', textlinethroughstyle='none'))
+    doc.styles.addElement(clear)
+    for i, pattern in enumerate(('solid', 'dotted', 'dash', 'long-dash', 'dot-dash', 'dot-dot-dash', 'wave')):
+        style = Style(name='Decoration'+str(i), family='paragraph', parentstylename=body)
+        props = TextProperties(textunderlinestyle=pattern if enabled else 'none',
+                               textlinethroughstyle=pattern if enabled else 'none',
+                               textunderlinecolor='#0066cc', textlinethroughcolor='#c04020',
+                               textunderlinemode='skip-white-space' if i%2 else 'continuous',
+                               textlinethroughmode='skip-white-space' if i%2 else 'continuous',
+                               textunderlinewidth=('auto', 'thin', 'bold', '2pt', '5%', 'medium', 'thick')[i])
+        if enabled:
+            props.setAttribute('textunderlinetype', 'double' if i%2 else 'single')
+            props.setAttribute('textlinethroughtype', 'double' if i%2 else 'single')
+        style.addElement(props); doc.styles.addElement(style)
+        paragraph = P(stylename=style, text=pattern+' office affine ')
+        paragraph.addElement(Tab()); paragraph.addText('after tab ')
+        paragraph.addElement(Span(stylename=clear, text='clear gap'))
+        doc.text.addElement(paragraph)
+    partial = Style(name='PartialLigature', family='text')
+    partial.addElement(TextProperties(textunderlinestyle='solid' if enabled else 'none',
+                                     textunderlinecolor='#0066cc'))
+    doc.styles.addElement(partial)
+    paragraph = P(stylename=body, text='Partial of')
+    paragraph.addElement(Span(stylename=partial, text='f')); paragraph.addText('ice affine')
+    doc.text.addElement(paragraph)
+    justified = Style(name='DecorationJustify', family='paragraph', parentstylename='Decoration6')
+    justified.addElement(ParagraphProperties(textalign='justify'))
+    doc.styles.addElement(justified)
+    doc.text.addElement(P(stylename=justified, text='Justified decorated words '*9))
+    rtl = Style(name='DecorationRTL', family='paragraph', parentstylename='Decoration0')
+    rtl.addElement(ParagraphProperties(writingmode='rl-tb'))
+    doc.styles.addElement(rtl)
+    doc.text.addElement(P(stylename=rtl, text='אבג 123 office 日本語'))
+    cell_style = Style(name='DecorationCell', family='table-cell')
+    cell_style.addElement(TextProperties(textunderlinestyle='dotted' if enabled else 'none',
+                                        textunderlinecolor='#0066cc'))
+    doc.styles.addElement(cell_style)
+    table = Table(name='DecoratedCells'); table.addElement(TableColumn(numbercolumnsrepeated=2))
+    row = TableRow()
+    for label in ('Inherited cell', 'Other cell'):
+        cell = TableCell(stylename=cell_style, valuetype='string')
+        cell.addElement(P(stylename=body, text=label)); row.addElement(cell)
+    table.addElement(row); doc.text.addElement(table)
+    doc.save(str(path))
+    with zipfile.ZipFile(path, 'a') as archive:
+        archive.writestr('Extras/opaque.bin', b'\0keep\xff')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ui-artifacts', type=Path, required=True)
@@ -108,6 +163,8 @@ def main():
                         help='Also print native page editing and optional IME snapshots')
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'build-native/fltk')
+    parser.add_argument('--test-bin-dir', type=Path,
+                        help='Native geometry test binary directory (defaults to --bin-dir)')
     args = parser.parse_args()
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
@@ -134,11 +191,14 @@ def main():
                 cases.append(('table-navigation', navigation))
         cases.append(('unicode-source', art / 'unicode-source.odt'))
         cases.append(('highlight-source', art / 'highlight-source.odt'))
+        cases.append(('decoration-source', art / 'decoration-source.odt'))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
             if name == 'highlight-source':
                 highlight_source(source)
+            if name == 'decoration-source':
+                decoration_source(source)
             if name == 'soft-lines':
                 source = art / 'soft-lines-source.odt'
                 soft_lines(source, 24)
@@ -164,6 +224,10 @@ def main():
                 for expected in ('BEFORE TABLE', 'xNEXT LEFT', 'RIGHT2', 'NESTED LEFT',
                                  'NESTED RIGHT2', 'MERGED1', 'AFTER MERGE', 'AFTER TABLE'):
                     assert expected in text, (expected, text)
+            elif name == 'decoration-source':
+                extracted = subprocess.check_output(['pdftotext', str(output), '-'], text=True)
+                assert 'office affine' in extracted and 'Partial office affine' in extracted
+                assert 'Inherited cell' in extracted and 'clear gap' in extracted
             elif name == 'highlight-source':
                 # pypdf ignores Cairo ActualText for the ffi ligatures; Poppler
                 # must extract the original source rather than glyph aliases.
@@ -221,6 +285,51 @@ def main():
                                      round(float(gap.get('yMax'))*scale)))
                 assert color_count(crop, (255,255,255)) > 50
                 assert color_count(crop, (255,241,118)) == 0
+            if name == 'decoration-source':
+                picture = Image.open(pages[0]).convert('RGB')
+                assert color_count(picture, (0,102,204)) > 100
+                assert color_count(picture, (192,64,32)) > 100
+                control_source = art / 'decoration-control.odt'
+                control_pdf = art / 'decoration-control.pdf'
+                decoration_source(control_source, enabled=False)
+                subprocess.run([str(binary), str(control_source), '--print-pdf', str(control_pdf)],
+                               env=env, capture_output=True, check=True)
+                control_pages = render(control_pdf, art / 'decoration-control-page')
+                assert len(control_pages) == len(pages)
+                control_picture = Image.open(control_pages[0]).convert('RGB')
+                assert color_count(control_picture, (0,102,204)) == 0
+                assert color_count(control_picture, (192,64,32)) == 0
+                # Line effects, including a boundary inside ffi, never change
+                # source words, font layout, pagination, glyph positions or tabs.
+                def words(pdf, name):
+                    bbox = art / (name+'-bounds.html')
+                    subprocess.run(['pdftotext', '-bbox', str(pdf), str(bbox)], check=True)
+                    root = ET.fromstring(bbox.read_text())
+                    return [(w.text, dict(w.attrib)) for w in root.iter('{http://www.w3.org/1999/xhtml}word')]
+                helper = (args.test_bin_dir or args.bin_dir).resolve() / 'calligra-native-text-shaper-test'
+                assert helper.is_file(), 'Use --test-bin-dir for the mandatory native geometry gate'
+                geometry = []
+                for label, package in [('styled', source), ('plain', control_source)]:
+                    result = subprocess.check_output([str(helper), '--layout', str(package)], env=env, text=True)
+                    (art / ('decoration-'+label+'-layout.json')).write_text(result)
+                    geometry.append(json.loads(result))
+                assert geometry[0] == geometry[1], 'Line effects changed native glyph/caret geometry'
+                styled_words, plain_words = words(output, 'decoration'), words(control_pdf, 'decoration-control')
+                assert len(styled_words) == len(plain_words)
+                max_delta = 0
+                for (a, bounds_a), (b, bounds_b) in zip(styled_words, plain_words):
+                    assert a == b
+                    for axis in ('xMin', 'yMin', 'xMax', 'yMax'):
+                        delta = abs(float(bounds_a[axis]) - float(bounds_b[axis]))
+                        max_delta = max(max_delta, delta)
+                        # Cairo emits relative or absolute PDF text matrices
+                        # depending on intervening paths. Allow decimal stream
+                        # rounding only; native geometry above remains exact.
+                        assert delta < .001, (a, axis, delta)
+                (art / 'decoration-layout-comparison.json').write_text(json.dumps({
+                    'native_glyph_caret_layout_exact': True, 'words': len(styled_words),
+                    'pdf_serialization_tolerance_points': .001,
+                    'max_pdf_word_box_delta_points': max_delta}, indent=2)+'\n')
             if name == 'quoted-family':
                 faces = subprocess.check_output(['pdffonts', str(output)], text=True)
                 assert 'Hack-Bold' in faces, faces

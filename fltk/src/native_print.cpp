@@ -4,6 +4,7 @@
 #include "native_path.h"
 #include "native_table_layout.h"
 #include "native_text_shaper.h"
+#include "native_tabs.h"
 #include <cairo-ft.h>
 #include <cairo-pdf.h>
 #include <gio/gio.h>
@@ -254,6 +255,15 @@ public:
         cairo_scale(cr_, unit, unit);
         cairo_mask_surface(cr_, mask, 0, 0);
         cairo_surface_destroy(mask);
+      }
+    }
+    for (const auto &line : text_decoration_lines(text)) {
+      color(cr_, line.color.value_or(fallback));
+      for (const auto &stroke : line.strokes) {
+        cairo_set_line_width(cr_, stroke.width);
+        cairo_move_to(cr_, stroke.x1, stroke.y1);
+        cairo_line_to(cr_, stroke.x2, stroke.y2);
+        cairo_stroke(cr_);
       }
     }
   }

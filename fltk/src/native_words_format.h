@@ -9,7 +9,7 @@ struct WordsCharacterFormat {
   std::optional<Text> family, color, highlight;
   std::optional<double> size;
   std::optional<int> weight;
-  std::optional<bool> italic;
+  std::optional<bool> italic, underline, strike;
   bool empty() const;
   void overlay(const WordsCharacterFormat &);
   bool operator==(const WordsCharacterFormat &) const = default;

@@ -164,8 +164,11 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.format_only and (args.page_only or args.ime):
+    parser.error('--format-only is incompatible with --page-only/--ime')
 if args.ime and not args.wayland:
     parser.error('--ime requires --wayland')
 if not os.environ.get('WORDS_EDIT_BUS'):
@@ -176,6 +179,10 @@ art = args.artifacts.resolve()
 art.mkdir(parents=True, exist_ok=True)
 processes, logs = [], []
 xd = None
+
+
+class FormatComplete(Exception):
+    pass
 
 
 def start(command, env, name, **kwargs):
@@ -540,6 +547,22 @@ try:
             key('z', ('Control_L',))
             assert save('format-italic-undone')[1] == original_xml
 
+            for field_name, action in [('text-underline', lambda: key('u', ('Control_L',))),
+                                       ('text-line-through', lambda: menu_action('Strikethrough'))]:
+                action(); wait(lambda: data()['modified'])
+                root, line_xml = save('format-'+field_name)
+                assert any(p is not None and p.get(STYLE+field_name+'-style') == 'solid' and
+                           p.get(STYLE+field_name+'-type') == 'single'
+                           for p in text_properties(root).values())
+                view_labels(field_name+'-layout')
+                action(); wait(lambda: data()['modified'])
+                root, _ = save('format-'+field_name+'-off')
+                assert any(p is not None and p.get(STYLE+field_name+'-style') == 'none' and
+                           p.get(STYLE+field_name+'-type') is None
+                           for p in text_properties(root).values())
+                key('z', ('Control_L',)); assert save('format-'+field_name+'-restored')[1] == line_xml
+                key('z', ('Control_L',)); assert save('format-'+field_name+'-undone')[1] == original_xml
+
             key('d', ('Control_L',))
             wait(lambda: data()['format_dialog'])
             x, y = panel_origin(560, 390)
@@ -547,6 +570,8 @@ try:
             field(x+190, y+105, '22')
             click(x+220, y+145); key('Up'); key('Return')  # Bold: Yes -> No
             click(x+220, y+185); key('Down'); key('Return')  # Italic: No -> Yes
+            click(x+460, y+145); key('Down'); key('Return')  # Underline: No -> Yes
+            click(x+460, y+185); key('Down'); key('Return')  # Strikethrough: No -> Yes
             field(x+220, y+225, '#b02040')
             field(x+220, y+265, '#fff176')
             capture_window('character-dialog')
@@ -556,7 +581,9 @@ try:
             assert any(p is not None and p.get(FO+'font-size') == '22pt' and
                        p.get(FO+'font-family') == 'Hack' and p.get(FO+'color') == '#b02040' and
                        p.get(FO+'font-weight') == '400' and p.get(FO+'font-style') == 'italic' and
-                       p.get(FO+'background-color') == '#fff176'
+                       p.get(FO+'background-color') == '#fff176' and
+                       p.get(STYLE+'text-underline-style') == 'solid' and
+                       p.get(STYLE+'text-line-through-style') == 'solid'
                        for p in text_properties(root).values())
             view_labels('character-formatted-layout')
             menu_action('Page layout')
@@ -629,11 +656,14 @@ try:
             # With a caret, format only future typing. Navigation ends that format.
             go(2)
             key('b', ('Control_L',))
+            key('u', ('Control_L',)); menu_action('Strikethrough')
             wait(lambda: data()['editing']['typing_format'])
             assert not data()['modified']
             key('x'); check_text(original[:2]+'x'+original[2:], 3)
             root, typed_xml = save('format-typed')
-            assert any(p is not None and p.get(FO+'font-weight') == '700'
+            assert any(p is not None and p.get(FO+'font-weight') == '700' and
+                       p.get(STYLE+'text-underline-style') == 'solid' and
+                       p.get(STYLE+'text-line-through-style') == 'solid'
                        for p in text_properties(root).values())
             key('z', ('Control_L',)); check_text(original, 2)
             assert save('format-typed-undone')[1] == original_xml
@@ -644,6 +674,18 @@ try:
             key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
             key('Right'); wait(lambda: not data()['editing']['typing_format'])
             assert not data()['modified']
+            if args.format_only:
+                key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
+                (art / 'results.json').write_text(json.dumps({
+                    'native_wayland': args.wayland, 'external_producer': 'odfpy',
+                    'focused_character_paragraph_formatting': True,
+                    'native_underline_strike_highlight': True,
+                    'typing_format_cancel_undo_redo': True,
+                    'source_archive_preservation': True,
+                    'full_native_editor_regressions': False,
+                    'page_layout': layout_report}, indent=2)+'\n')
+                print('PASS focused Words native character/paragraph formatting, source/history and typing', flush=True)
+                raise FormatComplete
             # FLTK removes the selection and inserts text in separate callbacks.
             # They must form one command, including on a failed replacement.
             go(6)
@@ -1586,6 +1628,7 @@ try:
         key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
                    'native_character_paragraph_formatting': True,
+                   'native_underline_strike_highlight': True,
                    'font_validation_and_inline_correction': True,
                    'select_all_clears_typing_format': True,
                    'native_page_click_scalar_position': True,
@@ -1631,6 +1674,8 @@ try:
             results = {name:value for name,value in results.items() if any(name.startswith(k) for k in keep)}
         (art / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
         print('PASS native page editing, bidi/grapheme navigation, selection/formatting, structure/scroll, clipboard and read-only protection' + ('; Fcitx preedit, commit/cancel and candidate anchoring' if args.ime else '') if args.page_only else 'PASS Words real keyboard editing, XML/style preservation, undo/redo, saved state, selections, atomic rejection and native page editing', flush=True)
+except FormatComplete:
+    pass
 except BaseException:
     if xd and 'host' in globals():
         try:

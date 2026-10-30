@@ -12,6 +12,31 @@ struct TextColor {
   double alpha = 1;
   bool operator==(const TextColor &) const = default;
 };
+// Character line effects are paint properties, separate from the typeface.
+struct TextDecoration {
+  enum LineStyle {
+    None,
+    Solid,
+    Dotted,
+    Dash,
+    LongDash,
+    DotDash,
+    DotDotDash,
+    Wave
+  };
+  LineStyle style = None;
+  bool double_line = false, skip_space = false;
+  enum WidthUnit { Auto, FontSize, Points } width_unit = Auto;
+  double width = 1; // Automatic thickness multiplier, font fraction, or points.
+  std::optional<TextColor> color; // Missing means the current text color.
+  bool valid() const;
+  bool operator==(const TextDecoration &) const = default;
+};
+struct TextDecorations {
+  TextDecoration underline, strike;
+  bool valid() const { return underline.valid() && strike.valid(); }
+  bool operator==(const TextDecorations &) const = default;
+};
 // All geometry is in typographic points. Text offsets count Unicode scalars,
 // independent of the frontend's UTF-8 buffer representation.
 struct TextFont {
@@ -26,6 +51,7 @@ struct TextSpan {
   TextFont font;
   std::optional<TextColor> color;
   std::optional<TextColor> background;
+  TextDecorations decorations;
 };
 struct TextFontPatch {
   std::optional<Text> family, language;
@@ -41,16 +67,16 @@ struct TextTabStop {
   double position = 0;
   enum Type { Left, Right, Center, Character } type = Left;
   char32_t delimiter = U'.';
-  enum LineStyle {
-    None,
-    Solid,
-    Dotted,
-    Dash,
-    LongDash,
-    DotDash,
-    DotDotDash,
-    Wave
-  } line_style = None;
+  using LineStyle = TextDecoration::LineStyle;
+  static constexpr auto None = TextDecoration::None,
+                        Solid = TextDecoration::Solid,
+                        Dotted = TextDecoration::Dotted,
+                        Dash = TextDecoration::Dash,
+                        LongDash = TextDecoration::LongDash,
+                        DotDash = TextDecoration::DotDash,
+                        DotDotDash = TextDecoration::DotDotDash,
+                        Wave = TextDecoration::Wave;
+  LineStyle line_style = None;
   bool double_line = false;
   // A font-relative thickness unless an absolute width is specified.
   double width_scale = .06;
@@ -85,6 +111,7 @@ struct TextListLabel {
   int level = 1;
   TextFont font;
   std::optional<TextColor> color, background;
+  TextDecorations decorations;
   enum Alignment { Left, Right, Center, Start, End } alignment = Start;
   enum Follow { Tab, Space, Nothing } follow = Tab;
   bool alignment_mode = false, visible = true;
@@ -99,6 +126,7 @@ struct TextParagraph {
   Text text, master;
   TextFont font;
   std::optional<TextColor> color, background;
+  TextDecorations decorations;
   std::vector<TextSpan> spans;
   std::vector<TextTabStop> tabs;
   double default_tab = 72 * 1.25 / 2.54;

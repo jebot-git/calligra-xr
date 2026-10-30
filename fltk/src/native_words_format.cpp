@@ -96,6 +96,14 @@ void overlay(Properties &p, const WordsCharacterFormat &f) {
   if (f.italic)
     scripts("fo:font-style", "style:font-style-asian",
             "style:font-style-complex", *f.italic ? "italic" : "normal");
+  for (auto [enabled, name] : {std::pair{f.underline, Text("text-underline")},
+                               std::pair{f.strike, Text("text-line-through")}})
+    if (enabled) {
+      put(p, STYLE, "style:" + name + "-style", *enabled ? "solid" : "none");
+      p.erase({STYLE, "style:" + name + "-type"});
+      if (*enabled)
+        put(p, STYLE, "style:" + name + "-type", "single");
+    }
   if (f.highlight)
     put(p, FO, "fo:background-color", f.highlight->toLower());
   if (f.color) {
@@ -426,7 +434,8 @@ const char *alignment(TextParagraph::Alignment value) {
 }
 } // namespace
 bool WordsCharacterFormat::empty() const {
-  return !family && !color && !highlight && !size && !weight && !italic;
+  return !family && !color && !highlight && !size && !weight && !italic &&
+         !underline && !strike;
 }
 void WordsCharacterFormat::overlay(const WordsCharacterFormat &f) {
   if (f.family)
@@ -441,6 +450,10 @@ void WordsCharacterFormat::overlay(const WordsCharacterFormat &f) {
     weight = f.weight;
   if (f.italic)
     italic = f.italic;
+  if (f.underline)
+    underline = f.underline;
+  if (f.strike)
+    strike = f.strike;
 }
 bool WordsParagraphFormat::empty() const {
   return !alignment && !left && !right && !indent && !before && !after &&
@@ -567,7 +580,8 @@ WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
       common(f.widows, p.widows, first_p);
       first_p = false;
       auto add = [&](const TextFont &font, std::optional<TextColor> color,
-                     std::optional<TextColor> background) {
+                     std::optional<TextColor> background,
+                     const TextDecorations &decorations) {
         auto &c = result.character;
         common(c.family, font.family, first_c);
         common(c.color, color_text(color), first_c);
@@ -578,16 +592,20 @@ WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
         common(c.weight, font.weight, first_c);
         common(result.bold, font.weight >= 600, first_c);
         common(c.italic, font.italic, first_c);
+        common(c.underline, decorations.underline.style != TextDecoration::None,
+               first_c);
+        common(c.strike, decorations.strike.style != TextDecoration::None,
+               first_c);
         first_c = false;
       };
       if (p.spans.empty())
-        add(p.font, p.color, p.background);
+        add(p.font, p.color, p.background, p.decorations);
       else
         for (auto &s : p.spans) {
           auto a = all[i].start + s.begin, b = all[i].start + s.end;
           if (begin == end ? (begin >= a && begin <= b)
                            : (a < end && b > begin)) {
-            add(s.font, s.color, s.background);
+            add(s.font, s.color, s.background, s.decorations);
             if (begin == end)
               break;
           }

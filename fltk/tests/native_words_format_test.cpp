@@ -21,7 +21,7 @@ OdfPackage fixture() {
   assert(p.xml.setContent(
       R"XML(<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.3"><office:automatic-styles>
 <style:style style:name="Bold" style:family="text"><style:text-properties fo:font-weight="700"/></style:style><style:style style:name="Bold" style:family="paragraph"><style:paragraph-properties fo:margin-left="9pt"/></style:style>
-<style:style style:name="Cell" style:family="table-cell"><style:text-properties fo:font-size="18pt" fo:font-style="italic" fo:background-color="#ffeeaa"/></style:style>
+<style:style style:name="Cell" style:family="table-cell"><style:text-properties fo:font-size="18pt" fo:font-style="italic" fo:background-color="#ffeeaa" style:text-underline-style="wave" style:text-underline-type="double" style:text-underline-color="#0055cc" style:text-line-through-style="dash" style:text-line-through-mode="skip-white-space"/></style:style>
 <style:style style:name="WordsText1" style:family="text"><style:text-properties fo:color="#223344"/></style:style>
 </office:automatic-styles><office:body><office:text>
 <text:p xml:id="first" text:style-name="Body">Alpha <text:span text:style-name="Bold">Český<text:a xlink:href="https://example.invalid/" xlink:type="simple"> 日本語</text:a></text:span> tail<text:s text:c="3"/><text:tab/>end<text:line-break/>soft</text:p>
@@ -102,6 +102,35 @@ int main(int argc, char **argv) {
     book.format_characters(range, highlight);
   });
   assert(!book.modified() && !book.can_undo());
+  WordsCharacterFormat lines;
+  lines.underline = true;
+  lines.strike = true;
+  assert(book.format_characters(range, lines));
+  auto lines_info = book.format_info(range).character;
+  assert(lines_info.underline == true && lines_info.strike == true);
+  assert(!book.format_info({0, end}).character.underline);
+  auto lines_xml = snapshot("lines");
+  assert(book.undo() == range && snapshot("lines-undone") == original_xml);
+  assert(book.redo() == range && snapshot("lines-redone") == lines_xml);
+  lines.underline = false;
+  lines.strike = false;
+  assert(book.format_characters(range, lines));
+  assert(book.format_info(range).character.underline == false);
+  assert(book.format_info(range).character.strike == false);
+  snapshot("lines-cleared");
+  book.load(input);
+  lines.underline = true;
+  lines.strike = true;
+  assert(!book.format_characters(point(2), lines) && book.has_typing_format());
+  book.begin_edit(point(2));
+  book.replace(2, 0, "世界");
+  assert(book.format_info({2, 4}).character.underline == true);
+  assert(book.format_info({2, 4}).character.strike == true);
+  book.cancel_edit();
+  assert(book.end_edit() == point(2) && book.has_typing_format());
+  book.replace(2, 0, "世界");
+  snapshot("lines-typed");
+  book.load(input);
   WordsCharacterFormat font;
   font.weight = 400;
   font.italic = true;
@@ -160,7 +189,9 @@ int main(int argc, char **argv) {
   auto cell = at(book, "Left cell");
   auto cell_info = book.format_info({cell, cell + 9});
   assert(cell_info.character.size == 18 && cell_info.character.italic == true &&
-         cell_info.character.highlight == "#ffeeaa");
+         cell_info.character.highlight == "#ffeeaa" &&
+         cell_info.character.underline == true &&
+         cell_info.character.strike == true);
   assert(book.format_characters({cell, cell + 9}, clear));
   assert(book.format_info({cell, cell + 9}).character.highlight ==
          "transparent");
