@@ -391,9 +391,15 @@ struct NativeTableStream::Impl {
       const auto &original = model.cells.at(id);
       TextRect rect{f.left, f.top, f.width, f.bottom - f.top};
       out.display.cells.push_back(
-          {block.index, original.row, original.column, original.rows,
-           original.columns, rect,
-           original.row + original.rows <= geometry->header_rows, f.continued});
+          {block.index,
+           original.row,
+           original.column,
+           original.rows,
+           original.columns,
+           rect,
+           original.row + original.rows <= geometry->header_rows,
+           f.continued,
+           {}});
       TextRect clip{rect.x + f.inset[3], rect.y + f.inset[0],
                     std::max(0., rect.width - f.inset[1] - f.inset[3]),
                     std::max(0., rect.height - f.inset[0] - f.inset[2])};
@@ -402,6 +408,9 @@ struct NativeTableStream::Impl {
                          ? extra / 2
                      : original.style.vertical == TextCellStyle::Bottom ? extra
                                                                         : 0;
+      out.display.cells.back().cell_context =
+          enclose_text_cell(f.text, {block.index, original.row, original.column,
+                                     original.rows, original.columns});
       offset_text_layout(f.text, clip.x, clip.y + align);
       clip_text_layout(f.text, clip);
       append(out.display, std::move(f.text), 0, 0);

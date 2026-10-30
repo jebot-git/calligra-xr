@@ -36,17 +36,64 @@ void TextPageCanvas::set_pagination(TextPagination value) {
   }
   scroll_ = std::clamp(scroll_, 0., std::max(0., extent() - h()));
   lines_.clear();
+  auto address = [](const auto &c) {
+    return std::array<size_t, 5>{c.table, c.row, c.column, c.rows, c.columns};
+  };
+  cell_fragments_.clear();
   for (size_t page = 0; page < pagination.pages.size(); ++page)
+    for (const auto &cell : pagination.pages[page].cells) {
+      if (!cell.cell_context || cell.rect.width <= 0 || cell.rect.height <= 0)
+        continue;
+      CellKey key;
+      for (auto node = cell.cell_context; node; node = node->nested)
+        key.push_back(address(node->address));
+      cell_fragments_[key].push_back({page, cell.rect});
+    }
+  for (auto &[key, frames] : cell_fragments_)
+    std::sort(frames.begin(), frames.end(), [](const auto &a, const auto &b) {
+      return std::pair(a.page, a.rect.y) < std::pair(b.page, b.rect.y);
+    });
+  for (size_t page = 0; page < pagination.pages.size(); ++page) {
     for (size_t index = 0; index < pagination.pages[page].lines.size();
          ++index) {
       const auto &line = pagination.pages[page].lines[index];
-      Line record{page, index, {}};
+      Line record{page, index, {}, {}};
       for (auto caret : text_line_carets(line))
         record.stops.push_back(
             {caret, page, index,
              edit_map_.global(caret.paragraph, caret.offset)});
+      if (!record.stops.empty()) {
+        const auto &point = record.stops.front().caret.rect;
+        CellKey key;
+        for (auto node = line.cell_context; node; node = node->nested) {
+          key.push_back(address(node->address));
+          auto found = cell_fragments_.find(key);
+          if (found == cell_fragments_.end())
+            throw std::runtime_error("Native cell source bounds are missing");
+          const auto &frames = found->second;
+          auto first = std::lower_bound(
+              frames.begin(), frames.end(), page,
+              [](const auto &f, size_t page) { return f.page < page; });
+          auto last = std::upper_bound(
+              first, frames.end(), page,
+              [](size_t page, const auto &f) { return page < f.page; });
+          auto box = std::find_if(first, last, [&](const CellFragment &f) {
+            if (f.page != page)
+              return false;
+            const auto &r = f.rect;
+            double cy = point.y + point.height / 2;
+            return point.x >= r.x - 1e-7 && point.x <= r.x + r.width + 1e-7 &&
+                   cy >= r.y - 1e-7 && cy <= r.y + r.height + 1e-7;
+          });
+          if (box == last)
+            throw std::runtime_error(
+                "Native cell source bounds do not contain its caret");
+          record.cells.push_back(&frames);
+        }
+      }
       lines_.push_back(std::move(record));
     }
+  }
   stop_index_.clear();
   for (size_t line = 0; line < lines_.size(); ++line)
     for (size_t stop = 0; stop < lines_[line].stops.size(); ++stop)
@@ -463,11 +510,30 @@ bool TextPageCanvas::navigate(int key, bool control, bool extend) {
   double target_y = center + ((key == FL_Page_Down || key == FL_Page_Up)
                                   ? (down ? 1 : -1) * h() * .85
                                   : 0);
-  auto distance =
-      std::tuple<double, double, bool, bool>{INFINITY, INFINITY, true, true};
+  const bool page_key = key == FL_Page_Down || key == FL_Page_Up;
+  struct Distance {
+    size_t scope = 0, row = 0;
+    std::vector<std::pair<double, double>> path;
+    bool rtl = false, affinity = false;
+  };
+  auto less = [](const Distance &a, const Distance &b) {
+    if (std::pair(a.scope, a.row) != std::pair(b.scope, b.row))
+      return std::pair(a.scope, a.row) < std::pair(b.scope, b.row);
+    // A source line is the leaf of the same spatial hierarchy as nested cells.
+    // Repeat a shorter leaf when comparing it with a deeper cell path.
+    for (size_t i = 0; i < std::max(a.path.size(), b.path.size()); ++i) {
+      auto x = a.path[std::min(i, a.path.size() - 1)];
+      auto y = b.path[std::min(i, b.path.size() - 1)];
+      if (x != y)
+        return x < y;
+    }
+    return std::pair(a.rtl, a.affinity) < std::pair(b.rtl, b.affinity);
+  };
+  std::optional<Distance> distance;
   std::optional<Stop> best;
   for (const auto &l : lines_) {
-    if (l.page == current->page && l.index == current->line)
+    if (l.stops.empty() ||
+        (l.page == current->page && l.index == current->line))
       continue;
     const auto &candidate_line = pagination.pages[l.page].lines[l.index];
     double candidate_top = page_top(l.page) + candidate_line.y * zoom;
@@ -475,21 +541,71 @@ bool TextPageCanvas::navigate(int key, bool control, bool extend) {
     if ((down && candidate_top <= line_top + 1e-7) ||
         (!down && candidate_top >= line_top - 1e-7))
       continue;
-    // Find the adjacent visual row before choosing its horizontal stop.
-    // A large indent must not make an arrow skip an intervening line. Compute
-    // row positions once so different glyph ascents cannot perturb ties.
-    double vertical = key == FL_Page_Down || key == FL_Page_Up
-                          ? std::abs(cy - target_y)
-                          : std::abs(candidate_top - line_top);
+    auto scope = text_vertical_scope(current_line, candidate_line, down);
+    if (!scope)
+      continue;
+    double vertical =
+        page_key ? std::abs(cy - target_y) : std::abs(candidate_top - line_top);
+    Distance d;
+    d.scope = page_key ? 0 : scope->priority;
+    d.row = page_key ? 0 : scope->row_gap;
+    if (scope->cell)
+      for (size_t level = *scope->cell; level < l.cells.size(); ++level) {
+        const auto &frames = *l.cells[level];
+        double anchor = page_key ? target_y
+                        : down   ? line_top
+                                 : line_top + current_line.height * zoom;
+        auto top_of = [&](const CellFragment &f) {
+          return page_top(f.page) + f.rect.y * zoom;
+        };
+        auto gap = [&](const CellFragment &f) {
+          double top = top_of(f), bottom = top + f.rect.height * zoom;
+          return anchor < top      ? top - anchor
+                 : anchor > bottom ? anchor - bottom
+                                   : 0;
+        };
+        auto frame = std::lower_bound(
+            frames.begin(), frames.end(), anchor,
+            [&](const auto &f, double y) { return top_of(f) < y; });
+        if (frame == frames.end())
+          --frame;
+        else if (frame != frames.begin() &&
+                 (gap(*std::prev(frame)) < gap(*frame) ||
+                  (!down && gap(*std::prev(frame)) == gap(*frame))))
+          --frame;
+        const auto &cell = frame->rect;
+        double left =
+            x() + (w() - pagination.pages[frame->page].style.width * zoom) / 2 +
+            cell.x * zoom;
+        double right = left + cell.width * zoom;
+        double top = top_of(*frame), bottom = top + cell.height * zoom;
+        double column = desired < left    ? left - desired
+                        : desired > right ? desired - right
+                                          : 0;
+        double entry =
+            page_key ? gap(*frame) : std::abs((down ? top : bottom) - anchor);
+        d.path.emplace_back(entry, column);
+      }
+    const Stop *line_best = nullptr;
+    auto horizontal = std::tuple<double, bool, bool>{INFINITY, true, true};
     for (const auto &s : l.stops) {
       auto r = screen_rect(s);
-      auto d = std::tuple(vertical, std::abs(r.x - desired),
+      auto h = std::tuple(std::abs(r.x - desired),
                           s.caret.rtl != candidate_line.shaped->rtl,
                           s.caret.affinity != affinity_);
-      if (d < distance) {
-        distance = d;
-        best = s;
+      if (h < horizontal) {
+        horizontal = h;
+        line_best = &s;
       }
+    }
+    if (!line_best)
+      continue;
+    d.path.emplace_back(vertical, std::get<0>(horizontal));
+    d.rtl = std::get<1>(horizontal);
+    d.affinity = std::get<2>(horizontal);
+    if (!distance || less(d, *distance)) {
+      distance = std::move(d);
+      best = *line_best;
     }
   }
   if (best) {

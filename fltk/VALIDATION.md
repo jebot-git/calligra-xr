@@ -1522,3 +1522,49 @@ identical. No system printer or running desktop session is changed.
 Words still needs broader layout/formatting fidelity, table-aware navigation
 and editing/reflow performance work. Sheets functions follow Words; Stage is
 last. Native default editing does not establish full upstream feature parity.
+
+
+## Source-aware vertical table navigation — 2026-10-30
+
+The previous release moved Down from a short left cell into the right cell's
+next line. Native layout now records immutable shared outer-to-inner cell
+identities on text lines and cell boxes. Wrapped lines, row spans, nested tables,
+repeated headers and empty continuation fragments retain the same source
+addresses independently of their display coordinates. Core checks cover both
+continuous and paginated layout, changing master widths and nested/merged
+continuations, along with invalid spans and source-progress rules.
+
+Up/Down finish the current cell/subtree before leaving it, retain intersecting
+source columns and prefer the next source row. Repeated header display copies
+do not count as new source lines. Entering a row compares its cell bounds and
+horizontal position before glyph-line height. A second real repro showed Up
+from text after a nested table selecting its tall right cell: the short left
+cell's only glyph line was on the prior page. Empty continuation cell boxes now
+participate in the cached source geometry, so entry chooses the correct column
+across the page break. A narrow Wayland viewport also exposed Page Down choosing
+NESTED RIGHT instead of the left lane. Entry comparison now follows every nested
+cell level before the final glyph line, with one horizontal stop choice per
+candidate line.
+
+The independent odfpy GUI fixture has three pages, repeated headers, short/tall
+neighbors, a nested table and a two-row merged cell. It checks forward/backward
+cell movement, Shift ranges with rejected cross-cell deletion, nested entry and
+exit, merged-row transitions, viewport-sized movement and edit/undo/redo/save.
+The full native X11 flow, native Wayland/Fcitx flow and ASan/UBSan focused flow
+pass; the existing mixed-width cell and keep-chain GUI regressions also pass.
+All 39 core suites pass in optimized Release and ASan/UBSan with core leak
+checking. GUI leak checking remains disabled for third-party libraries.
+
+
+The shared suite GUI regression also passes on this build. The print integration
+adds the edited three-page table fixture as a twelfth actual private CUPS job,
+checking retained nested/merged content, the xNEXT LEFT edit, unchanged styles
+and opaque archive data, and identical PDF/reopen/CUPS rasters. All nine
+accepted Words/Sheets/Stage baseline pages remain byte-identical. Offline schema
+validation uses each package's declared ODF version. No system printer or active
+desktop session is changed.
+
+This increment improves vertical source navigation; it does not establish full
+Words table-editing or layout parity. Remaining formatting/layout fidelity,
+structural table operations and editing/reflow performance still precede the
+next Sheets function work. Stage remains last in implementation priority.

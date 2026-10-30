@@ -12,6 +12,8 @@ const TextTable &block_table(const TextFlow &, const TextBlock &);
 TextRect intersect_text_rect(TextRect, TextRect);
 void offset_text_layout(TextBoxLayout &, double x, double y);
 void clip_text_layout(TextBoxLayout &, TextRect);
+std::shared_ptr<const TextCellContext> enclose_text_cell(TextBoxLayout &,
+                                                         TextCellAddress);
 struct NativeCellLayout {
   TextCellBox box;
   TextRect content_clip;

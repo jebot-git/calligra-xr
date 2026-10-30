@@ -204,6 +204,26 @@ void clip_text_layout(TextBoxLayout &value, TextRect clip) {
   for (auto &cell : value.cells)
     cell.rect = intersect_text_rect(cell.rect, clip);
 }
+std::shared_ptr<const TextCellContext>
+enclose_text_cell(TextBoxLayout &value, TextCellAddress address) {
+  std::map<const TextCellContext *, std::shared_ptr<const TextCellContext>>
+      paths;
+  auto base =
+      std::make_shared<const TextCellContext>(TextCellContext{address, {}});
+  paths.emplace(nullptr, base);
+  auto enclose = [&](auto &context) {
+    auto [entry, inserted] = paths.try_emplace(context.get());
+    if (inserted)
+      entry->second = std::make_shared<const TextCellContext>(
+          TextCellContext{address, context});
+    context = entry->second;
+  };
+  for (auto &line : value.lines)
+    enclose(line.cell_context);
+  for (auto &cell : value.cells)
+    enclose(cell.cell_context);
+  return base;
+}
 struct NativeBlockLayouter::Impl {
   const TextFlow &flow;
   LayoutParagraph paragraph;
@@ -555,7 +575,8 @@ struct NativeBlockLayouter::Impl {
                    cell.columns,
                    {x, y, w, h},
                    cell.row + cell.rows <= out->header_rows,
-                   false};
+                   false,
+                   {}};
       value.text = content[i];
       value.content_clip = {x + insets[i][3], y + insets[i][0],
                             std::max(0., w - insets[i][1] - insets[i][3]),
@@ -570,8 +591,11 @@ struct NativeBlockLayouter::Impl {
       if (w > 0 && h > 0) {
         if (cell.style.background)
           rectangle(out->display.paints, {x, y, w, h}, *cell.style.background);
-        out->display.cells.push_back(value.box);
         auto text = *content[i];
+        value.box.cell_context =
+            enclose_text_cell(text, {block.index, cell.row, cell.column,
+                                     cell.rows, cell.columns});
+        out->display.cells.push_back(value.box);
         offset_text_layout(text, value.text_x, value.text_y);
         clip_text_layout(text, value.content_clip);
         append(out->display, std::move(text), 0, 0);

@@ -43,9 +43,16 @@ private:
     TextCaret caret;
     size_t page, line, global;
   };
+  struct CellFragment {
+    size_t page;
+    TextRect rect;
+  };
+  using CellKey = std::vector<std::array<size_t, 5>>;
+  std::map<CellKey, std::vector<CellFragment>> cell_fragments_;
   struct Line {
     size_t page, index;
     std::vector<Stop> stops;
+    std::vector<const std::vector<CellFragment> *> cells;
   };
   std::vector<Line> lines_;
   std::vector<std::array<size_t, 3>> stop_index_;

@@ -92,6 +92,9 @@ def main():
             ime_source = args.page_artifacts.resolve() / 'page-ime-committed.odt'
             if ime_source.is_file():
                 cases.append(('page-ime', ime_source))
+            navigation = args.page_artifacts.resolve() / 'table-navigation-edited-final.odt'
+            if navigation.is_file():
+                cases.append(('table-navigation', navigation))
         cases.append(('unicode-source', art / 'unicode-source.odt'))
         for name, source in cases:
             if name == 'unicode-source':
@@ -115,9 +118,13 @@ def main():
                     assert old.read(entry) == new.read(entry), (name, entry)
             reader = PdfReader(output)
             native_page = name in ('page-edit', 'page-ime')
-            assert len(reader.pages) == (5 if native_page else 1)
+            assert len(reader.pages) == (5 if native_page else 3 if name == 'table-navigation' else 1)
             text = '\n'.join(page.extract_text() or '' for page in reader.pages)
-            if name == 'unicode-source':
+            if name == 'table-navigation':
+                for expected in ('BEFORE TABLE', 'xNEXT LEFT', 'RIGHT2', 'NESTED LEFT',
+                                 'NESTED RIGHT2', 'MERGED1', 'AFTER MERGE', 'AFTER TABLE'):
+                    assert expected in text, (expected, text)
+            elif name == 'unicode-source':
                 extracted = subprocess.check_output(['pdftotext', str(output), '-'], text=True)
                 for expected in ('office affine', 'NFD a\u0301', 'NFC á', 'CJK 日本語', 'Radical ⽇本語'):
                     assert expected in extracted, (expected, repr(extracted))

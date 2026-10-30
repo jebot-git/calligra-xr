@@ -22,8 +22,9 @@ import zipfile
 
 from odf.opendocument import OpenDocumentText
 from odf.style import (Map, MasterPage, PageLayout, PageLayoutProperties,
-                       ParagraphProperties, Style, TextProperties, ListLevelProperties)
-from odf.table import Table, TableCell, TableColumn, TableRow
+                       ParagraphProperties, Style, TextProperties, ListLevelProperties,
+                       TableProperties, TableCellProperties)
+from odf.table import Table, TableCell, TableColumn, TableRow, TableHeaderRows, CoveredTableCell
 from odf.text import (A, LineBreak, List, ListHeader, ListItem, ListLevelStyleNumber,
                       ListStyle, P, S, Section, Span, Tab)
 from PIL import Image
@@ -1402,6 +1403,152 @@ try:
         assert source.read_bytes() == signed_before
         capture_window('page-readonly')
         key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
+        # Independently produced short/tall neighboring cells, repeated headers,
+        # nested table flow and a spanning source cell exercise vertical lanes.
+        source = art / 'table-navigation.odt'
+        doc = OpenDocumentText()
+        layout = PageLayout(name='NavigationPage')
+        layout.addElement(PageLayoutProperties(pagewidth='400pt', pageheight='220pt', margin='20pt'))
+        doc.automaticstyles.addElement(layout)
+        doc.masterstyles.addElement(MasterPage(name='Standard', pagelayoutname=layout))
+        body = Style(name='NavigationBody', family='paragraph')
+        body.addElement(ParagraphProperties(lineheight='16pt', margintop='0pt', marginbottom='0pt'))
+        body.addElement(TextProperties(fontfamily='Hack', fontsize='12pt'))
+        doc.styles.addElement(body)
+        grid = Style(name='NavigationGrid', family='table')
+        grid.addElement(TableProperties(align='margins'))
+        doc.styles.addElement(grid)
+        cell_style = Style(name='NavigationCell', family='table-cell')
+        cell_style.addElement(TableCellProperties(padding='3pt', border='0.5pt solid #204080', backgroundcolor='#e5efff'))
+        doc.styles.addElement(cell_style)
+        paragraphs = []
+        def paragraph(parent, value):
+            p = P(stylename=body)
+            for i, line in enumerate(value.split('\n')):
+                if i: p.addElement(LineBreak())
+                p.addText(line)
+            parent.addElement(p)
+            paragraphs.append(value)
+        def cell(row, value=None, **attributes):
+            c = TableCell(stylename=cell_style, **attributes)
+            row.addElement(c)
+            if value is not None: paragraph(c, value)
+            return c
+        def row(table):
+            r = TableRow(); table.addElement(r); return r
+        def table(parent, name):
+            t = Table(name=name, stylename=grid)
+            t.addElement(TableColumn(numbercolumnsrepeated=2)); parent.addElement(t); return t
+        paragraph(doc.text, 'BEFORE TABLE')
+        root_table = table(doc.text, 'Navigation')
+        headers = TableHeaderRows(); root_table.addElement(headers)
+        r = row(headers); cell(r, 'H LEFT'); cell(r, 'H RIGHT')
+        r = row(root_table); cell(r, 'LEFT'); cell(r, 'RIGHT0\nRIGHT1\nRIGHT2')
+        r = row(root_table); cell(r, 'NEXT LEFT'); cell(r, 'NEXT RIGHT')
+        r = row(root_table); parent = cell(r, numbercolumnsspanned=2); r.addElement(CoveredTableCell())
+        paragraph(parent, 'BEFORE NESTED')
+        inner = table(parent, 'Inner')
+        r = row(inner); cell(r, 'NESTED LEFT'); cell(r, 'NESTED RIGHT0\nNESTED RIGHT1\nNESTED RIGHT2')
+        paragraph(parent, 'AFTER NESTED')
+        r = row(root_table); cell(r, 'MERGED0\nMERGED1', numberrowsspanned=2); cell(r, 'SIDE3')
+        r = row(root_table); r.addElement(CoveredTableCell()); cell(r, 'SIDE4\nSIDE4b')
+        r = row(root_table); cell(r, 'AFTER MERGE'); cell(r, 'AFTER SIDE')
+        paragraph(doc.text, 'AFTER TABLE')
+        table_text = '\n'.join(paragraphs)
+        doc.save(str(source))
+        with zipfile.ZipFile(source, 'a') as archive:
+            archive.writestr('Extras/opaque.bin', b'\0keep\xff')
+            original_styles = archive.read('styles.xml')
+        report = art / 'table-navigation-report.json'
+        process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
+                         '--report', report], client, 'table-navigation')
+        wait(lambda: report.exists() and data()['page_layout']['glyphs'] > 0)
+        if args.wayland:
+            host.set_input_focus(X.RevertToParent, X.CurrentTime); xd.sync()
+            window = wait(lambda: next((w for w in scene()['windows']
+                                       if 'calligra-words' in w.get('app_id', '').lower() and w.get('client_pid') == process.pid), None))
+            request = urllib.request.Request(f'http://127.0.0.1:{port}/api/action',
+                data=json.dumps({'op': 'focus', 'id': window['id']}).encode(),
+                headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(request, timeout=2) as response: response.read()
+            wait(lambda: scene()['focused'] == window['id'])
+        else:
+            host = wait(lambda: next((w for w in xd.screen().root.query_tree().children
+                                     if 'Calligra Words' in str(w.get_wm_name())), None))
+            host.set_input_focus(X.RevertToParent, X.CurrentTime); xd.sync()
+        if args.ime:
+            subprocess.run(['/usr/bin/fcitx5-remote', '-s', 'keyboard-us'], env=client, check=True)
+            wait(lambda: input_method() == 'keyboard-us')
+        check_text(table_text, 0)
+        assert data()['page_layout']['pages'] >= 2 and not data()['page_layout']['render_error']
+        _, original_table_xml = save('table-navigation-original')
+        starts = {}
+        offset = 0
+        for i, value in enumerate(paragraphs):
+            starts[value] = (i, offset)
+            offset += len(value)+1
+        def paragraph_start(value):
+            i, position = starts[value]
+            key('Home', ('Control_L',))
+            key('Down', ('Control_L',), count=i)
+            check_text(table_text, position)
+        def at(value, offset=0):
+            check_text(table_text, starts[value][1]+offset)
+        paragraph_start('LEFT')
+        key('Down'); at('NEXT LEFT')
+        key('Up', ('Shift_L',)); at('LEFT')
+        assert data()['editing']['anchor'] == starts['NEXT LEFT'][1]
+        key('Delete'); time.sleep(.2)
+        at('LEFT')
+        assert not data()['modified'] and not data()['editing']['can_undo']
+        assert save('table-navigation-rejected-range')[1] == original_table_xml
+        key('Escape')
+        paragraph_start('RIGHT0\nRIGHT1\nRIGHT2')
+        key('Down'); at('RIGHT0\nRIGHT1\nRIGHT2', len('RIGHT0\n'))
+        key('Down'); at('RIGHT0\nRIGHT1\nRIGHT2', len('RIGHT0\nRIGHT1\n'))
+        key('Down'); at('NEXT RIGHT')
+        key('Up'); at('RIGHT0\nRIGHT1\nRIGHT2', len('RIGHT0\nRIGHT1\n'))
+        paragraph_start('BEFORE NESTED')
+        key('Down'); at('NESTED LEFT')
+        key('Down'); at('AFTER NESTED')
+        key('Up'); at('NESTED LEFT')
+        key('Up'); at('BEFORE NESTED')
+        paragraph_start('NESTED RIGHT0\nNESTED RIGHT1\nNESTED RIGHT2')
+        key('Down'); at('NESTED RIGHT0\nNESTED RIGHT1\nNESTED RIGHT2', len('NESTED RIGHT0\n'))
+        key('Down'); at('NESTED RIGHT0\nNESTED RIGHT1\nNESTED RIGHT2', len('NESTED RIGHT0\nNESTED RIGHT1\n'))
+        paragraph_start('MERGED0\nMERGED1')
+        key('Down'); at('MERGED0\nMERGED1', len('MERGED0\n'))
+        key('Down'); at('AFTER MERGE')
+        key('Up'); at('MERGED0\nMERGED1', len('MERGED0\n'))
+        paragraph_start('H LEFT')
+        key('Down'); at('LEFT')
+        paragraph_start('H RIGHT')
+        key('Down'); at('RIGHT0\nRIGHT1\nRIGHT2')
+        # A viewport jump into a nested/merged row retains its horizontal lane,
+        # including a short cell whose only glyph line is on a prior page.
+        paragraph_start('H LEFT')
+        before = data()['page_layout']
+        virtual_y = before['caret_rect'][1]+before['scroll']
+        key('Page_Down')
+        wait(lambda: data()['editing']['cursor'] > starts['H LEFT'][1])
+        def current_paragraph():
+            cursor = data()['editing']['cursor']
+            return next(value for value in reversed(paragraphs) if starts[value][1] <= cursor)
+        assert not any(token in current_paragraph() for token in ('RIGHT', 'SIDE')), current_paragraph()
+        view = data()['page_layout']
+        assert view['caret_rect'][1]+view['scroll'] > virtual_y+view['viewport'][3]*.35
+        previous = data()['editing']['cursor']
+        key('Page_Up'); wait(lambda: data()['editing']['cursor'] < previous)
+        assert not any(token in current_paragraph() for token in ('RIGHT', 'SIDE')), current_paragraph()
+        capture_window('table-native-navigation')
+        assert not data()['modified']
+        paragraph_start('NEXT LEFT')
+        position = starts['NEXT LEFT'][1]
+        key('x'); check_text(table_text[:position]+'x'+table_text[position:], position+1)
+        key('z', ('Control_L',)); at('NEXT LEFT')
+        key('y', ('Control_L',)); check_text(table_text[:position]+'x'+table_text[position:], position+1)
+        save('table-navigation-edited-final')
+        key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
                    'native_character_paragraph_formatting': True,
                    'font_validation_and_inline_correction': True,
@@ -1410,6 +1557,7 @@ try:
                    'direct_native_page_editing': True,
                    'native_page_readonly': True,
                    'native_page_mouse_drag': True,
+                   'native_page_table_cell_column_nested_merged_navigation': True,
                    'native_page_default_view_and_keyboard_start': True,
                    'native_page_new_empty_document': True,
                    'native_page_open_chooser_and_caret_reset': True,

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_text_editing.h"
 #include "native_text_shaper.h"
+#include <limits>
 #include <unicode/ubrk.h>
 
 namespace DomeOffice {
@@ -150,5 +151,58 @@ std::vector<TextRect> text_selection_rects(const TextLine &line, size_t begin,
       merged.push_back(r);
   }
   return merged;
+}
+std::optional<TextVerticalScope>
+text_vertical_scope(const TextLine &from, const TextLine &to, bool down) {
+  auto valid = [](const TextCellAddress &a) {
+    auto limit = std::numeric_limits<size_t>::max();
+    return a.rows && a.columns && a.row <= limit - a.rows &&
+           a.column <= limit - a.columns;
+  };
+  size_t depth = 0;
+  for (auto node = from.cell_context; node; node = node->nested) {
+    if (++depth > 64 || !valid(node->address))
+      return {};
+  }
+  size_t candidate_depth = 0;
+  for (auto node = to.cell_context; node; node = node->nested)
+    if (++candidate_depth > 64 || !valid(node->address))
+      return {};
+  auto a = from.cell_context, b = to.cell_context;
+  size_t common = 0;
+  while (a && b && a->address == b->address) {
+    ++common;
+    a = a->nested;
+    b = b->nested;
+  }
+  if (!a) {
+    // Inside the same cell/subtree source lines advance monotonically. This
+    // excludes repeated header copies rather than navigating back into them.
+    if (depth) {
+      auto old = std::pair(from.paragraph, from.begin);
+      auto next = std::pair(to.paragraph, to.begin);
+      if (down ? next <= old : next >= old)
+        return {};
+    }
+    return TextVerticalScope{0, 0, b ? std::optional(common) : std::nullopt};
+  }
+  size_t leaving = 2 * (depth - common);
+  if (!b || a->address.table != b->address.table)
+    return TextVerticalScope{leaving, 0,
+                             b ? std::optional(common) : std::nullopt};
+  const auto &old = a->address;
+  const auto &next = b->address;
+  if (old.column >= next.column + next.columns ||
+      next.column >= old.column + old.columns)
+    return {};
+  if (down) {
+    if (next.row < old.row + old.rows)
+      return {};
+    return TextVerticalScope{leaving - 1, next.row - old.row - old.rows,
+                             common};
+  }
+  if (next.row + next.rows > old.row)
+    return {};
+  return TextVerticalScope{leaving - 1, old.row - next.row - next.rows, common};
 }
 } // namespace DomeOffice

@@ -27,4 +27,14 @@ private:
 std::vector<TextRect> text_selection_rects(const TextLine &, size_t begin,
                                            size_t end,
                                            bool paragraph_break = false);
+struct TextVerticalScope {
+  // Finish the current cell/subtree before leaving its table. Across rows,
+  // retain intersecting source columns and prefer the nearest source row.
+  size_t priority = 0, row_gap = 0;
+  // First entered/different cell, whose display box resolves entry direction
+  // and horizontal position independently of its text's height/alignment.
+  std::optional<size_t> cell;
+};
+std::optional<TextVerticalScope>
+text_vertical_scope(const TextLine &from, const TextLine &to, bool down);
 } // namespace DomeOffice

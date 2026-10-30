@@ -70,6 +70,15 @@ void coverage(const TextFlow &flow, const TextPagination &pages,
 void bounds(const TextPagination &pages) {
   for (const auto &page : pages.pages) {
     for (const auto &cell : page.cells) {
+      auto context = cell.cell_context;
+      assert(context);
+      while (context->nested)
+        context = context->nested;
+      assert(context->address.table == cell.table &&
+             context->address.row == cell.row &&
+             context->address.column == cell.column &&
+             context->address.rows == cell.rows &&
+             context->address.columns == cell.columns);
       assert(cell.rect.y >= page.style.top - 1e-7);
       if (cell.rect.y + cell.rect.height >
           page.style.height - page.style.bottom + 1e-7)
@@ -117,6 +126,12 @@ int main(int argc, char **argv) {
                   {"y", line.y},
                   {"height", line.height},
                   {"missing", line.shaped ? line.shaped->missing_glyphs : 0}};
+        l["cell_context"] = Json::array();
+        for (auto node = line.cell_context; node; node = node->nested) {
+          const auto &a = node->address;
+          l["cell_context"].push_back(
+              {a.table, a.row, a.column, a.rows, a.columns});
+        }
         if (line.clip)
           l["clip"] = {line.clip->x, line.clip->y, line.clip->width,
                        line.clip->height};
@@ -140,6 +155,14 @@ int main(int argc, char **argv) {
   }
   auto flow = document();
   auto pages = paginate_text(flow, metric);
+  for (const auto &page : pages.pages)
+    for (const auto &line : page.lines) {
+      auto cell = line.cell_context;
+      assert(cell && !cell->nested);
+      assert(cell->address.table == 0 &&
+             cell->address.row == line.paragraph / 2 &&
+             cell->address.column == line.paragraph % 2);
+    }
   assert(pages.pages.size() >= 3 && pages.unsupported.empty());
   coverage(flow, pages, 2);
   coverage(flow, pages, 3);
@@ -220,6 +243,17 @@ int main(int argc, char **argv) {
   flow.tables.push_back(nested);
   flow.tables[0].cells[2].blocks = {{TextBlock::Table, 1}};
   pages = paginate_text(flow, metric);
+  for (const auto &page : pages.pages)
+    for (const auto &line : page.lines)
+      if (line.paragraph == 2) {
+        assert(line.cell_context && line.cell_context->address.table == 0 &&
+               line.cell_context->address.row == 1 &&
+               line.cell_context->address.column == 0);
+        auto child = line.cell_context->nested;
+        assert(child && child->address.table == 1 && child->address.row == 0 &&
+               child->address.column == 0 && !child->nested);
+      }
+
   coverage(flow, pages, 2);
   bounds(pages);
   assert(std::any_of(

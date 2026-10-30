@@ -120,6 +120,9 @@ CUPS test queues.
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical
   arrows preserve the horizontal target across indented lines.
+  In tables, Up/Down finish the current cell/subtree and retain its column;
+  merged/nested cells and repeated headers preserve source identity. Entry and
+  page jumps select through cell bounds, including empty continuations.
   Visual arrows follow grapheme/ligature and bidi positions; Ctrl+arrows move
   by word/paragraph, Ctrl+Home/End reach document boundaries. Typing, clipboard,
   formatting and list commands share the native undo history. Wayland IME

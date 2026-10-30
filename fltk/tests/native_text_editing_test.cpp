@@ -92,6 +92,53 @@ int main() {
   auto paragraph_break =
       text_selection_rects(blanks.pages[0].lines[1], 1, 2, true);
   assert(paragraph_break.size() == 1 && paragraph_break[0].width > 0);
+  auto context = [](TextCellAddress a,
+                    std::shared_ptr<const TextCellContext> child = {}) {
+    return std::make_shared<const TextCellContext>(
+        TextCellContext{a, std::move(child)});
+  };
+  TextLine left, right, below, outer, inner, plain;
+  left.paragraph = 1;
+  left.cell_context = context({0, 0, 0, 1, 1});
+  right.paragraph = 2;
+  right.cell_context = context({0, 0, 1, 1, 1});
+  below.paragraph = 3;
+  below.cell_context = context({0, 1, 0, 1, 1});
+  assert(!text_vertical_scope(left, right, true));
+  assert(!text_vertical_scope(right, left, false));
+  auto next_row = text_vertical_scope(left, below, true);
+  assert(next_row && next_row->priority == 1 && next_row->row_gap == 0 &&
+         next_row->cell == 0);
+  assert(text_vertical_scope(below, left, false));
+  assert(!text_vertical_scope(below, left, true));
+  // A repeated header copy cannot masquerade as another source line.
+  assert(!text_vertical_scope(left, left, true));
+  auto continued = left;
+  continued.begin = 4;
+  auto same_cell = text_vertical_scope(left, continued, true);
+  assert(same_cell && same_cell->priority == 0 && !same_cell->cell);
+  assert(!text_vertical_scope(continued, left, true));
+  outer.paragraph = 4;
+  outer.cell_context = context({0, 2, 0, 1, 2});
+  inner.paragraph = 5;
+  inner.cell_context = context({0, 2, 0, 1, 2}, context({1, 0, 0, 1, 1}));
+  auto entered = text_vertical_scope(outer, inner, true);
+  assert(entered && entered->priority == 0 && entered->cell == 1);
+  outer.paragraph = 6;
+  auto exited = text_vertical_scope(inner, outer, true);
+  assert(exited && exited->priority == 2 && !exited->cell);
+  auto body = text_vertical_scope(inner, plain, false);
+  assert(body && body->priority == 4);
+  auto merged = below;
+  merged.cell_context = context({0, 1, 0, 2, 1});
+  auto after_merge = below;
+  after_merge.cell_context = context({0, 3, 0, 1, 1});
+  auto merged_next = text_vertical_scope(merged, after_merge, true);
+  assert(merged_next && merged_next->row_gap == 0);
+  assert(!text_vertical_scope(merged, below, true));
+  auto bad = left;
+  bad.cell_context = context({0, 0, 0, 1, 0});
+  assert(!text_vertical_scope(left, bad, true));
   std::cout << "PASS native scalar/grapheme/word edit map and ligature, bidi, "
                "tab, break and clipped selection geometry\n";
 }

@@ -63,6 +63,11 @@ int main() {
   auto flow = grid();
   auto box = layout_text_box(flow, 300, metric);
   assert(box.lines.size() == 4 && box.cells.size() == 4);
+  for (size_t i = 0; i < box.lines.size(); ++i) {
+    auto context = box.lines[i].cell_context;
+    assert(context && !context->nested && context->address.table == 0 &&
+           context->address.row == i / 2 && context->address.column == i % 2);
+  }
   near(box.height, 42);
   near(box.cells[0].rect.width, 200);
   near(box.cells[1].rect.x, 200);

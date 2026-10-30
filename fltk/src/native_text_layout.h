@@ -216,6 +216,17 @@ struct TextCellBox {
   size_t table = 0, row = 0, column = 0, rows = 1, columns = 1;
   TextRect rect;
   bool header = false, continued = false;
+  std::shared_ptr<const struct TextCellContext> cell_context;
+};
+struct TextCellAddress {
+  size_t table = 0, row = 0, column = 0, rows = 1, columns = 1;
+  bool operator==(const TextCellAddress &) const = default;
+};
+// Immutable outer-to-inner source identities. Lines in one cell share these
+// nodes, including wrapped continuations and repeated header display copies.
+struct TextCellContext {
+  TextCellAddress address;
+  std::shared_ptr<const TextCellContext> nested;
 };
 struct TextLine {
   size_t paragraph = 0, begin = 0, end = 0;
@@ -237,6 +248,7 @@ struct TextLine {
   std::vector<TextTabPlacement> tabs; // Relative to line.x and its baseline.
   std::optional<TextRect>
       clip; // Layout coordinates; glyph offsets remain local.
+  std::shared_ptr<const TextCellContext> cell_context;
 };
 struct TextPage {
   TextPageStyle style;
