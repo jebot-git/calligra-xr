@@ -164,10 +164,13 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--character-styles-only', action='store_true', help='Run focused named character style UI checks')
 parser.add_argument('--styles-only', action='store_true', help='Run focused named paragraph style UI checks')
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.character_styles_only and (args.page_only or args.styles_only or args.format_only or args.ime):
+    parser.error('--character-styles-only is incompatible with other focused modes or --ime')
 if args.styles_only and (args.page_only or args.format_only or args.ime):
     parser.error('--styles-only is incompatible with --page-only/--format-only/--ime')
 if args.format_only and (args.page_only or args.ime):
@@ -468,7 +471,7 @@ try:
                 return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                         for e in root.iter(STYLE+'style')}
 
-            if not args.styles_only:
+            if not (args.styles_only or args.character_styles_only):
                 # Invalid fields stay in the panel and cannot consume redo or saved
                 # state. Correcting a quoted fallback list must render and round-trip.
                 go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
@@ -709,139 +712,254 @@ try:
                         node.text if node.text and node.text.strip() else '',
                         tuple(canonical(child) for child in node))
             original_style_tree = ET.fromstring(original_styles)
-            style_id = []
-            def definition_check(label, size):
+            def choice(x, y, index, current=0):
+                click(x,y)
+                delta=index-current
+                key('Down' if delta>=0 else 'Up', count=abs(delta))
+                key('Return'); time.sleep(.15)
+            if not args.character_styles_only:
+                style_id = []
+                def definition_check(label, size):
+                    def check(raw):
+                        tree = ET.fromstring(raw)
+                        old_group = original_style_tree.find(O+'styles')
+                        group = tree.find(O+'styles')
+                        assert [canonical(e) for e in list(group)[:len(old_group)]] == [canonical(e) for e in old_group]
+                        assert len(group) == len(old_group)+1
+                        named = [e for e in group if e.get(STYLE+'display-name') == label]
+                        assert len(named) == 1
+                        node = named[0]
+                        identifier = node.get(STYLE+'name')
+                        assert identifier.startswith('WordsNamed')
+                        if style_id: assert style_id[0] == identifier
+                        else: style_id.append(identifier)
+                        assert node.get(STYLE+'parent-style-name') == 'Body'
+                        assert node.get(STYLE+'default-outline-level') == '2'
+                        props = node.find(STYLE+'text-properties')
+                        assert props.get(FO+'font-family') == 'Hack' and props.get(FO+'font-size') == str(size)+'pt'
+                        assert props.get(FO+'font-weight') == '700' and props.get(FO+'color') == '#165aa7'
+                        assert props.get(STYLE+'text-underline-style') == 'solid'
+                    return check
+                def open_styles():
+                    menu_action('Paragraph styles…'); wait(lambda: data()['format_dialog'])
+                    time.sleep(.2)
+                    return panel_origin(680,480)
+                # A staged create can be corrected after validation and then cancelled.
+                go(6); key('Right', ('Shift_L',), count=5)
+                before = data()['editing'].copy()
+                x,y = open_styles(); click(x+65,y+390); time.sleep(.2)
+                x,y = panel_origin(650,460)
+                field(x+300,y+65,'')
+                click(x+575,y+425); time.sleep(.2)
+                assert data()['format_dialog'] and not data()['modified']
+                field(x+300,y+65,'Temporary')
+                click(x+575,y+425); time.sleep(.3)
+                assert not data()['modified']
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                assert data()['editing']['can_redo'] == before['can_redo']
+                assert save('styles-staged-cancelled')[1] == original_xml
+                assert parts('styles-staged-cancelled') == original_parts
+                # New style inherits Body, has explicit heading role and a self next.
+                x,y = open_styles(); click(x+65,y+390); time.sleep(.2)
+                x,y = panel_origin(650,460)
+                field(x+300,y+65,'Notice')
+                choice(x+300,y+105,1,current=2)  # Body, rather than First's forced page break.
+                choice(x+300,y+145,1)  # Same style.
+                choice(x+300,y+185,3)  # Heading 2.
+                click(x+250,y+235); time.sleep(.2)
+                x,y = panel_origin(560,390)
+                field(x+250,y+65,'Hack'); field(x+190,y+105,'20')
+                choice(x+220,y+145,2,current=1); choice(x+460,y+145,2,current=1)
+                field(x+220,y+225,'#165aa7')
+                click(x+480,y+355); time.sleep(.3)
+                x,y = panel_origin(650,460)
+                click(x+445,y+235); time.sleep(.2)
+                x,y = panel_origin(700,470)
+                # Match the existing paragraph panel's control positions.
+                choice(x+185,y+65,2,current=5)  # Center.
+                field(x+185,y+110,'24'); field(x+575,y+110,'12')
+                field(x+185,y+155,'-6')
+                click(x+620,y+435); time.sleep(.3)
+                x,y = panel_origin(650,460)
+                capture_window('named-style-editor')
+                click(x+575,y+425); time.sleep(.3)
+                assert not data()['modified']
+                x,y = panel_origin(680,480)
+                capture_window('named-style-chooser')
+                click(x+605,y+445)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root, created_xml = save('style-created-applied',definition_check('Notice',20))
+                created_parts = parts('style-created-applied')
+                assert created_parts[1] != original_styles
+                heading = root.find('.//'+TEXT+'h')
+                assert heading is not None and heading.get(TEXT+'style-name') == style_id[0]
+                assert heading.get(TEXT+'outline-level') == '2' and heading.get(XML+'id') == 'first'
+                view_labels('named-style-layout')
+                key('z', ('Control_L',)); assert save('style-created-undone')[1] == original_xml
+                assert parts('style-created-undone') == original_parts
+                key('y', ('Control_L',)); assert save('style-created-redone',exact_styles(created_parts[1]))[1] == created_xml
+                assert parts('style-created-redone') == created_parts
+                first_end = original.index('\n')
+                go(first_end); key('Return'); check_text(original[:first_end]+'\n'+original[first_end:])
+                root,_ = save('style-heading-self',exact_styles(created_parts[1]))
+                assert len(root.findall('.//'+TEXT+'h')) == 2
+                key('z', ('Control_L',)); check_text(original)
+                assert save('style-heading-self-undone',exact_styles(created_parts[1]))[1] == created_xml
+                # Editing a definition updates layout without rewriting body XML.
+                go(6); x,y = open_styles(); click(x+165,y+390); time.sleep(.2)
+                x,y = panel_origin(650,460)
+                field(x+300,y+65,'Notice renamed'); choice(x+300,y+145,2,current=1)  # Next Body.
+                click(x+250,y+235); time.sleep(.2)
+                x,y = panel_origin(560,390); field(x+190,y+105,'24')
+                click(x+480,y+355); time.sleep(.3)
+                x,y = panel_origin(650,460); click(x+575,y+425); time.sleep(.3)
+                x,y = panel_origin(680,480); click(x+605,y+445)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root, edited_xml = save('style-edited',definition_check('Notice renamed',24))
+                edited_parts = parts('style-edited')
+                assert edited_xml == created_xml and edited_parts[1] != created_parts[1]
+                view_labels('named-style-edited-layout')
+                x,y = open_styles(); click(x+285,y+390); time.sleep(.3)
+                assert data()['format_dialog'] and not data()['modified']
+                capture_window('named-style-used-delete-rejected')
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                assert save('style-delete-used-rejected',exact_styles(edited_parts[1]))[1] == edited_xml
+                go(first_end); key('Return'); check_text(original[:first_end]+'\n'+original[first_end:])
+                root,_ = save('style-heading-next-body',exact_styles(edited_parts[1]))
+                body = root.find(O+'body/'+O+'text')
+                assert body[0].tag == TEXT+'h' and body[1].tag == TEXT+'p'
+                assert body[1].get(TEXT+'style-name') == 'Body'
+                key('z', ('Control_L',)); check_text(original)
+                assert save('style-heading-next-undone',exact_styles(edited_parts[1]))[1] == edited_xml
+                key('z', ('Control_L',)); assert save('style-definition-undone',exact_styles(created_parts[1]))[1] == created_xml
+                assert parts('style-definition-undone') == created_parts
+                key('y', ('Control_L',)); assert save('style-definition-redone',exact_styles(edited_parts[1]))[1] == edited_xml
+                assert parts('style-definition-redone') == edited_parts
+                key('z', ('Control_L',)); key('z', ('Control_L',))
+                assert save('style-all-restored')[1] == original_xml
+                assert parts('style-all-restored') == original_parts
+                layout_report['named_paragraph_styles'] = {'staged_cancel':True,'one_step_source_part_undo':True,
+                                                           'heading_self_and_body_next':True,'definition_only_body_retention':True}
+                if args.styles_only:
+                    key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,
+                        'native_named_paragraph_styles':True,'page_layout':layout_report,
+                        'full_native_editor_regressions':False},indent=2)+'\n')
+                    print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
+                    raise FormatComplete
+            # Named character styles replace selected inline overrides and can
+            # remain as a named reference for future typing at a caret.
+            char_ids = []
+            def char_definition(label, size):
                 def check(raw):
-                    tree = ET.fromstring(raw)
+                    group = ET.fromstring(raw).find(O+'styles')
                     old_group = original_style_tree.find(O+'styles')
-                    group = tree.find(O+'styles')
                     assert [canonical(e) for e in list(group)[:len(old_group)]] == [canonical(e) for e in old_group]
                     assert len(group) == len(old_group)+1
                     named = [e for e in group if e.get(STYLE+'display-name') == label]
                     assert len(named) == 1
                     node = named[0]
                     identifier = node.get(STYLE+'name')
-                    assert identifier.startswith('WordsNamed')
-                    if style_id: assert style_id[0] == identifier
-                    else: style_id.append(identifier)
-                    assert node.get(STYLE+'parent-style-name') == 'Body'
-                    assert node.get(STYLE+'default-outline-level') == '2'
+                    assert node.get(STYLE+'family') == 'text' and identifier.startswith('WordsCharacterNamed')
+                    if char_ids: assert char_ids[0] == identifier
+                    else: char_ids.append(identifier)
+                    assert node.get(STYLE+'parent-style-name') == 'Bold'
                     props = node.find(STYLE+'text-properties')
                     assert props.get(FO+'font-family') == 'Hack' and props.get(FO+'font-size') == str(size)+'pt'
-                    assert props.get(FO+'font-weight') == '700' and props.get(FO+'color') == '#165aa7'
+                    assert props.get(FO+'font-weight') == '400' and props.get(FO+'font-style') == 'italic'
+                    assert props.get(FO+'color') == '#165aa7' and props.get(FO+'background-color') == '#fff176'
                     assert props.get(STYLE+'text-underline-style') == 'solid'
                 return check
-            def choice(x, y, index, current=0):
-                click(x,y)
-                delta=index-current
-                key('Down' if delta>=0 else 'Up', count=abs(delta))
-                key('Return'); time.sleep(.15)
-            def open_styles():
-                menu_action('Paragraph styles…'); wait(lambda: data()['format_dialog'])
-                time.sleep(.2)
+            def open_character_styles():
+                menu_action('Character styles…'); wait(lambda: data()['format_dialog']); time.sleep(.2)
                 return panel_origin(680,480)
-            # A staged create can be corrected after validation and then cancelled.
             go(6); key('Right', ('Shift_L',), count=5)
-            before = data()['editing'].copy()
-            x,y = open_styles(); click(x+65,y+390); time.sleep(.2)
-            x,y = panel_origin(650,460)
-            field(x+300,y+65,'')
-            click(x+575,y+425); time.sleep(.2)
-            assert data()['format_dialog'] and not data()['modified']
-            field(x+300,y+65,'Temporary')
-            click(x+575,y+425); time.sleep(.3)
-            assert not data()['modified']
+            x,y = open_character_styles(); click(x+65,y+390); time.sleep(.2)
+            x,y = panel_origin(650,340); field(x+300,y+65,'Temporary character')
+            click(x+575,y+305); time.sleep(.3)
             key('Escape'); wait(lambda: not data()['format_dialog'])
-            assert data()['editing']['can_redo'] == before['can_redo']
-            assert save('styles-staged-cancelled')[1] == original_xml
-            assert parts('styles-staged-cancelled') == original_parts
-            # New style inherits Body, has explicit heading role and a self next.
-            x,y = open_styles(); click(x+65,y+390); time.sleep(.2)
-            x,y = panel_origin(650,460)
-            field(x+300,y+65,'Notice')
-            choice(x+300,y+105,1,current=2)  # Body, rather than First's forced page break.
-            choice(x+300,y+145,1)  # Same style.
-            choice(x+300,y+185,3)  # Heading 2.
-            click(x+250,y+235); time.sleep(.2)
+            assert save('character-style-staged-cancelled')[1] == original_xml
+            assert parts('character-style-staged-cancelled') == original_parts
+            x,y = open_character_styles(); click(x+65,y+390); time.sleep(.2)
+            x,y = panel_origin(650,340); field(x+300,y+65,'Emphasis')
+            click(x+250,y+155); time.sleep(.2)
             x,y = panel_origin(560,390)
-            field(x+250,y+65,'Hack'); field(x+190,y+105,'20')
-            choice(x+220,y+145,2,current=1); choice(x+460,y+145,2,current=1)
-            field(x+220,y+225,'#165aa7')
+            field(x+190,y+65,'Hack'); field(x+190,y+105,'18')
+            choice(x+190,y+145,1,current=2)  # inherited Bold: Yes -> No
+            choice(x+190,y+185,2,current=1)
+            field(x+190,y+225,'#165aa7'); field(x+190,y+265,'#fff176')
+            choice(x+460,y+145,2,current=1)
             click(x+480,y+355); time.sleep(.3)
-            x,y = panel_origin(650,460)
-            click(x+445,y+235); time.sleep(.2)
-            x,y = panel_origin(700,470)
-            # Match the existing paragraph panel's control positions.
-            choice(x+185,y+65,2,current=5)  # Center.
-            field(x+185,y+110,'24'); field(x+575,y+110,'12')
-            field(x+185,y+155,'-6')
-            click(x+620,y+435); time.sleep(.3)
-            x,y = panel_origin(650,460)
-            capture_window('named-style-editor')
-            click(x+575,y+425); time.sleep(.3)
-            assert not data()['modified']
-            x,y = panel_origin(680,480)
-            capture_window('named-style-chooser')
-            click(x+605,y+445)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root, created_xml = save('style-created-applied',definition_check('Notice',20))
-            created_parts = parts('style-created-applied')
-            assert created_parts[1] != original_styles
-            heading = root.find('.//'+TEXT+'h')
-            assert heading is not None and heading.get(TEXT+'style-name') == style_id[0]
-            assert heading.get(TEXT+'outline-level') == '2' and heading.get(XML+'id') == 'first'
-            view_labels('named-style-layout')
-            key('z', ('Control_L',)); assert save('style-created-undone')[1] == original_xml
-            assert parts('style-created-undone') == original_parts
-            key('y', ('Control_L',)); assert save('style-created-redone',exact_styles(created_parts[1]))[1] == created_xml
-            assert parts('style-created-redone') == created_parts
-            first_end = original.index('\n')
-            go(first_end); key('Return'); check_text(original[:first_end]+'\n'+original[first_end:])
-            root,_ = save('style-heading-self',exact_styles(created_parts[1]))
-            assert len(root.findall('.//'+TEXT+'h')) == 2
-            key('z', ('Control_L',)); check_text(original)
-            assert save('style-heading-self-undone',exact_styles(created_parts[1]))[1] == created_xml
-            # Editing a definition updates layout without rewriting body XML.
-            go(6); x,y = open_styles(); click(x+165,y+390); time.sleep(.2)
-            x,y = panel_origin(650,460)
-            field(x+300,y+65,'Notice renamed'); choice(x+300,y+145,2,current=1)  # Next Body.
-            click(x+250,y+235); time.sleep(.2)
-            x,y = panel_origin(560,390); field(x+190,y+105,'24')
-            click(x+480,y+355); time.sleep(.3)
-            x,y = panel_origin(650,460); click(x+575,y+425); time.sleep(.3)
+            x,y = panel_origin(650,340); capture_window('character-style-editor')
+            click(x+575,y+305); time.sleep(.3)
             x,y = panel_origin(680,480); click(x+605,y+445)
             wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root, edited_xml = save('style-edited',definition_check('Notice renamed',24))
-            edited_parts = parts('style-edited')
-            assert edited_xml == created_xml and edited_parts[1] != created_parts[1]
-            view_labels('named-style-edited-layout')
-            x,y = open_styles(); click(x+285,y+390); time.sleep(.3)
+            root, char_xml = save('character-style-created',char_definition('Emphasis',18))
+            char_parts = parts('character-style-created')
+            assert data()['text'] == original
+            assert root.find('.//'+TEXT+'p').get(TEXT+'style-name') == 'First'
+            assert len([e for e in root.iter() if e.get(XML+'id') == 'first']) == 1
+            assert any(e.get(TEXT+'style-name') == char_ids[0] and ''.join(e.itertext()) == 'Český' for e in root.iter(TEXT+'span'))
+            view_labels('character-style-layout')
+            key('z', ('Control_L',)); assert save('character-style-undone')[1] == original_xml
+            assert parts('character-style-undone') == original_parts
+            key('y', ('Control_L',)); assert save('character-style-redone',exact_styles(char_parts[1]))[1] == char_xml
+            assert parts('character-style-redone') == char_parts
+            x,y = open_character_styles(); key('Up',count=2); click(x+605,y+445)
+            wait(lambda: not data()['format_dialog'] and data()['modified'])
+            root,_=save('character-style-cleared',exact_styles(char_parts[1]))
+            assert not any(e.get(TEXT+'style-name')==char_ids[0] for e in root.iter(TEXT+'span'))
+            assert any(e.get(TEXT+'style-name')=='Bold' and '日本語' in ''.join(e.itertext()) for e in root.iter(TEXT+'span'))
+            key('z', ('Control_L',)); assert save('character-style-cleared-undone',exact_styles(char_parts[1]))[1] == char_xml
+            # Definition-only edits retain body bytes and the stable style ID.
+            x,y = open_character_styles(); click(x+165,y+390); time.sleep(.2)
+            x,y = panel_origin(650,340); field(x+300,y+65,'Emphasis renamed')
+            click(x+250,y+155); time.sleep(.2)
+            x,y = panel_origin(560,390); field(x+190,y+105,'24'); click(x+480,y+355); time.sleep(.3)
+            x,y = panel_origin(650,340); click(x+575,y+305); time.sleep(.3)
+            x,y = panel_origin(680,480); click(x+30,y+430); click(x+605,y+445)
+            wait(lambda: not data()['format_dialog'] and data()['modified'])
+            _, char_edited_xml = save('character-style-edited',char_definition('Emphasis renamed',24))
+            char_edited = parts('character-style-edited')
+            assert char_edited_xml == char_xml and char_edited[1] != char_parts[1]
+            view_labels('character-style-edited-layout')
+            x,y = open_character_styles(); click(x+285,y+390); time.sleep(.3)
             assert data()['format_dialog'] and not data()['modified']
-            capture_window('named-style-used-delete-rejected')
+            capture_window('character-style-used-delete-rejected')
             key('Escape'); wait(lambda: not data()['format_dialog'])
-            assert save('style-delete-used-rejected',exact_styles(edited_parts[1]))[1] == edited_xml
-            go(first_end); key('Return'); check_text(original[:first_end]+'\n'+original[first_end:])
-            root,_ = save('style-heading-next-body',exact_styles(edited_parts[1]))
-            body = root.find(O+'body/'+O+'text')
-            assert body[0].tag == TEXT+'h' and body[1].tag == TEXT+'p'
-            assert body[1].get(TEXT+'style-name') == 'Body'
+            # At a caret, assignment changes future typing, with no source edit.
+            go(original.index('Section alpha')+3)
+            x,y = open_character_styles()
+            key('Down',count=2); time.sleep(.2)  # Default -> Bold -> Emphasis renamed
+            click(x+605,y+445); wait(lambda: not data()['format_dialog'])
+            assert data()['editing']['typing_format'] and not data()['modified']
+            key('x'); where=original.index('Section alpha')+3
+            check_text(original[:where]+'x'+original[where:],where+1)
+            root,_=save('character-style-typed',exact_styles(char_edited[1]))
+            assert any(e.get(TEXT+'style-name') == char_ids[0] and ''.join(e.itertext()) == 'x' for e in root.iter(TEXT+'span'))
             key('z', ('Control_L',)); check_text(original)
-            assert save('style-heading-next-undone',exact_styles(edited_parts[1]))[1] == edited_xml
-            key('z', ('Control_L',)); assert save('style-definition-undone',exact_styles(created_parts[1]))[1] == created_xml
-            assert parts('style-definition-undone') == created_parts
-            key('y', ('Control_L',)); assert save('style-definition-redone',exact_styles(edited_parts[1]))[1] == edited_xml
-            assert parts('style-definition-redone') == edited_parts
+            assert save('character-style-typed-undone',exact_styles(char_edited[1]))[1] == char_xml
+            # Apply the same style to a hyperlink without splitting the link.
+            where=original.index('link'); go(where); key('Right', ('Shift_L',), count=4)
+            x,y=open_character_styles(); key('Down',count=2); click(x+605,y+445)
+            wait(lambda: not data()['format_dialog'] and data()['modified'])
+            root,_=save('character-style-link',exact_styles(char_edited[1]))
+            links=root.findall('.//'+TEXT+'a'); assert len(links)==1 and links[0].get(XLINK+'href')=='https://example.invalid/document'
+            assert any(e.get(TEXT+'style-name') == char_ids[0] for e in links[0].iter(TEXT+'span'))
+            key('z', ('Control_L',)); assert save('character-style-link-undone',exact_styles(char_edited[1]))[1] == char_xml
+            key('z', ('Control_L',)); assert save('character-style-definition-undone',exact_styles(char_parts[1]))[1] == char_xml
+            assert parts('character-style-definition-undone') == char_parts
+            key('y', ('Control_L',)); assert save('character-style-definition-redone',exact_styles(char_edited[1]))[1] == char_xml
             key('z', ('Control_L',)); key('z', ('Control_L',))
-            assert save('style-all-restored')[1] == original_xml
-            assert parts('style-all-restored') == original_parts
-            layout_report['named_paragraph_styles'] = {'staged_cancel':True,'one_step_source_part_undo':True,
-                                                       'heading_self_and_body_next':True,'definition_only_body_retention':True}
-            if args.styles_only:
-                key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
-                (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,
-                    'native_named_paragraph_styles':True,'page_layout':layout_report,
-                    'full_native_editor_regressions':False},indent=2)+'\n')
-                print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
+            assert save('character-style-all-restored')[1] == original_xml
+            assert parts('character-style-all-restored') == original_parts
+            layout_report['named_character_styles']={'staged_cancel':True,'absolute_range_assignment':True,
+                'one_step_zip_source_undo':True,'definition_only_body_retention':True,'named_caret_typing':True,'link_retention':True}
+            if args.character_styles_only:
+                key('q', ('Control_L',)); assert process.wait(timeout=15)==0
+                (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_named_character_styles':True,
+                    'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
+                print('PASS named character style UI, range/default handling, named typing, source/archive undo and links',flush=True)
                 raise FormatComplete
             # FLTK removes the selection and inserts text in separate callbacks.
             # They must form one command, including on a failed replacement.
@@ -1787,6 +1905,7 @@ try:
                    'native_character_paragraph_formatting': True,
                    'native_underline_strike_highlight': True,
                    'native_named_paragraph_styles': True,
+                   'native_named_character_styles': True,
                    'font_validation_and_inline_correction': True,
                    'select_all_clears_typing_format': True,
                    'native_page_click_scalar_position': True,

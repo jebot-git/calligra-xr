@@ -36,8 +36,9 @@ public:
     bool format_characters(TextSelection, const WordsCharacterFormat&);
     bool format_paragraphs(TextSelection, const WordsParagraphFormat&);
     OdfPackage style_snapshot() const;
+    std::optional<Text> current_character_style(TextSelection) const;
     bool commit_styles(OdfPackage, TextSelection, uint64_t expected_revision,
-        std::optional<Text> apply_paragraph = { });
+        std::optional<Text> apply_paragraph = { }, std::optional<Text> apply_character = { });
     void clear_typing_format() { typing_format_.reset(); }
     bool has_typing_format() const { return bool(typing_format_); }
     std::optional<TextSelection> undo();
@@ -74,6 +75,7 @@ private:
     struct TypingFormat {
         size_t position;
         WordsCharacterFormat format;
+        std::optional<Text> style;
     };
     std::optional<TypingFormat> typing_format_;
     struct EditGroup {

@@ -1595,3 +1595,33 @@ Words/Sheets/Stage baseline page rasters remain byte-identical. Generated ODF
 packages pass offline version-matched schemas. These checks preserve the export/
 printing floor and do not establish full Words editing or layout parity. Words
 remains first, Sheets functions next and Stage last.
+
+
+## Named character styles — 2026-10-30
+
+All 41 native core suites pass in optimized Release and ASan/UBSan with core
+leak checking. The new text-style suite checks shared family-aware definition
+handling, automatic/common name collisions, inherited percentage sizes, exact
+source/ZIP-part undo, range/default assignment, named caret typing and grouped
+cancellation. Sixty-four successive assignments keep nesting bounded; redundant
+neutral spans are flattened. Original links, metadata values and IDs remain single containers;
+unselected scalars retain their resolved font, paint and decorations. Ranges
+cover partial metadata, explicit spaces/tabs/soft breaks and paragraph
+boundaries. Unsupported visited-link/style-class cascades and inline fields
+reject atomically. Deleting a transient, unapplied style clears its caret state.
+
+The focused native character-style UI passes on X11, native Wayland and
+ASan/UBSan Wayland; the existing paragraph-style UI passes on native Wayland
+after sharing the manager. The new UI checks staged cancellation, property
+editing, default clearing, definition-only rename/resize, exact one-step
+source/styles/manifest undo, rejected used-style deletion, named future typing
+and hyperlink retention. GUI leak checking remains disabled for third-party
+libraries. Screenshots use the system FLTK session appearance.
+
+The private CUPS integration completes 19 jobs, adding created/edited/typed
+character styles. It checks embedded Hack italic faces, ink/highlight pixels,
+resizing a definition without changing content.xml, ODF export/reopen and equal
+PDF/CUPS rasters. All nine accepted baseline page PNGs are byte-identical.
+Generated packages pass offline version-matched OpenDocument schemas. These
+checks retain the export/printing baseline, without claiming complete Words
+layout/editing parity. Words remains first, Sheets functions next, Stage last.

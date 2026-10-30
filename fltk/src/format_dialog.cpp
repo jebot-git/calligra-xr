@@ -329,10 +329,33 @@ Text style_label(const std::vector<WordsParagraphStyle> &styles,
     matches += other.label == style.label;
   return matches > 1 ? style.label + " (" + style.name + ")" : style.label;
 }
+std::vector<WordsParagraphStyle> dialog_styles(const OdfPackage &package,
+                                               bool text_styles) {
+  if (!text_styles)
+    return words_paragraph_styles(package);
+  std::vector<WordsParagraphStyle> result;
+  for (const auto &style : words_character_styles(package))
+    result.push_back(
+        {style.name, style.label, style.parent, {}, {}, style.hidden});
+  return result;
+}
+Text define_dialog_style(OdfPackage &package,
+                         const WordsParagraphStyleChange &change,
+                         bool text_styles) {
+  if (!text_styles)
+    return define_words_paragraph_style(package, change);
+  return define_words_character_style(
+      package, {change.name, change.label, change.parent, change.character});
+}
+WordsFormatInfo dialog_style_format(const OdfPackage &package, const Text &name,
+                                    bool text_styles) {
+  return text_styles ? words_character_style_format(package, name)
+                     : words_paragraph_style_format(package, name);
+}
 std::optional<WordsParagraphStyleChange>
-edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
-                     const Text &name, const Text &base) {
-  auto styles = words_paragraph_styles(working);
+edit_named_style(Fl_Window &window, const OdfPackage &working, const Text &name,
+                 const Text &base, bool text_styles) {
+  auto styles = dialog_styles(working, text_styles);
   WordsParagraphStyle initial;
   initial.label = "New style";
   initial.parent = base;
@@ -341,7 +364,7 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
         std::find_if(styles.begin(), styles.end(),
                      [&](const auto &style) { return style.name == name; });
     if (found == styles.end())
-      throw std::runtime_error("The paragraph style no longer exists");
+      throw std::runtime_error("The named style no longer exists");
     initial = *found;
   }
   StyleChoice parents, nexts, outlines;
@@ -367,18 +390,20 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
   auto initial_outline = initial.outline.value_or("inherit");
   if (outlines.find(initial_outline) < 0)
     outlines.add(initial_outline, "Current outline: " + initial_outline);
-  const int width = 650, height = 460,
+  const int width = 650, height = text_styles ? 340 : 460,
             x = std::max(0, (window.w() - width) / 2),
             y = std::max(0, (window.h() - height) / 2);
   auto previous = Fl_Group::current();
   window.begin();
   Panel panel(window, previous);
   Fl_Group::current(&panel);
-  Background background(window, x, y, width, height,
-                        name.empty() ? "New paragraph style"
-                                     : "Edit paragraph style");
+  Background background(
+      window, x, y, width, height,
+      text_styles
+          ? (name.empty() ? "New character style" : "Edit character style")
+          : (name.empty() ? "New paragraph style" : "Edit paragraph style"));
   background.hint.copy_label(
-      "Save the definition, then Apply in Paragraph styles");
+      "Save the definition, then Apply in the style chooser");
   Fl_Input label(x + 165, y + 50, 450, 30, "Name:");
   label.value(initial.label.toUtf8().c_str());
   Fl_Choice parent(x + 165, y + 90, 450, 30, "Based on:");
@@ -387,12 +412,18 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
   nexts.attach(next, initial_next);
   Fl_Choice outline(x + 165, y + 170, 450, 30, "Outline:");
   outlines.attach(outline, initial_outline);
+  if (text_styles) {
+    next.hide();
+    outline.hide();
+  }
   int action = 0;
-  ActionButton text(panel, action, 1, x + 165, y + 220, 180,
-                    "Text properties…");
+  ActionButton text(panel, action, 1, x + 165, y + (text_styles ? 140 : 220),
+                    180, "Text properties…");
   ActionButton paragraph(panel, action, 2, x + 355, y + 220, 180,
                          "Paragraph properties…");
-  Fl_Box summary(x + 20, y + 270, width - 40, 40,
+  if (text_styles)
+    paragraph.hide();
+  Fl_Box summary(x + 20, y + (text_styles ? 190 : 270), width - 40, 40,
                  "Property fields inherit until explicitly changed");
   summary.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
   Buttons buttons(panel, x + width - 225, y + height - 50);
@@ -408,9 +439,9 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
       change.label = display;
     if (name.empty() || parents.selected(parent) != initial.parent)
       change.parent = parents.selected(parent);
-    if (nexts.selected(next) != initial_next)
+    if (!text_styles && nexts.selected(next) != initial_next)
       change.next = nexts.selected(next);
-    if (outlines.selected(outline) != initial_outline)
+    if (!text_styles && outlines.selected(outline) != initial_outline)
       change.outline = outlines.selected(outline);
     change.character = character;
     change.paragraph = paragraph_format;
@@ -423,8 +454,8 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
     try {
       auto change = collect();
       auto preview = style_copy(working);
-      auto id = define_words_paragraph_style(preview, change);
-      auto info = words_paragraph_style_format(preview, id);
+      auto id = define_dialog_style(preview, change, text_styles);
+      auto info = dialog_style_format(preview, id, text_styles);
       if (!action)
         return change;
       if (action == 1) {
@@ -434,7 +465,9 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
       } else if (auto format = paragraph_format_dialog(window, info.paragraph))
         paragraph_format.overlay(*format);
       if (!character.empty() || !paragraph_format.empty())
-        summary.label("Text and paragraph property changes are staged");
+        summary.label(text_styles
+                          ? "Text property changes are staged"
+                          : "Text and paragraph property changes are staged");
       summary.redraw();
     } catch (const std::exception &error) {
       background.hint.copy_label(error.what());
@@ -445,8 +478,8 @@ edit_paragraph_style(Fl_Window &window, const OdfPackage &working,
 }
 } // namespace
 std::optional<WordsStylesDialogResult>
-paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
-                        std::optional<Text> selected) {
+styles_dialog(Fl_Window &window, OdfPackage working,
+              std::optional<Text> selected, bool text_styles) {
   const int width = 680, height = 480,
             x = std::max(0, (window.w() - width) / 2),
             y = std::max(0, (window.h() - height) / 2);
@@ -454,7 +487,8 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
   window.begin();
   Panel panel(window, previous);
   Fl_Group::current(&panel);
-  Background background(window, x, y, width, height, "Paragraph styles");
+  Background background(window, x, y, width, height,
+                        text_styles ? "Character styles" : "Paragraph styles");
   background.hint.resize(x + 20, y + height - 180, width - 40, 28);
   background.hint.copy_label("Choose a style, or create and edit definitions");
   Fl_Hold_Browser browser(x + 20, y + 50, width - 40, height - 240);
@@ -468,8 +502,9 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
   ActionButton edit(panel, action, 2, x + 120, y + height - 105, 90, "Edit…");
   ActionButton remove(panel, action, 3, x + 220, y + height - 105, 130,
                       "Delete unused");
-  Fl_Check_Button apply(x + 20, y + height - 65, 280, 30,
-                        "Apply to selected paragraphs");
+  Fl_Check_Button apply(x + 20, y + height - 65, text_styles ? 380 : 280, 30,
+                        text_styles ? "Apply to selected text / future typing"
+                                    : "Apply to selected paragraphs");
   apply.value(1);
   Buttons buttons(panel, x + width - 225, y + height - 50);
   Fl_Group::current(previous);
@@ -482,8 +517,11 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
       remove.deactivate();
       description.copy_label(
           index == 1
-              ? "Default paragraph properties; character formatting is retained"
-              : "Choose a paragraph style");
+              ? (text_styles
+                     ? "Default character properties from the paragraph/cell"
+                     : "Default paragraph properties; character formatting is "
+                       "retained")
+              : "Choose a named style");
     } else {
       edit.activate();
       remove.activate();
@@ -506,6 +544,8 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
           (style.next == style.name ? Text("Same style")
                                     : display(style.next, "Inherited")) +
           "   Outline: " + outline;
+      if (text_styles)
+        caption = "Parent: " + display(style.parent, "Default");
       description.copy_label(caption.toUtf8().c_str());
     }
     description.redraw();
@@ -516,11 +556,12 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
       },
       &describe);
   auto refresh = [&](std::optional<Text> choice) {
-    styles = words_paragraph_styles(working);
+    styles = dialog_styles(working, text_styles);
     names.clear();
     browser.clear();
     names.push_back({});
-    browser.add("(Default paragraph)");
+    browser.add(text_styles ? "(Default character style)"
+                            : "(Default paragraph)");
     for (const auto &style : styles) {
       names.push_back(style.name);
       browser.add(style_label(styles, style).toUtf8().c_str());
@@ -543,32 +584,35 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
         chosen = names.at(size_t(browser.value() - 1));
       if (!action) {
         if (apply.value() && !chosen)
-          throw std::runtime_error("Choose a paragraph style");
+          throw std::runtime_error("Choose a named style");
         // Validate on a temporary document before allowing the outer
         // transaction.
         if (apply.value())
-          (void)words_paragraph_style_format(working, *chosen);
+          (void)dialog_style_format(working, *chosen, text_styles);
         return WordsStylesDialogResult{std::move(working),
                                        apply.value() ? chosen : std::nullopt};
       }
       if (action == 1 || action == 2) {
         if (action == 2 && (!chosen || chosen->empty()))
-          throw std::runtime_error("Choose a named paragraph style to edit");
-        auto change = edit_paragraph_style(window, working,
-                                           action == 2 ? *chosen : Text{},
-                                           chosen.value_or(Text{}));
+          throw std::runtime_error("Choose a named style to edit");
+        auto change =
+            edit_named_style(window, working, action == 2 ? *chosen : Text{},
+                             chosen.value_or(Text{}), text_styles);
         if (change) {
           auto prospective = style_copy(working);
-          auto id = define_words_paragraph_style(prospective, *change);
-          (void)words_paragraph_style_format(prospective, id);
+          auto id = define_dialog_style(prospective, *change, text_styles);
+          (void)dialog_style_format(prospective, id, text_styles);
           working = std::move(prospective);
           refresh(id);
         }
       } else {
         if (!chosen || chosen->empty())
-          throw std::runtime_error("Choose a named paragraph style to delete");
+          throw std::runtime_error("Choose a named style to delete");
         auto prospective = style_copy(working);
-        delete_words_paragraph_style(prospective, *chosen);
+        if (text_styles)
+          delete_words_character_style(prospective, *chosen);
+        else
+          delete_words_paragraph_style(prospective, *chosen);
         working = std::move(prospective);
         refresh(Text{});
       }
@@ -578,5 +622,15 @@ paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
       background.hint.redraw();
     }
   }
+}
+std::optional<WordsStylesDialogResult>
+paragraph_styles_dialog(Fl_Window &window, OdfPackage working,
+                        std::optional<Text> selected) {
+  return styles_dialog(window, std::move(working), selected, false);
+}
+std::optional<WordsStylesDialogResult>
+character_styles_dialog(Fl_Window &window, OdfPackage working,
+                        std::optional<Text> selected) {
+  return styles_dialog(window, std::move(working), selected, true);
 }
 } // namespace DomeOffice

@@ -39,6 +39,30 @@ struct WordsParagraphStyleChange {
   WordsCharacterFormat character;
   WordsParagraphFormat paragraph;
 };
+struct WordsCharacterStyle {
+  Text name, label, parent;
+  bool hidden = false;
+};
+struct WordsCharacterStyleChange {
+  Text name; // Empty creates a unique internal text-style name.
+  std::optional<Text> label, parent;
+  WordsCharacterFormat character;
+};
+std::vector<WordsCharacterStyle> words_character_styles(const OdfPackage &);
+std::optional<Text> words_current_character_style(const OdfPackage &,
+                                                  size_t begin, size_t end);
+Text define_words_character_style(OdfPackage &,
+                                  const WordsCharacterStyleChange &);
+bool delete_words_character_style(OdfPackage &, const Text &name);
+// Preview uses document defaults, or the paragraph/cell defaults at a caret.
+WordsFormatInfo
+words_character_style_format(const OdfPackage &, const Text &name,
+                             std::optional<size_t> position = {});
+// Assignment replaces selected character overrides while retaining the source
+// container hierarchy and IDs. A caret is managed as future typing by
+// TextDocument.
+bool apply_words_character_style(OdfPackage &, size_t begin, size_t end,
+                                 const Text &name);
 std::vector<WordsParagraphStyle> words_paragraph_styles(const OdfPackage &);
 std::optional<Text> words_current_paragraph_style(const OdfPackage &,
                                                   size_t begin, size_t end);

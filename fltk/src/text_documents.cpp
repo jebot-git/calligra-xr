@@ -337,8 +337,11 @@ try {
     auto typing = typing_format_;
     if (typing) {
         if (typing->position >= begin && typing->position <= begin + count) {
-            if (!inserted.empty())
+            if (!inserted.empty()) {
+                if (typing->style)
+                    apply_words_character_style(candidate, begin, begin + inserted.size(), *typing->style);
                 format_words_characters(candidate, begin, begin + inserted.size(), typing->format);
+            }
             typing->position = begin + inserted.size();
             if (inserted.empty() || (paragraph_breaks && inserted.endsWith('\n')))
                 format_words_characters(candidate, typing->position, typing->position, typing->format);
@@ -385,6 +388,11 @@ WordsFormatInfo TextDocument::format_info(TextSelection selection) const
 {
     auto result = read_words_format(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
     if (selection.anchor == selection.cursor && typing_format_ && typing_format_->position == selection.cursor) {
+        if (typing_format_->style) {
+            auto named = words_character_style_format(package_, *typing_format_->style, selection.cursor);
+            result.character = named.character;
+            result.bold = named.bold;
+        }
         result.character.overlay(typing_format_->format);
         if (typing_format_->format.weight)
             result.bold = *typing_format_->format.weight >= 600;
@@ -451,8 +459,14 @@ OdfPackage TextDocument::style_snapshot() const
     result.xml = read_document_xml(package_.xml.toByteArray());
     return result;
 }
+std::optional<Text> TextDocument::current_character_style(TextSelection selection) const
+{
+    if (selection.anchor == selection.cursor && typing_format_ && typing_format_->position == selection.cursor && typing_format_->style)
+        return typing_format_->style;
+    return words_current_character_style(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
+}
 bool TextDocument::commit_styles(OdfPackage candidate, TextSelection selection,
-    uint64_t expected_revision, std::optional<Text> paragraph)
+    uint64_t expected_revision, std::optional<Text> paragraph, std::optional<Text> character)
 try {
     if (edit_cancelled())
         fail("This text edit was cancelled");
@@ -469,13 +483,27 @@ try {
     if (paragraph)
         apply_words_paragraph_style(candidate,
             std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), *paragraph);
+    if (character)
+        apply_words_character_style(candidate,
+            std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), *character);
     if (joined(candidate.body()) != before)
         fail("Style editing would change document text");
     (void)read_text_flow(candidate);
+    auto typing = typing_format_;
+    if (paragraph || (character && selection.anchor != selection.cursor))
+        typing.reset();
+    if (character && selection.anchor == selection.cursor)
+        typing = TypingFormat { selection.cursor, { }, *character };
+    // Validate a transient name before committing; definition-only deletion
+    // can remove a style that has not yet been inserted into the source.
+    if (typing && typing->style && !typing->style->empty()) {
+        auto available = words_character_styles(candidate);
+        if (std::none_of(available.begin(), available.end(), [&](const auto& style) { return style.name == *typing->style; }))
+            typing.reset();
+    }
     auto revision = revision_;
     apply(std::move(candidate), selection, selection);
-    if (paragraph)
-        typing_format_.reset();
+    typing_format_ = std::move(typing);
     return revision_ != revision;
 } catch (...) {
     cancel_edit();

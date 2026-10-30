@@ -137,7 +137,15 @@ CUPS test queues.
   Enter follows the next style and its heading role. Only unused definitions
   can be deleted. Source and changed ZIP parts share one undo/redo step, including
   exact styles/manifest bytes, missing-part restoration and grouped rollback.
-  Character-style assignment/management and outline-number editing remain pending.
+  Format → Character styles manages named text styles with stable identifiers,
+  inheritance and text properties. Range assignment replaces character overrides
+  while retaining paragraph/cell defaults, links, metadata and source IDs;
+  unselected text retains its original style chain. Default character style
+  clears the selected inline overrides. At a caret, the chosen name applies to
+  future typing, so definition edits remain live until insertion. Selection
+  changes and undo end transient typing styles. Definitions and range assignment
+  share the source/ZIP undo transaction. Visited-link/style-class assignment and
+  outline-number editing still need their specialized controls.
   Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical

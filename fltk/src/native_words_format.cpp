@@ -213,31 +213,32 @@ public:
     scan(package.xml, true);
   }
   const auto &named() const { return common; }
-  XmlElement named_paragraph(const Text &name) const {
-    auto found = common.find({"paragraph", name});
+  XmlElement named_style(const Text &family, const Text &name) const {
+    auto found = common.find({family, name});
     if (found == common.end())
-      fail("Choose an existing named paragraph style");
+      fail("Choose an existing named style");
     return found->second;
   }
-  std::vector<XmlElement> paragraph_chain(const Text &name) const {
+  std::vector<XmlElement> named_chain(const Text &family,
+                                      const Text &name) const {
     std::vector<XmlElement> result;
     std::set<Text> seen;
     for (auto current = name; !current.empty();) {
       if (!seen.insert(current).second || result.size() >= 64)
-        fail("Cyclic or excessively deep paragraph style inheritance");
-      auto style = named_paragraph(current);
+        fail("Cyclic or excessively deep named style inheritance");
+      auto style = named_style(family, current);
       result.push_back(style);
       current = style.attributeNS(STYLE, "parent-style-name");
     }
     return result;
   }
-  std::optional<Text> paragraph_base(Text name) const {
+  std::optional<Text> named_base(const Text &family, Text name) const {
     std::set<Text> seen;
     bool first = true;
     while (!name.empty()) {
-      auto automatic_style = automatic.find({"paragraph", name});
+      auto automatic_style = automatic.find({family, name});
       if ((!first || automatic_style == automatic.end()) &&
-          common.contains({"paragraph", name}))
+          common.contains({family, name}))
         return name;
       if (!seen.insert(name).second || seen.size() > 64)
         return {};
@@ -248,16 +249,17 @@ public:
     }
     return Text{};
   }
-  Text paragraph_reference(const Text &name) {
+  Text named_reference(const Text &family, const Text &name) {
     if (name.empty())
       return {};
-    (void)paragraph_chain(name);
-    if (!automatic.contains({"paragraph", name}))
+    (void)named_chain(family, name);
+    if (!automatic.contains({family, name}))
       return name;
     auto style = package.xml.createElementNS(STYLE, "style:style");
-    style.setAttributeNS(STYLE, "style:family", "paragraph");
+    style.setAttributeNS(STYLE, "style:family", family);
     style.setAttributeNS(STYLE, "style:parent-style-name", name);
-    return store(style, "WordsParagraph");
+    return store(style,
+                 family == "paragraph" ? "WordsParagraph" : "WordsCharacter");
   }
   std::optional<int> paragraph_outline(const Text &name,
                                        bool common_only = false) const {
@@ -294,20 +296,23 @@ public:
     }
     return {};
   }
-  Text define_paragraph(const WordsParagraphStyleChange &change) {
+  Text define_named(const Text &family,
+                    const WordsParagraphStyleChange &change) {
     const auto before = external.toByteArray();
     const bool creating = change.name.empty();
     Text name = change.name;
     XmlElement original, style;
     XmlDocument document;
     if (!creating) {
-      original = named_paragraph(name);
+      original = named_style(family, name);
       document = original.ownerDocument();
       style = original.cloneNode(true);
     } else {
       size_t number = 1;
       do {
-        name = "WordsNamed" + Text::number(number++);
+        name = (family == "paragraph" ? Text("WordsNamed")
+                                      : Text("WordsCharacterNamed")) +
+               Text::number(number++);
       } while (names.contains(name));
       if (external.documentElement().isNull()) {
         const auto version =
@@ -321,7 +326,7 @@ public:
       document = external;
       style = document.createElementNS(STYLE, "style:style");
       style.setAttributeNS(STYLE, "style:name", name);
-      style.setAttributeNS(STYLE, "style:family", "paragraph");
+      style.setAttributeNS(STYLE, "style:family", family);
     }
     auto attribute = [&](const char *key, const std::optional<Text> &value,
                          bool remove_empty = true) {
@@ -346,7 +351,7 @@ public:
     if (next && *next == ":self")
       next = name;
     if (next && !next->empty() && *next != name)
-      (void)named_paragraph(*next);
+      (void)named_style(family, *next);
     attribute("next-style-name", next);
     if (change.outline) {
       if (*change.outline == "inherit")
@@ -389,8 +394,8 @@ public:
     }
     if (!change.paragraph.empty())
       overlay_paragraph(properties("paragraph-properties"), change.paragraph);
-    common[{"paragraph", name}] = style;
-    (void)paragraph_chain(name); // Includes the prospective parent link.
+    common[{family, name}] = style;
+    (void)named_chain(family, name); // Includes the prospective parent link.
     if (!creating && equivalent(original, style))
       return name;
     if (creating) {
@@ -414,8 +419,8 @@ public:
       package.set_entry("styles.xml", external.toByteArray(), "text/xml");
     return name;
   }
-  bool erase_paragraph(const Text &name) {
-    auto style = named_paragraph(name);
+  bool erase_named(const Text &family, const Text &name) {
+    auto style = named_style(family, name);
     auto referenced = [&](const XmlDocument &doc) {
       bool used = false;
       std::function<void(XmlElement)> walk = [&](XmlElement node) {
@@ -636,6 +641,94 @@ void format_inlines(XmlElement parent, size_t begin, size_t end,
     n = next;
   }
 }
+// Preserve containers/IDs once. Displaced ancestor styles are reapplied only
+// around unselected fragments, rather than splitting metadata and links.
+XmlNode styled_node(XmlNode node, const std::vector<Text> &chain) {
+  for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+    auto span = node.ownerDocument().createElementNS(TEXT, "text:span");
+    span.setAttributeNS(TEXT, "text:style-name", *it);
+    span.appendChild(node);
+    node = span;
+  }
+  return node;
+}
+void assign_character_inlines(XmlElement parent, size_t begin, size_t end,
+                              const Text &reference,
+                              const std::vector<Text> &inherited = {},
+                              size_t depth = 0) {
+  if (depth > 256)
+    fail("Excessive inline style depth");
+  std::vector<XmlNode> result;
+  size_t offset = 0;
+  for (auto source = parent.firstChild(); !source.isNull();
+       source = source.nextSibling()) {
+    auto length = node_text(source).size();
+    auto first = std::max(begin, offset), last = std::min(end, offset + length);
+    if (first >= last) {
+      result.push_back(styled_node(source.cloneNode(true), inherited));
+    } else if (source.isText() || source.isCDATASection() || control(source)) {
+      auto a = first - offset, b = last - offset;
+      if (a)
+        result.push_back(styled_node(leaf_slice(source, 0, a), inherited));
+      result.push_back(styled_node(leaf_slice(source, a, b),
+                                   reference.empty()
+                                       ? std::vector<Text>{}
+                                       : std::vector<Text>{reference}));
+      if (b < length)
+        result.push_back(styled_node(leaf_slice(source, b, length), inherited));
+    } else if (source.namespaceURI() == TEXT &&
+               (source.localName() == "span" || source.localName() == "a" ||
+                source.localName() == "meta")) {
+      // These source features need a style-aware visited/class cascade before
+      // replacing their character format can preserve all states.
+      if (source.hasAttributeNS(TEXT, "visited-style-name") ||
+          source.hasAttributeNS(TEXT, "class-names"))
+        fail("Character style assignment for visited links or style classes "
+             "requires their specialized editor");
+      auto old = source.attributeNS(TEXT, "style-name");
+      bool clean = true;
+      std::function<void(XmlNode)> inspect = [&](XmlNode node) {
+        for (auto n = node.firstChild(); !n.isNull(); n = n.nextSibling())
+          if (n.isElement()) {
+            if (n.hasAttributeNS(TEXT, "style-name") ||
+                n.hasAttributeNS(TEXT, "class-names") ||
+                n.hasAttributeNS(TEXT, "visited-style-name"))
+              clean = false;
+            inspect(n);
+          }
+      };
+      inspect(source);
+      if (inherited.empty() && old == reference && clean) {
+        result.push_back(source.cloneNode(true));
+      } else {
+        auto copy = source.cloneNode(true).toElement();
+        copy.removeAttributeNS(TEXT, "style-name");
+        auto chain = inherited;
+        if (!old.empty())
+          chain.push_back(old);
+        assign_character_inlines(copy, first - offset, last - offset, reference,
+                                 chain, depth + 1);
+        // An unstyled span has no remaining semantics. Flatten it so repeated
+        // assignments cannot grow one redundant nesting level per edit.
+        if (copy.localName() == "span" && copy.attributes().empty()) {
+          while (!copy.firstChild().isNull()) {
+            auto child = copy.firstChild();
+            copy.removeChild(child);
+            result.push_back(child);
+          }
+        } else
+          result.push_back(copy);
+      }
+    } else
+      fail("Assigning a character style to this inline object requires its "
+           "specialized editor");
+    offset += length;
+  }
+  while (!parent.firstChild().isNull())
+    parent.removeChild(parent.firstChild());
+  for (auto node : result)
+    parent.appendChild(node);
+}
 template <class T>
 void common(std::optional<T> &value, const T &next, bool first) {
   if (first)
@@ -695,6 +788,141 @@ bool WordsParagraphFormat::empty() const {
          !line_factor && !keep_next && !keep_together && !break_before &&
          !orphans && !widows;
 }
+std::vector<WordsCharacterStyle>
+words_character_styles(const OdfPackage &package) {
+  auto copy = package;
+  Catalogue styles(copy);
+  std::vector<WordsCharacterStyle> result;
+  for (const auto &[key, style] : styles.named())
+    if (key.first == "text")
+      result.push_back({key.second,
+                        style.attributeNS(STYLE, "display-name", key.second),
+                        style.attributeNS(STYLE, "parent-style-name"),
+                        style.attributeNS(STYLE, "hidden") == "true" ||
+                            style.attributeNS(STYLE, "hidden") == "1"});
+  std::sort(result.begin(), result.end(), [](const auto &a, const auto &b) {
+    return a.label == b.label ? a.name < b.name : a.label < b.label;
+  });
+  return result;
+}
+Text define_words_character_style(OdfPackage &package,
+                                  const WordsCharacterStyleChange &change) {
+  validate_words_format(change.character);
+  WordsParagraphStyleChange shared;
+  shared.name = change.name;
+  shared.label = change.label;
+  shared.parent = change.parent;
+  shared.character = change.character;
+  Catalogue styles(package);
+  return styles.define_named("text", shared);
+}
+bool delete_words_character_style(OdfPackage &package, const Text &name) {
+  Catalogue styles(package);
+  return styles.erase_named("text", name);
+}
+std::optional<Text> words_current_character_style(const OdfPackage &package,
+                                                  size_t begin, size_t end) {
+  auto all = blocks(package);
+  check_range(all, begin, end);
+  auto copy = package;
+  Catalogue styles(copy);
+  std::optional<Text> result;
+  bool first = true, mixed = false, caret_found = false;
+  std::function<void(XmlNode, std::optional<Text>, size_t &)> walk =
+      [&](XmlNode parent, std::optional<Text> base, size_t &position) {
+        for (auto n = parent.firstChild(); !n.isNull(); n = n.nextSibling()) {
+          if (begin == end && caret_found)
+            return;
+          auto name = n.attributeNS(TEXT, "style-name");
+          auto next = base;
+          if (!name.empty()) {
+            auto own = styles.named_base("text", name);
+            if (!own || !own->empty())
+              next = own;
+          }
+          if (n.namespaceURI() == TEXT &&
+              (n.localName() == "span" || n.localName() == "a" ||
+               n.localName() == "meta"))
+            walk(n, next, position);
+          else {
+            auto length = node_text(n).size();
+            if (length &&
+                (begin == end ? begin >= position && begin <= position + length
+                              : position < end && position + length > begin)) {
+              if (!next)
+                mixed = true;
+              if (first) {
+                result = next;
+                first = false;
+              } else if (result != next)
+                mixed = true;
+              caret_found = true;
+            }
+            position += length;
+          }
+        }
+      };
+  for (const auto &block : all)
+    if (touches(block, begin, end)) {
+      auto position = block.start;
+      walk(block.node, Text{}, position);
+      if (begin == end && caret_found)
+        break;
+    }
+  return mixed ? std::nullopt : first ? std::optional<Text>(Text{}) : result;
+}
+WordsFormatInfo words_character_style_format(const OdfPackage &package,
+                                             const Text &name,
+                                             std::optional<size_t> position) {
+  auto copy = package;
+  copy.xml = read_document_xml(package.xml.toByteArray());
+  Catalogue styles(copy);
+  (void)styles.named_chain("text", name);
+  auto reference = styles.named_reference("text", name);
+  auto all = blocks(copy);
+  size_t start = 0;
+  XmlElement paragraph;
+  if (position) {
+    check_range(all, *position, *position);
+    for (const auto &block : all)
+      if (touches(block, *position, *position)) {
+        paragraph = block.node;
+        start = block.start;
+        break;
+      }
+  } else {
+    auto body = copy.body();
+    while (!body.firstChild().isNull())
+      body.removeChild(body.firstChild());
+  }
+  if (paragraph.isNull()) {
+    paragraph = copy.xml.createElementNS(TEXT, "text:p");
+    copy.body().appendChild(paragraph);
+  }
+  while (!paragraph.firstChild().isNull())
+    paragraph.removeChild(paragraph.firstChild());
+  auto text = copy.xml.createTextNode("x");
+  paragraph.appendChild(reference.empty() ? XmlNode(text)
+                                          : styled_node(text, {reference}));
+  return read_words_format(copy, start, start + 1);
+}
+bool apply_words_character_style(OdfPackage &package, size_t begin, size_t end,
+                                 const Text &name) {
+  auto all = blocks(package);
+  check_range(all, begin, end);
+  Catalogue styles(package);
+  (void)styles.named_chain("text", name);
+  if (begin == end)
+    return false;
+  auto before = package.xml.toByteArray();
+  auto reference = styles.named_reference("text", name);
+  for (const auto &block : all)
+    if (block.start < end && block.start + block.text.size() > begin)
+      assign_character_inlines(
+          block.node, begin > block.start ? begin - block.start : 0,
+          std::min(end - block.start, block.text.size()), reference);
+  return package.xml.toByteArray() != before;
+}
 std::vector<WordsParagraphStyle>
 words_paragraph_styles(const OdfPackage &package) {
   auto copy = package;
@@ -728,8 +956,8 @@ std::optional<Text> words_current_paragraph_style(const OdfPackage &package,
   bool first = true;
   for (const auto &block : all)
     if (touches(block, begin, end)) {
-      auto name =
-          styles.paragraph_base(block.node.attributeNS(TEXT, "style-name"));
+      auto name = styles.named_base("paragraph",
+                                    block.node.attributeNS(TEXT, "style-name"));
       if (!name)
         return {};
       if (first) {
@@ -745,15 +973,15 @@ Text define_words_paragraph_style(OdfPackage &package,
   validate_words_format(change.character);
   validate_words_format(change.paragraph);
   Catalogue styles(package);
-  return styles.define_paragraph(change);
+  return styles.define_named("paragraph", change);
 }
 bool delete_words_paragraph_style(OdfPackage &package, const Text &name) {
   Catalogue styles(package);
-  return styles.erase_paragraph(name);
+  return styles.erase_named("paragraph", name);
 }
 Text words_paragraph_style_reference(OdfPackage &package, const Text &name) {
   Catalogue styles(package);
-  return styles.paragraph_reference(name);
+  return styles.named_reference("paragraph", name);
 }
 std::optional<int> words_paragraph_style_outline(const OdfPackage &package,
                                                  const Text &name) {
@@ -766,14 +994,14 @@ WordsFormatInfo words_paragraph_style_format(const OdfPackage &package,
   auto copy = package;
   copy.xml = read_document_xml(package.xml.toByteArray());
   Catalogue styles(copy);
-  (void)styles.paragraph_chain(name);
+  (void)styles.named_chain("paragraph", name);
   auto body = copy.body();
   while (!body.firstChild().isNull())
     body.removeChild(body.firstChild());
   auto paragraph = copy.xml.createElementNS(TEXT, "text:p");
   if (!name.empty())
     paragraph.setAttributeNS(TEXT, "text:style-name",
-                             styles.paragraph_reference(name));
+                             styles.named_reference("paragraph", name));
   body.appendChild(paragraph);
   return read_words_format(copy, 0, 0);
 }
@@ -786,7 +1014,7 @@ bool apply_words_paragraph_style(OdfPackage &package, size_t begin, size_t end,
   if (name.empty())
     outline = 0;
   else {
-    (void)styles.paragraph_chain(name);
+    (void)styles.named_chain("paragraph", name);
     outline = styles.paragraph_outline(name, true);
   }
   auto before = package.xml.toByteArray();
@@ -795,7 +1023,7 @@ bool apply_words_paragraph_style(OdfPackage &package, size_t begin, size_t end,
     package.body().appendChild(paragraph);
     all.push_back({paragraph, {}, 0});
   }
-  auto reference = styles.paragraph_reference(name);
+  auto reference = styles.named_reference("paragraph", name);
   for (auto &block : all)
     if (touches(block, begin, end)) {
       auto paragraph = block.node;
