@@ -283,7 +283,8 @@ void TextDocument::clear_history()
 void TextDocument::apply(OdfPackage candidate, TextSelection previous, TextSelection next)
 {
     const auto before = package_.xml.toByteArray(), after = candidate.xml.toByteArray();
-    if (before == after)
+    auto parts = candidate.part_changes_from(package_);
+    if (before == after && parts.empty())
         return;
     if (edit_) {
         if (edit_->cancelled)
@@ -301,16 +302,16 @@ void TextDocument::apply(OdfPackage candidate, TextSelection previous, TextSelec
         && before[before.size() - 1 - suffix] == after[after.size() - 1 - suffix])
         ++suffix;
     Edit edit { prefix, before.substr(prefix, before.size() - prefix - suffix),
-        after.substr(prefix, after.size() - prefix - suffix), previous, next, state_, next_state_++ };
+        after.substr(prefix, after.size() - prefix - suffix), previous, next, state_, next_state_++, std::move(parts) };
     for (size_t i = history_index_; i < history_.size(); ++i)
-        history_bytes_ -= history_[i].before.size() + history_[i].after.size();
+        history_bytes_ -= history_[i].bytes();
     history_.resize(history_index_);
-    history_bytes_ += edit.before.size() + edit.after.size();
+    history_bytes_ += edit.bytes();
     history_.push_back(std::move(edit));
     state_ = history_.back().after_state;
     history_index_ = history_.size();
     while (!history_.empty() && (history_.size() > 100 || history_bytes_ > 32 * 1024 * 1024)) {
-        history_bytes_ -= history_.front().before.size() + history_.front().after.size();
+        history_bytes_ -= history_.front().bytes();
         history_.erase(history_.begin());
         --history_index_;
     }
@@ -444,6 +445,42 @@ try {
     cancel_edit();
     throw;
 }
+OdfPackage TextDocument::style_snapshot() const
+{
+    auto result = package_;
+    result.xml = read_document_xml(package_.xml.toByteArray());
+    return result;
+}
+bool TextDocument::commit_styles(OdfPackage candidate, TextSelection selection,
+    uint64_t expected_revision, std::optional<Text> paragraph)
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
+    if (read_only())
+        fail("This document is read-only");
+    if (revision_ != expected_revision)
+        fail("The document changed while styles were being edited");
+    if (candidate.kind() != Kind::Words || candidate.read_only())
+        fail("Invalid style document");
+    auto before = text();
+    if (selection.anchor > before.size() || selection.cursor > before.size())
+        fail("Invalid text selection");
+    candidate.xml = read_document_xml(candidate.xml.toByteArray());
+    if (paragraph)
+        apply_words_paragraph_style(candidate,
+            std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), *paragraph);
+    if (joined(candidate.body()) != before)
+        fail("Style editing would change document text");
+    (void)read_text_flow(candidate);
+    auto revision = revision_;
+    apply(std::move(candidate), selection, selection);
+    if (paragraph)
+        typing_format_.reset();
+    return revision_ != revision;
+} catch (...) {
+    cancel_edit();
+    throw;
+}
 std::optional<TextSelection> TextDocument::travel(bool redo)
 {
     typing_format_.reset();
@@ -461,9 +498,11 @@ std::optional<TextSelection> TextDocument::travel(bool redo)
         fail("Words undo history does not match the document");
     bytes.std::string::replace(edit.offset, from.size(), to);
     OdfPackage candidate = package_;
-    candidate.xml = read_document_xml(bytes);
-    if (paragraphs(candidate.body()).empty())
-        fail("Undo would remove every paragraph");
+    if (from != to)
+        candidate.xml = read_document_xml(bytes);
+    candidate.replay_part_changes(edit.parts, redo);
+    if (candidate.body().isNull())
+        fail("Undo would remove the document body");
     package_ = std::move(candidate);
     history_index_ = redo ? history_index_ + 1 : history_index_ - 1;
     state_ = redo ? edit.after_state : edit.before_state;

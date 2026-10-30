@@ -2333,7 +2333,7 @@ TextFlow read_text_flow(const OdfPackage &package) {
       fail("Document exceeds native layout text limit");
   }
   if (reader.flow.paragraphs.empty())
-    reader.flow.paragraphs.emplace_back();
+    reader.flow.paragraphs.push_back(reader.make_paragraph({}, nullptr, false));
   return std::move(reader.flow);
 }
 

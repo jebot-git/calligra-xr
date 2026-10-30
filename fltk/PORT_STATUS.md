@@ -34,13 +34,23 @@ IDs, styles and native undo checkpoints; split list tails retain continuation
 references. More complex paragraph-level list cases remain unfinished below.
 
 Words also has native character and paragraph formatting through the universal
-Format menu. Bold/italic, font family, size and color act on Unicode ranges or
+Format menu. Bold/italic, underline/strike, highlighting, font family, size and color act on Unicode ranges or
 future typing at a caret; empty-paragraph defaults survive save/reopen.
 Paragraph controls cover alignment, margins, first-line indent, spacing,
 keep rules, page breaks and widow/orphan limits. Direct styles preserve source
 runs, links, metadata and structural containers. Formatting shares native XML
 undo/redo and saved-state tracking. Words opens in native paginated editing with a caret ready for keyboard input.
 The explicit Text view option retains the legacy plain text buffer.
+
+Format → Paragraph styles creates and edits named definitions with parent/next
+styles, heading roles and text/paragraph properties. Renaming preserves internal
+identifiers. Apply stages definitions and optional assignment as one undo step;
+Cancel discards them. Undo restores changed archive parts and their exact
+manifest/styles bytes, including an originally absent styles part. Enter follows
+the next style and heading role. Only unused definitions may be deleted. Valid
+empty ODT bodies support typing, formatting and style assignment, with undo back
+to the empty body. Named character styles and outline-number editing remain
+unimplemented.
 
 Native Words page editing provides a grapheme-safe caret, visual bidi/ligature
 navigation, vertical and word/paragraph movement, GPU range selection, mouse
@@ -144,7 +154,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation/structural editing and reflow performance, underline/strike/highlight and named-style/list controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph style management/assignment with archive-part undo, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation/structural editing and reflow performance, named character styles and list controls, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -242,8 +252,8 @@ the rich editor. Exit of empty continuation paragraphs/items with nested content
 nested exit before following content, and outdent before trailing parent text
 remain unsupported and reject atomically. List-formatting controls, broader
 paragraph/mixed-level list edits and general table structure tools remain
-unfinished. Underline/strike/highlight, named styles, more character controls
-and editing directly on paginated rich text also remain unfinished. Undo restores styled XML,
+unfinished. Named character styles, more character controls and specialized
+outline-number editing remain unfinished. Undo restores styled XML,
 selection/caret and saved-state identity. Each frontend buffer-edit event now
 has a shared native transaction: selection deletion and insertion form one
 command, and a rejected callback rolls back the entire event without consuming

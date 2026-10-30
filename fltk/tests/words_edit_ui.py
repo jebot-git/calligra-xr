@@ -164,9 +164,12 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--styles-only', action='store_true', help='Run focused named paragraph style UI checks')
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.styles_only and (args.page_only or args.format_only or args.ime):
+    parser.error('--styles-only is incompatible with --page-only/--format-only/--ime')
 if args.format_only and (args.page_only or args.ime):
     parser.error('--format-only is incompatible with --page-only/--ime')
 if args.ime and not args.wayland:
@@ -411,7 +414,7 @@ try:
         with zipfile.ZipFile(source) as archive:
             original_styles = archive.read('styles.xml')
 
-        def save(name):
+        def save(name, style_check=None):
             before = source.stat().st_ino
             key('s', ('Control_L',))
             # A false modified flag may belong to the prior report snapshot.
@@ -421,7 +424,10 @@ try:
             raw = source.read_bytes()
             (art / (name + '.odt')).write_bytes(raw)
             with zipfile.ZipFile(source) as archive:
-                assert archive.read('styles.xml') == original_styles
+                if style_check is None:
+                    assert archive.read('styles.xml') == original_styles
+                else:
+                    style_check(archive.read('styles.xml'))
                 assert archive.read('Extras/opaque.bin') == b'\0keep\xff'
                 xml = archive.read('content.xml')
             root = ET.fromstring(xml)
@@ -462,229 +468,380 @@ try:
                 return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                         for e in root.iter(STYLE+'style')}
 
-            # Invalid fields stay in the panel and cannot consume redo or saved
-            # state. Correcting a quoted fallback list must render and round-trip.
-            go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
-            key('z', ('Control_L',)); check_text(original, 2)
-            assert data()['editing']['can_redo'] and not data()['modified']
-            go(6); key('Right', ('Shift_L',), count=5)
-            key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
-            x, y = panel_origin(560, 390)
-            revision = data()['editing']['revision']
-            for name in ("Hack'", '"Hack', ", '', "):
-                field(x+250, y+65, name)
+            if not args.styles_only:
+                # Invalid fields stay in the panel and cannot consume redo or saved
+                # state. Correcting a quoted fallback list must render and round-trip.
+                go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
+                key('z', ('Control_L',)); check_text(original, 2)
+                assert data()['editing']['can_redo'] and not data()['modified']
+                go(6); key('Right', ('Shift_L',), count=5)
+                key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+                x, y = panel_origin(560, 390)
+                revision = data()['editing']['revision']
+                for name in ("Hack'", '"Hack', ", '', "):
+                    field(x+250, y+65, name)
+                    click(x+480, y+355); time.sleep(.25)
+                    assert data()['format_dialog'] and not data()['modified']
+                    assert data()['editing']['can_redo'] and data()['editing']['revision'] == revision
+                capture_window('invalid-family-dialog')
+                field(x+250, y+65, "'Unavailable, Font', \"Hack\"")
+                field(x+190, y+105, '0')
                 click(x+480, y+355); time.sleep(.25)
                 assert data()['format_dialog'] and not data()['modified']
-                assert data()['editing']['can_redo'] and data()['editing']['revision'] == revision
-            capture_window('invalid-family-dialog')
-            field(x+250, y+65, "'Unavailable, Font', \"Hack\"")
-            field(x+190, y+105, '0')
-            click(x+480, y+355); time.sleep(.25)
-            assert data()['format_dialog'] and not data()['modified']
-            field(x+190, y+105, '12')
-            field(x+220, y+225, '#gggggg')
-            click(x+480, y+355); time.sleep(.25)
-            assert data()['format_dialog'] and not data()['modified']
-            field(x+220, y+225, '#102030')
-            field(x+220, y+265, 'auto')
-            click(x+480, y+355); time.sleep(.25)
-            assert data()['format_dialog'] and not data()['modified']
-            assert data()['editing']['can_redo']
-            field(x+220, y+265, 'transparent')
-            click(x+480, y+355)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root, _ = save('format-quoted-family')
-            assert any(p is not None and p.get(FO+'font-family') == "'Unavailable, Font', \"Hack\""
-                       for p in text_properties(root).values())
-            view_labels('quoted-family-layout')
-            key('z', ('Control_L',)); assert save('format-quoted-family-undone')[1] == original_xml
-            # Cancellation after a validation error retains the prior typing patch.
-            go(2); key('b', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
-            key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
-            field(x+250, y+65, "Hack'")
-            click(x+480, y+355); time.sleep(.25)
-            assert data()['format_dialog'] and not data()['modified']
-            key('Escape'); wait(lambda: not data()['format_dialog'])
-            assert data()['editing']['typing_format'] and not data()['modified']
-            select_all(); wait(lambda: not data()['editing']['typing_format'])
-            go(2); key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
-            menu_action('Select all')
-            wait(lambda: data()['editing']['cursor'] == len(original) and not data()['editing']['typing_format'])
-            # Paragraph numeric errors have the same non-destructive correction path.
-            go(original.index('Section alpha'))
-            menu_action('Paragraph…'); wait(lambda: data()['format_dialog'])
-            x, y = panel_origin(700, 470)
-            field(x+575, y+155, '0')
-            click(x+620, y+435); time.sleep(.25)
-            assert data()['format_dialog'] and not data()['modified']
-            capture_window('invalid-paragraph-dialog')
-            key('Escape'); wait(lambda: not data()['format_dialog'])
-            assert save('format-invalid-cancelled')[1] == original_xml
-
-            # Formatting is a native XML command with the same range and checkpoint
-            # semantics as text editing, including mixed/inherited source styles.
-            go(6)
-            key('Right', ('Shift_L',), count=5)
-            key('b', ('Control_L',))  # Existing selected word is bold: turn it off.
-            wait(lambda: data()['modified'])
-            check_text(original, 11)
-            root, normal_xml = save('format-normal')
-            assert any(p is not None and p.get(FO+'font-weight') == '400'
-                       for p in text_properties(root).values())
-            key('z', ('Control_L',))
-            check_text(original, 11)
-            assert data()['editing']['anchor'] == 6
-            assert save('format-normal-undone')[1] == original_xml
-            key('y', ('Control_L',))
-            assert save('format-normal-redone')[1] == normal_xml
-            key('z', ('Control_L',))
-            assert save('format-normal-restored')[1] == original_xml
-            key('i', ('Control_L',))
-            wait(lambda: data()['modified'])
-            root, italic_xml = save('format-italic')
-            assert any(p is not None and p.get(FO+'font-style') == 'italic'
-                       for p in text_properties(root).values())
-            key('z', ('Control_L',))
-            assert save('format-italic-undone')[1] == original_xml
-
-            for field_name, action in [('text-underline', lambda: key('u', ('Control_L',))),
-                                       ('text-line-through', lambda: menu_action('Strikethrough'))]:
-                action(); wait(lambda: data()['modified'])
-                root, line_xml = save('format-'+field_name)
-                assert any(p is not None and p.get(STYLE+field_name+'-style') == 'solid' and
-                           p.get(STYLE+field_name+'-type') == 'single'
+                field(x+190, y+105, '12')
+                field(x+220, y+225, '#gggggg')
+                click(x+480, y+355); time.sleep(.25)
+                assert data()['format_dialog'] and not data()['modified']
+                field(x+220, y+225, '#102030')
+                field(x+220, y+265, 'auto')
+                click(x+480, y+355); time.sleep(.25)
+                assert data()['format_dialog'] and not data()['modified']
+                assert data()['editing']['can_redo']
+                field(x+220, y+265, 'transparent')
+                click(x+480, y+355)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root, _ = save('format-quoted-family')
+                assert any(p is not None and p.get(FO+'font-family') == "'Unavailable, Font', \"Hack\""
                            for p in text_properties(root).values())
-                view_labels(field_name+'-layout')
-                action(); wait(lambda: data()['modified'])
-                root, _ = save('format-'+field_name+'-off')
-                assert any(p is not None and p.get(STYLE+field_name+'-style') == 'none' and
-                           p.get(STYLE+field_name+'-type') is None
+                view_labels('quoted-family-layout')
+                key('z', ('Control_L',)); assert save('format-quoted-family-undone')[1] == original_xml
+                # Cancellation after a validation error retains the prior typing patch.
+                go(2); key('b', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
+                key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+                field(x+250, y+65, "Hack'")
+                click(x+480, y+355); time.sleep(.25)
+                assert data()['format_dialog'] and not data()['modified']
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                assert data()['editing']['typing_format'] and not data()['modified']
+                select_all(); wait(lambda: not data()['editing']['typing_format'])
+                go(2); key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
+                menu_action('Select all')
+                wait(lambda: data()['editing']['cursor'] == len(original) and not data()['editing']['typing_format'])
+                # Paragraph numeric errors have the same non-destructive correction path.
+                go(original.index('Section alpha'))
+                menu_action('Paragraph…'); wait(lambda: data()['format_dialog'])
+                x, y = panel_origin(700, 470)
+                field(x+575, y+155, '0')
+                click(x+620, y+435); time.sleep(.25)
+                assert data()['format_dialog'] and not data()['modified']
+                capture_window('invalid-paragraph-dialog')
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                assert save('format-invalid-cancelled')[1] == original_xml
+
+                # Formatting is a native XML command with the same range and checkpoint
+                # semantics as text editing, including mixed/inherited source styles.
+                go(6)
+                key('Right', ('Shift_L',), count=5)
+                key('b', ('Control_L',))  # Existing selected word is bold: turn it off.
+                wait(lambda: data()['modified'])
+                check_text(original, 11)
+                root, normal_xml = save('format-normal')
+                assert any(p is not None and p.get(FO+'font-weight') == '400'
                            for p in text_properties(root).values())
-                key('z', ('Control_L',)); assert save('format-'+field_name+'-restored')[1] == line_xml
-                key('z', ('Control_L',)); assert save('format-'+field_name+'-undone')[1] == original_xml
+                key('z', ('Control_L',))
+                check_text(original, 11)
+                assert data()['editing']['anchor'] == 6
+                assert save('format-normal-undone')[1] == original_xml
+                key('y', ('Control_L',))
+                assert save('format-normal-redone')[1] == normal_xml
+                key('z', ('Control_L',))
+                assert save('format-normal-restored')[1] == original_xml
+                key('i', ('Control_L',))
+                wait(lambda: data()['modified'])
+                root, italic_xml = save('format-italic')
+                assert any(p is not None and p.get(FO+'font-style') == 'italic'
+                           for p in text_properties(root).values())
+                key('z', ('Control_L',))
+                assert save('format-italic-undone')[1] == original_xml
 
-            key('d', ('Control_L',))
-            wait(lambda: data()['format_dialog'])
-            x, y = panel_origin(560, 390)
-            field(x+250, y+65, 'Hack')
-            field(x+190, y+105, '22')
-            click(x+220, y+145); key('Up'); key('Return')  # Bold: Yes -> No
-            click(x+220, y+185); key('Down'); key('Return')  # Italic: No -> Yes
-            click(x+460, y+145); key('Down'); key('Return')  # Underline: No -> Yes
-            click(x+460, y+185); key('Down'); key('Return')  # Strikethrough: No -> Yes
-            field(x+220, y+225, '#b02040')
-            field(x+220, y+265, '#fff176')
-            capture_window('character-dialog')
-            click(x+480, y+355)
-            wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root, font_xml = save('format-font')
-            assert any(p is not None and p.get(FO+'font-size') == '22pt' and
-                       p.get(FO+'font-family') == 'Hack' and p.get(FO+'color') == '#b02040' and
-                       p.get(FO+'font-weight') == '400' and p.get(FO+'font-style') == 'italic' and
-                       p.get(FO+'background-color') == '#fff176' and
-                       p.get(STYLE+'text-underline-style') == 'solid' and
-                       p.get(STYLE+'text-line-through-style') == 'solid'
-                       for p in text_properties(root).values())
-            view_labels('character-formatted-layout')
-            menu_action('Page layout')
-            wait(lambda: data()['page_layout']['visible'])
-            key('Right'); time.sleep(.4)
-            unselected = capture_window('highlight-unselected')
-            yellow_before = color_count(unselected, (255,241,118))
-            assert yellow_before > 100, yellow_before
-            go(6); key('Right', ('Shift_L',), count=5); time.sleep(.4)
-            selected = capture_window('highlight-selected')
-            yellow_after = color_count(selected, (255,241,118))
-            assert yellow_after < yellow_before, (yellow_before, yellow_after)
-            layout_report['highlight'] = {'unselected_yellow_pixels': yellow_before,
-                                          'selected_yellow_pixels': yellow_after,
-                                          'selection_visible_over_highlight': True}
-            primary_view()
-            key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
-            field(x+220, y+265, 'transparent')
-            click(x+480, y+355); wait(lambda: not data()['format_dialog'])
-            cleared, _ = save('format-highlight-cleared')
-            assert any(p is not None and p.get(FO+'background-color') == 'transparent'
-                       for p in text_properties(cleared).values())
-            key('z', ('Control_L',))
-            assert save('format-highlight-restored')[1] == font_xml
-            # Cancel and unchanged Apply must not consume an undo entry or redo.
-            menu_action('Font…'); wait(lambda: data()['format_dialog'])
-            field(x+190, y+105, '30')
+                for field_name, action in [('text-underline', lambda: key('u', ('Control_L',))),
+                                           ('text-line-through', lambda: menu_action('Strikethrough'))]:
+                    action(); wait(lambda: data()['modified'])
+                    root, line_xml = save('format-'+field_name)
+                    assert any(p is not None and p.get(STYLE+field_name+'-style') == 'solid' and
+                               p.get(STYLE+field_name+'-type') == 'single'
+                               for p in text_properties(root).values())
+                    view_labels(field_name+'-layout')
+                    action(); wait(lambda: data()['modified'])
+                    root, _ = save('format-'+field_name+'-off')
+                    assert any(p is not None and p.get(STYLE+field_name+'-style') == 'none' and
+                               p.get(STYLE+field_name+'-type') is None
+                               for p in text_properties(root).values())
+                    key('z', ('Control_L',)); assert save('format-'+field_name+'-restored')[1] == line_xml
+                    key('z', ('Control_L',)); assert save('format-'+field_name+'-undone')[1] == original_xml
+
+                key('d', ('Control_L',))
+                wait(lambda: data()['format_dialog'])
+                x, y = panel_origin(560, 390)
+                field(x+250, y+65, 'Hack')
+                field(x+190, y+105, '22')
+                click(x+220, y+145); key('Up'); key('Return')  # Bold: Yes -> No
+                click(x+220, y+185); key('Down'); key('Return')  # Italic: No -> Yes
+                click(x+460, y+145); key('Down'); key('Return')  # Underline: No -> Yes
+                click(x+460, y+185); key('Down'); key('Return')  # Strikethrough: No -> Yes
+                field(x+220, y+225, '#b02040')
+                field(x+220, y+265, '#fff176')
+                capture_window('character-dialog')
+                click(x+480, y+355)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root, font_xml = save('format-font')
+                assert any(p is not None and p.get(FO+'font-size') == '22pt' and
+                           p.get(FO+'font-family') == 'Hack' and p.get(FO+'color') == '#b02040' and
+                           p.get(FO+'font-weight') == '400' and p.get(FO+'font-style') == 'italic' and
+                           p.get(FO+'background-color') == '#fff176' and
+                           p.get(STYLE+'text-underline-style') == 'solid' and
+                           p.get(STYLE+'text-line-through-style') == 'solid'
+                           for p in text_properties(root).values())
+                view_labels('character-formatted-layout')
+                menu_action('Page layout')
+                wait(lambda: data()['page_layout']['visible'])
+                key('Right'); time.sleep(.4)
+                unselected = capture_window('highlight-unselected')
+                yellow_before = color_count(unselected, (255,241,118))
+                assert yellow_before > 100, yellow_before
+                go(6); key('Right', ('Shift_L',), count=5); time.sleep(.4)
+                selected = capture_window('highlight-selected')
+                yellow_after = color_count(selected, (255,241,118))
+                assert yellow_after < yellow_before, (yellow_before, yellow_after)
+                layout_report['highlight'] = {'unselected_yellow_pixels': yellow_before,
+                                              'selected_yellow_pixels': yellow_after,
+                                              'selection_visible_over_highlight': True}
+                primary_view()
+                key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+                field(x+220, y+265, 'transparent')
+                click(x+480, y+355); wait(lambda: not data()['format_dialog'])
+                cleared, _ = save('format-highlight-cleared')
+                assert any(p is not None and p.get(FO+'background-color') == 'transparent'
+                           for p in text_properties(cleared).values())
+                key('z', ('Control_L',))
+                assert save('format-highlight-restored')[1] == font_xml
+                # Cancel and unchanged Apply must not consume an undo entry or redo.
+                menu_action('Font…'); wait(lambda: data()['format_dialog'])
+                field(x+190, y+105, '30')
+                key('Escape'); wait(lambda: not data()['format_dialog'])
+                assert not data()['modified'] and save('format-font-cancelled')[1] == font_xml
+                key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
+                click(x+480, y+355); wait(lambda: not data()['format_dialog'])
+                assert not data()['modified'] and save('format-font-unchanged')[1] == font_xml
+                key('z', ('Control_L',))
+                assert save('format-font-undone')[1] == original_xml
+                key('y', ('Control_L',)); assert save('format-font-redone')[1] == font_xml
+                key('z', ('Control_L',)); assert save('format-font-restored')[1] == original_xml
+
+                # Alignment shortcuts and a paragraph dialog retain the current range.
+                go(original.index('Section alpha')+2)
+                key('e', ('Control_L',))
+                wait(lambda: data()['modified'])
+                root, centered_xml = save('format-center')
+                assert any(e.get(FO+'text-align') == 'center' for e in root.iter(STYLE+'paragraph-properties'))
+                key('z', ('Control_L',)); assert save('format-center-undone')[1] == original_xml
+                menu_action('Paragraph…'); wait(lambda: data()['format_dialog'])
+                x, y = panel_origin(700, 470)
+                click(x+220, y+65); key('Up', count=3); key('Return')  # Start -> Center
+                click(x+220, y+290); key('Down'); key('Return')  # Keep together: Yes
+                click(x+600, y+290); key('Down'); key('Return')  # Keep with next: Yes
+                field(x+185, y+110, '24')
+                field(x+575, y+110, '12')
+                field(x+185, y+155, '-6')
+                field(x+575, y+155, '1.5')
+                field(x+185, y+200, '9')
+                field(x+575, y+200, '11')
+                capture_window('paragraph-dialog')
+                click(x+620, y+435)
+                wait(lambda: not data()['format_dialog'] and data()['modified'])
+                root, para_xml = save('format-paragraph')
+                assert any(e.get(FO+'margin-left') == '24pt' and e.get(FO+'margin-right') == '12pt' and
+                           e.get(FO+'text-indent') == '-6pt' and e.get(FO+'line-height') == '150%' and
+                           e.get(FO+'text-align') == 'center' and e.get(FO+'keep-together') == 'always' and
+                           e.get(FO+'keep-with-next') == 'always'
+                           for e in root.iter(STYLE+'paragraph-properties'))
+                view_labels('paragraph-formatted-layout')
+                key('z', ('Control_L',)); assert save('format-paragraph-undone')[1] == original_xml
+                key('y', ('Control_L',)); assert save('format-paragraph-redone')[1] == para_xml
+                key('z', ('Control_L',)); assert save('format-paragraph-restored')[1] == original_xml
+
+                # With a caret, format only future typing. Navigation ends that format.
+                go(2)
+                key('b', ('Control_L',))
+                key('u', ('Control_L',)); menu_action('Strikethrough')
+                wait(lambda: data()['editing']['typing_format'])
+                assert not data()['modified']
+                key('x'); check_text(original[:2]+'x'+original[2:], 3)
+                root, typed_xml = save('format-typed')
+                assert any(p is not None and p.get(FO+'font-weight') == '700' and
+                           p.get(STYLE+'text-underline-style') == 'solid' and
+                           p.get(STYLE+'text-line-through-style') == 'solid'
+                           for p in text_properties(root).values())
+                key('z', ('Control_L',)); check_text(original, 2)
+                assert save('format-typed-undone')[1] == original_xml
+                key('y', ('Control_L',)); check_text(original[:2]+'x'+original[2:], 3)
+                assert save('format-typed-redone')[1] == typed_xml
+                key('z', ('Control_L',)); check_text(original, 2)
+                assert save('format-typed-restored')[1] == original_xml
+                key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
+                key('Right'); wait(lambda: not data()['editing']['typing_format'])
+                assert not data()['modified']
+                if args.format_only:
+                    key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
+                    (art / 'results.json').write_text(json.dumps({
+                        'native_wayland': args.wayland, 'external_producer': 'odfpy',
+                        'focused_character_paragraph_formatting': True,
+                        'native_underline_strike_highlight': True,
+                        'typing_format_cancel_undo_redo': True,
+                        'source_archive_preservation': True,
+                        'full_native_editor_regressions': False,
+                        'page_layout': layout_report}, indent=2)+'\n')
+                    print('PASS focused Words native character/paragraph formatting, source/history and typing', flush=True)
+                    raise FormatComplete
+            # Named definitions and paragraph assignment are one source/ZIP
+            # transaction. Cancel must discard staged definitions and retain redo.
+            O = '{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+            def parts(name):
+                with zipfile.ZipFile(art/(name+'.odt')) as archive:
+                    return tuple(archive.read(e) for e in ('content.xml','styles.xml','META-INF/manifest.xml'))
+            original_parts = parts('original')
+            def exact_styles(expected):
+                def check(value):
+                    assert value == expected
+                return check
+            def canonical(node):
+                return (node.tag, sorted(node.attrib.items()),
+                        node.text if node.text and node.text.strip() else '',
+                        tuple(canonical(child) for child in node))
+            original_style_tree = ET.fromstring(original_styles)
+            style_id = []
+            def definition_check(label, size):
+                def check(raw):
+                    tree = ET.fromstring(raw)
+                    old_group = original_style_tree.find(O+'styles')
+                    group = tree.find(O+'styles')
+                    assert [canonical(e) for e in list(group)[:len(old_group)]] == [canonical(e) for e in old_group]
+                    assert len(group) == len(old_group)+1
+                    named = [e for e in group if e.get(STYLE+'display-name') == label]
+                    assert len(named) == 1
+                    node = named[0]
+                    identifier = node.get(STYLE+'name')
+                    assert identifier.startswith('WordsNamed')
+                    if style_id: assert style_id[0] == identifier
+                    else: style_id.append(identifier)
+                    assert node.get(STYLE+'parent-style-name') == 'Body'
+                    assert node.get(STYLE+'default-outline-level') == '2'
+                    props = node.find(STYLE+'text-properties')
+                    assert props.get(FO+'font-family') == 'Hack' and props.get(FO+'font-size') == str(size)+'pt'
+                    assert props.get(FO+'font-weight') == '700' and props.get(FO+'color') == '#165aa7'
+                    assert props.get(STYLE+'text-underline-style') == 'solid'
+                return check
+            def choice(x, y, index, current=0):
+                click(x,y)
+                delta=index-current
+                key('Down' if delta>=0 else 'Up', count=abs(delta))
+                key('Return'); time.sleep(.15)
+            def open_styles():
+                menu_action('Paragraph styles…'); wait(lambda: data()['format_dialog'])
+                time.sleep(.2)
+                return panel_origin(680,480)
+            # A staged create can be corrected after validation and then cancelled.
+            go(6); key('Right', ('Shift_L',), count=5)
+            before = data()['editing'].copy()
+            x,y = open_styles(); click(x+65,y+390); time.sleep(.2)
+            x,y = panel_origin(650,460)
+            field(x+300,y+65,'')
+            click(x+575,y+425); time.sleep(.2)
+            assert data()['format_dialog'] and not data()['modified']
+            field(x+300,y+65,'Temporary')
+            click(x+575,y+425); time.sleep(.3)
+            assert not data()['modified']
             key('Escape'); wait(lambda: not data()['format_dialog'])
-            assert not data()['modified'] and save('format-font-cancelled')[1] == font_xml
-            key('d', ('Control_L',)); wait(lambda: data()['format_dialog'])
-            click(x+480, y+355); wait(lambda: not data()['format_dialog'])
-            assert not data()['modified'] and save('format-font-unchanged')[1] == font_xml
-            key('z', ('Control_L',))
-            assert save('format-font-undone')[1] == original_xml
-            key('y', ('Control_L',)); assert save('format-font-redone')[1] == font_xml
-            key('z', ('Control_L',)); assert save('format-font-restored')[1] == original_xml
-
-            # Alignment shortcuts and a paragraph dialog retain the current range.
-            go(original.index('Section alpha')+2)
-            key('e', ('Control_L',))
-            wait(lambda: data()['modified'])
-            root, centered_xml = save('format-center')
-            assert any(e.get(FO+'text-align') == 'center' for e in root.iter(STYLE+'paragraph-properties'))
-            key('z', ('Control_L',)); assert save('format-center-undone')[1] == original_xml
-            menu_action('Paragraph…'); wait(lambda: data()['format_dialog'])
-            x, y = panel_origin(700, 470)
-            click(x+220, y+65); key('Up', count=3); key('Return')  # Start -> Center
-            click(x+220, y+290); key('Down'); key('Return')  # Keep together: Yes
-            click(x+600, y+290); key('Down'); key('Return')  # Keep with next: Yes
-            field(x+185, y+110, '24')
-            field(x+575, y+110, '12')
-            field(x+185, y+155, '-6')
-            field(x+575, y+155, '1.5')
-            field(x+185, y+200, '9')
-            field(x+575, y+200, '11')
-            capture_window('paragraph-dialog')
-            click(x+620, y+435)
+            assert data()['editing']['can_redo'] == before['can_redo']
+            assert save('styles-staged-cancelled')[1] == original_xml
+            assert parts('styles-staged-cancelled') == original_parts
+            # New style inherits Body, has explicit heading role and a self next.
+            x,y = open_styles(); click(x+65,y+390); time.sleep(.2)
+            x,y = panel_origin(650,460)
+            field(x+300,y+65,'Notice')
+            choice(x+300,y+105,1,current=2)  # Body, rather than First's forced page break.
+            choice(x+300,y+145,1)  # Same style.
+            choice(x+300,y+185,3)  # Heading 2.
+            click(x+250,y+235); time.sleep(.2)
+            x,y = panel_origin(560,390)
+            field(x+250,y+65,'Hack'); field(x+190,y+105,'20')
+            choice(x+220,y+145,2,current=1); choice(x+460,y+145,2,current=1)
+            field(x+220,y+225,'#165aa7')
+            click(x+480,y+355); time.sleep(.3)
+            x,y = panel_origin(650,460)
+            click(x+445,y+235); time.sleep(.2)
+            x,y = panel_origin(700,470)
+            # Match the existing paragraph panel's control positions.
+            choice(x+185,y+65,2,current=5)  # Center.
+            field(x+185,y+110,'24'); field(x+575,y+110,'12')
+            field(x+185,y+155,'-6')
+            click(x+620,y+435); time.sleep(.3)
+            x,y = panel_origin(650,460)
+            capture_window('named-style-editor')
+            click(x+575,y+425); time.sleep(.3)
+            assert not data()['modified']
+            x,y = panel_origin(680,480)
+            capture_window('named-style-chooser')
+            click(x+605,y+445)
             wait(lambda: not data()['format_dialog'] and data()['modified'])
-            root, para_xml = save('format-paragraph')
-            assert any(e.get(FO+'margin-left') == '24pt' and e.get(FO+'margin-right') == '12pt' and
-                       e.get(FO+'text-indent') == '-6pt' and e.get(FO+'line-height') == '150%' and
-                       e.get(FO+'text-align') == 'center' and e.get(FO+'keep-together') == 'always' and
-                       e.get(FO+'keep-with-next') == 'always'
-                       for e in root.iter(STYLE+'paragraph-properties'))
-            view_labels('paragraph-formatted-layout')
-            key('z', ('Control_L',)); assert save('format-paragraph-undone')[1] == original_xml
-            key('y', ('Control_L',)); assert save('format-paragraph-redone')[1] == para_xml
-            key('z', ('Control_L',)); assert save('format-paragraph-restored')[1] == original_xml
-
-            # With a caret, format only future typing. Navigation ends that format.
-            go(2)
-            key('b', ('Control_L',))
-            key('u', ('Control_L',)); menu_action('Strikethrough')
-            wait(lambda: data()['editing']['typing_format'])
-            assert not data()['modified']
-            key('x'); check_text(original[:2]+'x'+original[2:], 3)
-            root, typed_xml = save('format-typed')
-            assert any(p is not None and p.get(FO+'font-weight') == '700' and
-                       p.get(STYLE+'text-underline-style') == 'solid' and
-                       p.get(STYLE+'text-line-through-style') == 'solid'
-                       for p in text_properties(root).values())
-            key('z', ('Control_L',)); check_text(original, 2)
-            assert save('format-typed-undone')[1] == original_xml
-            key('y', ('Control_L',)); check_text(original[:2]+'x'+original[2:], 3)
-            assert save('format-typed-redone')[1] == typed_xml
-            key('z', ('Control_L',)); check_text(original, 2)
-            assert save('format-typed-restored')[1] == original_xml
-            key('i', ('Control_L',)); wait(lambda: data()['editing']['typing_format'])
-            key('Right'); wait(lambda: not data()['editing']['typing_format'])
-            assert not data()['modified']
-            if args.format_only:
+            root, created_xml = save('style-created-applied',definition_check('Notice',20))
+            created_parts = parts('style-created-applied')
+            assert created_parts[1] != original_styles
+            heading = root.find('.//'+TEXT+'h')
+            assert heading is not None and heading.get(TEXT+'style-name') == style_id[0]
+            assert heading.get(TEXT+'outline-level') == '2' and heading.get(XML+'id') == 'first'
+            view_labels('named-style-layout')
+            key('z', ('Control_L',)); assert save('style-created-undone')[1] == original_xml
+            assert parts('style-created-undone') == original_parts
+            key('y', ('Control_L',)); assert save('style-created-redone',exact_styles(created_parts[1]))[1] == created_xml
+            assert parts('style-created-redone') == created_parts
+            first_end = original.index('\n')
+            go(first_end); key('Return'); check_text(original[:first_end]+'\n'+original[first_end:])
+            root,_ = save('style-heading-self',exact_styles(created_parts[1]))
+            assert len(root.findall('.//'+TEXT+'h')) == 2
+            key('z', ('Control_L',)); check_text(original)
+            assert save('style-heading-self-undone',exact_styles(created_parts[1]))[1] == created_xml
+            # Editing a definition updates layout without rewriting body XML.
+            go(6); x,y = open_styles(); click(x+165,y+390); time.sleep(.2)
+            x,y = panel_origin(650,460)
+            field(x+300,y+65,'Notice renamed'); choice(x+300,y+145,2,current=1)  # Next Body.
+            click(x+250,y+235); time.sleep(.2)
+            x,y = panel_origin(560,390); field(x+190,y+105,'24')
+            click(x+480,y+355); time.sleep(.3)
+            x,y = panel_origin(650,460); click(x+575,y+425); time.sleep(.3)
+            x,y = panel_origin(680,480); click(x+605,y+445)
+            wait(lambda: not data()['format_dialog'] and data()['modified'])
+            root, edited_xml = save('style-edited',definition_check('Notice renamed',24))
+            edited_parts = parts('style-edited')
+            assert edited_xml == created_xml and edited_parts[1] != created_parts[1]
+            view_labels('named-style-edited-layout')
+            x,y = open_styles(); click(x+285,y+390); time.sleep(.3)
+            assert data()['format_dialog'] and not data()['modified']
+            capture_window('named-style-used-delete-rejected')
+            key('Escape'); wait(lambda: not data()['format_dialog'])
+            assert save('style-delete-used-rejected',exact_styles(edited_parts[1]))[1] == edited_xml
+            go(first_end); key('Return'); check_text(original[:first_end]+'\n'+original[first_end:])
+            root,_ = save('style-heading-next-body',exact_styles(edited_parts[1]))
+            body = root.find(O+'body/'+O+'text')
+            assert body[0].tag == TEXT+'h' and body[1].tag == TEXT+'p'
+            assert body[1].get(TEXT+'style-name') == 'Body'
+            key('z', ('Control_L',)); check_text(original)
+            assert save('style-heading-next-undone',exact_styles(edited_parts[1]))[1] == edited_xml
+            key('z', ('Control_L',)); assert save('style-definition-undone',exact_styles(created_parts[1]))[1] == created_xml
+            assert parts('style-definition-undone') == created_parts
+            key('y', ('Control_L',)); assert save('style-definition-redone',exact_styles(edited_parts[1]))[1] == edited_xml
+            assert parts('style-definition-redone') == edited_parts
+            key('z', ('Control_L',)); key('z', ('Control_L',))
+            assert save('style-all-restored')[1] == original_xml
+            assert parts('style-all-restored') == original_parts
+            layout_report['named_paragraph_styles'] = {'staged_cancel':True,'one_step_source_part_undo':True,
+                                                       'heading_self_and_body_next':True,'definition_only_body_retention':True}
+            if args.styles_only:
                 key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
-                (art / 'results.json').write_text(json.dumps({
-                    'native_wayland': args.wayland, 'external_producer': 'odfpy',
-                    'focused_character_paragraph_formatting': True,
-                    'native_underline_strike_highlight': True,
-                    'typing_format_cancel_undo_redo': True,
-                    'source_archive_preservation': True,
-                    'full_native_editor_regressions': False,
-                    'page_layout': layout_report}, indent=2)+'\n')
-                print('PASS focused Words native character/paragraph formatting, source/history and typing', flush=True)
+                (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,
+                    'native_named_paragraph_styles':True,'page_layout':layout_report,
+                    'full_native_editor_regressions':False},indent=2)+'\n')
+                print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
                 raise FormatComplete
             # FLTK removes the selection and inserts text in separate callbacks.
             # They must form one command, including on a failed replacement.
@@ -1629,6 +1786,7 @@ try:
         results = {'native_wayland': args.wayland, 'external_producer': 'odfpy',
                    'native_character_paragraph_formatting': True,
                    'native_underline_strike_highlight': True,
+                   'native_named_paragraph_styles': True,
                    'font_validation_and_inline_correction': True,
                    'select_all_clears_typing_format': True,
                    'native_page_click_scalar_position': True,

@@ -240,6 +240,75 @@ void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& medi
     put(name, data);
     put("META-INF/manifest.xml", manifest.toByteArray(-1));
 }
+std::vector<ArchivePartChange> OdfPackage::part_changes_from(const OdfPackage& before) const
+{
+    if (kind_ != before.kind_)
+        fail("Cannot compare different document kinds");
+    if (parts_identity_ == before.parts_identity_)
+        return { };
+    std::set<Text> names;
+    for (const auto& name : entries_.keys())
+        names.insert(name);
+    for (const auto& name : before.entries_.keys())
+        names.insert(name);
+    std::vector<ArchivePartChange> result;
+    const Bytes empty;
+    for (const auto& name : names) {
+        if (name == "content.xml")
+            continue;
+        auto a = before.entry_data(name), b = entry_data(name);
+        if (a == b || (a && b && *a == *b))
+            continue;
+        const auto& old = a ? *a : empty;
+        const auto& next = b ? *b : empty;
+        size_t prefix = 0, suffix = 0;
+        while (prefix < old.size() && prefix < next.size() && old[prefix] == next[prefix])
+            ++prefix;
+        while (suffix < old.size() - prefix && suffix < next.size() - prefix && old[old.size() - 1 - suffix] == next[next.size() - 1 - suffix])
+            ++suffix;
+        result.push_back({ name, bool(a), bool(b), prefix, old.size(), next.size(),
+            old.substr(prefix, old.size() - prefix - suffix),
+            next.substr(prefix, next.size() - prefix - suffix) });
+    }
+    return result;
+}
+void OdfPackage::replay_part_changes(const std::vector<ArchivePartChange>& changes, bool redo)
+{
+    if (read_only_)
+        fail("This document is read-only");
+    if (changes.empty())
+        return;
+    auto next = entries_;
+    std::set<Text> seen;
+    for (const auto& change : changes) {
+        if (change.name == "content.xml" || !seen.insert(change.name).second)
+            fail("Invalid archive part history");
+        const bool exists = redo ? change.before_exists : change.after_exists;
+        const bool target_exists = redo ? change.after_exists : change.before_exists;
+        const auto& from = redo ? change.before : change.after;
+        const auto& to = redo ? change.after : change.before;
+        const auto source_size = redo ? change.before_size : change.after_size;
+        const auto target_size = redo ? change.after_size : change.before_size;
+        auto current = entry_data(change.name);
+        if (bool(current) != exists || (!exists && source_size) || (!target_exists && target_size))
+            fail("Archive part history does not match the document");
+        Bytes bytes = current ? *current : Bytes { };
+        if (bytes.size() != source_size || change.offset > bytes.size() || from.size() > bytes.size() - change.offset || bytes.compare(change.offset, from.size(), from) != 0)
+            fail("Archive part history does not match the document");
+        bytes.std::string::replace(change.offset, from.size(), to);
+        if (bytes.size() != target_size)
+            fail("Invalid archive part history size");
+        if (target_exists)
+            next[change.name] = std::make_shared<const Bytes>(std::move(bytes));
+        else
+            next.remove(change.name);
+    }
+    auto identity = std::make_shared<const char>(0);
+    entries_ = std::move(next);
+    parts_identity_ = std::move(identity);
+    for (const auto& change : changes)
+        image_assets_.erase(change.name);
+}
 void OdfPackage::save(const Text& path)
 {
     if (read_only_)

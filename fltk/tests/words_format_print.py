@@ -163,6 +163,8 @@ def main():
                         help='Also print native page editing and optional IME snapshots')
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--bin-dir', type=Path, default=ROOT / 'build-native/fltk')
+    parser.add_argument('--style-artifacts', type=Path,
+                        help='Optional named paragraph style UI snapshots (defaults to --ui-artifacts)')
     parser.add_argument('--test-bin-dir', type=Path,
                         help='Native geometry test binary directory (defaults to --bin-dir)')
     args = parser.parse_args()
@@ -192,6 +194,9 @@ def main():
         cases.append(('unicode-source', art / 'unicode-source.odt'))
         cases.append(('highlight-source', art / 'highlight-source.odt'))
         cases.append(('decoration-source', art / 'decoration-source.odt'))
+        style_artifacts = (args.style_artifacts or args.ui_artifacts).resolve()
+        for name, file in [('named-created', 'style-created-applied.odt'), ('named-edited', 'style-edited.odt')]:
+            if (style_artifacts/file).is_file(): cases.append((name,style_artifacts/file))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
@@ -330,6 +335,22 @@ def main():
                     'native_glyph_caret_layout_exact': True, 'words': len(styled_words),
                     'pdf_serialization_tolerance_points': .001,
                     'max_pdf_word_box_delta_points': max_delta}, indent=2)+'\n')
+            if name.startswith('named-'):
+                picture = Image.open(pages[0]).convert('RGB')
+                assert color_count(picture, (22,90,167)) > 100
+                faces = subprocess.check_output(['pdffonts', str(output)], text=True)
+                assert 'Hack-Bold' in faces, faces
+                bbox = art / (name+'-bounds.html')
+                subprocess.run(['pdftotext','-bbox',str(output),str(bbox)],check=True)
+                root = ET.fromstring(bbox.read_text()); ns='{http://www.w3.org/1999/xhtml}'
+                page = root.find('.//'+ns+'page')
+                words = list(page.iter(ns+'word'))
+                first = next(w for w in words if w.text == 'Start')
+                tail = next(w for w in words if w.text == 'tail')
+                midpoint = (float(first.get('xMin'))+float(tail.get('xMax')))/2
+                assert abs(midpoint-(float(page.get('width'))/2+3)) < 3, midpoint
+                results[name+'-title'] = {'font_height':float(first.get('yMax'))-float(first.get('yMin')),
+                                          'midpoint':midpoint,'centered':True}
             if name == 'quoted-family':
                 faces = subprocess.check_output(['pdffonts', str(output)], text=True)
                 assert 'Hack-Bold' in faces, faces
@@ -368,6 +389,12 @@ def main():
                              'reopened_pixels_identical': True,
                              'cups_pixels_identical': True, 'captured': str(captured)}
             print('PASS formatted', name, 'ODF, native PDF, reopen and CUPS raster', flush=True)
+        if 'named-created-title' in results and 'named-edited-title' in results:
+            a=results['named-created-title']['font_height']; b=results['named-edited-title']['font_height']
+            assert abs(b/a-1.2) < .03, (a,b)
+            with zipfile.ZipFile(style_artifacts/'style-created-applied.odt') as a, zipfile.ZipFile(style_artifacts/'style-edited.odt') as b:
+                assert a.read('content.xml') == b.read('content.xml')
+                assert a.read('styles.xml') != b.read('styles.xml')
         assert len(cups.completed(completed_jobs)) == completed_jobs
     results['completed_cups_jobs'] = completed_jobs
     results['system_printers_changed'] = False

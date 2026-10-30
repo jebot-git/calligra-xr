@@ -80,6 +80,7 @@ enum Command {
     ListOutdent,
     CharacterFormat,
     ParagraphFormat,
+    ParagraphStyles,
     Bold,
     Italic,
     Underline,
@@ -364,6 +365,7 @@ public:
             add("&Format/Character/&Underline", FL_CTRL + 'u', Underline);
             add("&Format/Character/&Strikethrough", 0, Strikethrough);
             add("&Format/&Paragraph…", 0, ParagraphFormat);
+            add("&Format/Paragraph &styles…", 0, ParagraphStyles);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
             add("&Format/Alignment/&Center", FL_CTRL + 'e', AlignCenter);
             add("&Format/Alignment/&Right", FL_CTRL + 'r', AlignRight);
@@ -854,7 +856,43 @@ public:
         auto action = Command(office->queued_format);
         office->queued_format = 0;
         if (office->window.shown())
-            office->guard([&] { office->word_format(action); });
+            office->guard([&] {
+                if (action == ParagraphStyles)
+                    office->word_styles();
+                else
+                    office->word_format(action);
+            });
+    }
+    void word_styles()
+    {
+        if (kind != Kind::Words || !words)
+            return;
+        if (words->read_only())
+            throw std::runtime_error("This document is read-only");
+        cancel_word_composition();
+        finish_word_edit();
+        auto selection = word_selection();
+        auto revision = words->revision();
+        auto snapshot = words->style_snapshot();
+        auto selected = words_current_paragraph_style(snapshot,
+            std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
+        formatting_dialog = true;
+        std::optional<WordsStylesDialogResult> result;
+        try {
+            result = paragraph_styles_dialog(window, std::move(snapshot), selected);
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        if (result)
+            words->commit_styles(std::move(result->document), selection, revision, result->paragraph);
+        restore_word_selection(selection);
+        modified = words->modified();
+        title();
+        sync_pages();
+        if (result)
+            message("Paragraph styles updated");
     }
     void word_format(Command action)
     {
@@ -1286,7 +1324,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

@@ -18,6 +18,14 @@ Text plain_text(const XmlElement&);
 void set_plain_text(XmlElement element, const Text& value);
 Map<Text, Bytes> read_document_archive(const Text& path);
 XmlDocument read_document_xml(const Bytes& data);
+// Byte deltas for non-content archive parts. Missing and empty parts are
+// distinct; content.xml remains owned by the document DOM/history.
+struct ArchivePartChange {
+    Text name;
+    bool before_exists = false, after_exists = false;
+    size_t offset = 0, before_size = 0, after_size = 0;
+    Bytes before, after;
+};
 class OdfPackage {
 public:
     explicit OdfPackage(Kind kind);
@@ -25,6 +33,10 @@ public:
     void save(const Text& path);
     void set_entry(const Text& name, const Bytes& data, const Text& mediaType);
     XmlElement body() const;
+    std::vector<ArchivePartChange> part_changes_from(const OdfPackage&) const;
+    // Validates every source part before atomically replaying the changes.
+    // Restores manifest bytes as recorded, without regenerating other parts.
+    void replay_part_changes(const std::vector<ArchivePartChange>&, bool redo);
     Bytes entry(const Text &name) const {
         auto data = entry_data(name);
         return data ? *data : Bytes();
@@ -39,9 +51,15 @@ private:
     Kind kind_;
     Map<Text, std::shared_ptr<const Bytes>> entries_;
     bool read_only_ = false;
+    // Copies share this identity until an archive part changes. Text-only
+    // editing can bypass archive comparisons, even in image-heavy documents.
+    std::shared_ptr<const char> parts_identity_ = std::make_shared<const char>(0);
     mutable std::map<Text, std::weak_ptr<const ImageAsset>> image_assets_;
     void put(const Text &name, Bytes bytes) {
-        entries_[name] = std::make_shared<const Bytes>(std::move(bytes));
+        auto identity = std::make_shared<const char>(0);
+        auto data = std::make_shared<const Bytes>(std::move(bytes));
+        entries_[name] = std::move(data);
+        parts_identity_ = std::move(identity);
         image_assets_.erase(name);
     }
 };

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_edit.h"
 #include "native_text_layout.h"
+#include "native_words_format.h"
 #include <functional>
 namespace DomeOffice {
 namespace {
@@ -198,11 +199,15 @@ void copy_attributes(
 // overrides. Copy the style chain without its master assignments. Keep each
 // inheritance level: flattening changes parent-relative sizes and properties.
 Text continuation_style(OdfPackage &package, const XmlElement &source) {
-  std::map<Text, XmlElement> styles;
+  std::map<Text, XmlElement> styles, common;
   auto scan = [&](const XmlDocument &xml) {
     for (auto e : xml.documentElement().elementsByTagNameNS(STYLE, "style"))
-      if (e.attributeNS(STYLE, "family") == "paragraph")
+      if (e.attributeNS(STYLE, "family") == "paragraph") {
         styles[e.attributeNS(STYLE, "name")] = e;
+        if (e.parentNode().namespaceURI() == OFFICE &&
+            e.parentNode().localName() == "styles")
+          common[e.attributeNS(STYLE, "name")] = e;
+      }
   };
   auto bytes = package.entry("styles.xml");
   XmlDocument external;
@@ -215,17 +220,22 @@ Text continuation_style(OdfPackage &package, const XmlElement &source) {
   if (name.empty() || !styles.contains(name))
     return name;
   std::vector<XmlElement> chain;
-  std::set<Text> seen;
-  for (auto current = name; !current.empty() && styles.contains(current);
-       current = styles[current].attributeNS(STYLE, "parent-style-name")) {
-    if (!seen.insert(current).second || chain.size() >= 64)
+  for (auto current = styles[name]; !current.isNull();) {
+    if (std::find(chain.begin(), chain.end(), current) != chain.end() ||
+        chain.size() >= 64)
       fail("Cyclic paragraph style cannot be split");
-    chain.push_back(styles[current]);
+    chain.push_back(current);
+    auto parent_name = current.attributeNS(STYLE, "parent-style-name");
+    current = common.contains(parent_name)   ? common.at(parent_name)
+              : styles.contains(parent_name) ? styles.at(parent_name)
+                                             : XmlElement{};
   }
   // The nearest declared next style is used; otherwise continue this style.
   for (const auto &style : chain) {
     auto next = style.attributeNS(STYLE, "next-style-name");
     if (!next.empty()) {
+      if (next != name && common.contains(next))
+        return words_paragraph_style_reference(package, next);
       if (next != name && styles.contains(next))
         return next;
       break;
@@ -695,15 +705,20 @@ bool change_words_list(OdfPackage &package, size_t begin, size_t end,
 void replace_words_text(OdfPackage &package, size_t begin, size_t count,
                         const Text &inserted, bool paragraph_breaks) {
   auto all = blocks(package.body());
-  if (all.empty())
-    fail("This document has no editable paragraph");
-  size_t size = all.back().start + all.back().text.size();
+  size_t size = all.empty() ? 0 : all.back().start + all.back().text.size();
   if (begin > size || count > size - begin ||
       inserted.size() > 16 * 1024 * 1024 ||
       size - count > 16 * 1024 * 1024 - inserted.size())
     fail("Text edit is outside the supported document range");
   if (!count && inserted.empty())
     return;
+  if (all.empty()) {
+    if (package.body().isNull())
+      fail("This document has no text body");
+    auto paragraph = package.xml.createElementNS(TEXT, "text:p");
+    package.body().appendChild(paragraph);
+    all = blocks(package.body());
+  }
   auto locate = [&](size_t position) {
     for (size_t i = 0; i < all.size(); ++i)
       if (position <= all[i].start + all[i].text.size())
@@ -729,19 +744,27 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
   std::vector<XmlElement> replacements;
   Text next_style =
       parts.size() > 1 ? continuation_style(package, all[first].node) : Text();
+  auto next_outline = next_style.empty()
+                          ? std::optional<int>{}
+                          : words_paragraph_style_outline(package, next_style);
   for (size_t i = 0; i < parts.size(); ++i) {
-    auto p = i == 0 ? all[first].node.cloneNode(false)
-                    : package.xml.createElementNS(TEXT, "text:p");
+    auto p =
+        i == 0 ? all[first].node.cloneNode(false)
+               : package.xml.createElementNS(
+                     TEXT, next_outline && *next_outline ? "text:h" : "text:p");
     if (i) {
       copy_attributes(all[first].node, p, [&](const XmlNode::Attribute &a) {
         auto local = a.name.mid(a.name.indexOf(':') + 1);
         return !(a.uri == XML && local == "id") &&
                !(a.uri == TEXT &&
                  (local == "outline-level" || local == "start-value" ||
-                  local == "restart-numbering" || local == "style-name"));
+                  local == "restart-numbering" || local == "is-list-header" ||
+                  local == "style-name"));
       });
       if (!next_style.empty())
         p.setAttributeNS(TEXT, "text:style-name", next_style);
+      if (next_outline && *next_outline)
+        p.setAttributeNS(TEXT, "text:outline-level", *next_outline);
     }
     if (i == 0)
       slice(all[first].node, p, 0, begin - all[first].start);

@@ -106,7 +106,9 @@ CUPS test queues.
   controls remain restricted or unfinished.
   Format → Character adds bold/italic (Ctrl+B/I), family, size and color;
   Ctrl+D opens the Font dialog. A selection formats existing runs; a caret
-  formats future typing, with saved defaults for empty paragraphs.
+  formats future typing, with saved defaults for empty paragraphs. Valid empty
+  ODT bodies gain their first paragraph when typing, formatting or assigning a
+  style; undo can restore the empty body.
   Format → Paragraph edits alignment, point-based margins/indent and spacing,
   line-height multipliers, keeps, page-before and widow/orphan limits.
   Ctrl+L/E/R/J aligns left/center/right/justified. Mixed or unchanged dialog
@@ -124,8 +126,18 @@ CUPS test queues.
   colors, widths, double lines and whitespace mode. Font metrics position the
   effects; source ranges use ligature carets without changing glyph advances.
   PDF/CUPS and native GPU pages share the same strokes. Text replacement
-  strikethrough currently uses the ODF line-style fallback. Named styles remain
-  unfinished.
+  strikethrough currently uses the ODF line-style fallback.
+  Format → Paragraph styles lists the document's named paragraph styles.
+  New/Edit changes names, inheritance, next styles, outline roles and text or
+  paragraph properties. Apply commits staged definitions and optional paragraph
+  assignment together; Cancel discards them. Existing style identifiers stay
+  stable when renamed, and imported properties retain their original scope.
+  Assignment replaces paragraph-direct overrides while keeping inline character
+  styles, links and IDs. Explicit outline roles convert paragraphs/headings;
+  Enter follows the next style and its heading role. Only unused definitions
+  can be deleted. Source and changed ZIP parts share one undo/redo step, including
+  exact styles/manifest bytes, missing-part restoration and grouped rollback.
+  Character-style assignment/management and outline-number editing remain pending.
   Words opens in native paginated editing with an active caret. Click for a caret, drag or use
   Shift+movement for a range, double-click a word or triple-click a paragraph.
   Edge-held selection drags keep scrolling until release or Escape. Vertical

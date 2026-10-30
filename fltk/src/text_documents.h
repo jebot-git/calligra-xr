@@ -35,6 +35,9 @@ public:
     WordsFormatInfo format_info(TextSelection) const;
     bool format_characters(TextSelection, const WordsCharacterFormat&);
     bool format_paragraphs(TextSelection, const WordsParagraphFormat&);
+    OdfPackage style_snapshot() const;
+    bool commit_styles(OdfPackage, TextSelection, uint64_t expected_revision,
+        std::optional<Text> apply_paragraph = { });
     void clear_typing_format() { typing_format_.reset(); }
     bool has_typing_format() const { return bool(typing_format_); }
     std::optional<TextSelection> undo();
@@ -56,6 +59,14 @@ private:
         Bytes before, after;
         TextSelection previous, next;
         uint64_t before_state, after_state;
+        std::vector<ArchivePartChange> parts;
+        size_t bytes() const
+        {
+            size_t result = before.size() + after.size();
+            for (const auto& part : parts)
+                result += part.before.size() + part.after.size();
+            return result;
+        }
     };
     std::vector<Edit> history_;
     size_t history_index_ = 0, history_bytes_ = 0;

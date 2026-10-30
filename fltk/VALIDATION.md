@@ -1568,3 +1568,30 @@ This increment improves vertical source navigation; it does not establish full
 Words table-editing or layout parity. Remaining formatting/layout fidelity,
 structural table operations and editing/reflow performance still precede the
 next Sheets function work. Stage remains last in implementation priority.
+
+
+## Named paragraph styles and empty-document editing — 2026-10-30
+
+All 40 native core suites pass in Release and ASan/UBSan with core leak
+checking. The new style suite covers definition-only edits, stable names,
+common/automatic scope collisions, inherited and explicit heading roles, next
+styles, unused deletion, stale sessions, grouped rollback and exact ZIP-part
+undo/redo. Missing and empty archive parts remain distinct, and a one-byte edit
+to a large asset records a compact delta. Valid empty text bodies accept typing,
+character/paragraph defaults and style assignment, with exact empty-body undo.
+
+Actual keyboard/menu tests pass for the full X11 native editor, focused native
+Wayland paragraph styles, sanitizer Wayland paragraph styles and Wayland page
+editing with Fcitx/Anthy preedit/commit/cancel. The style dialogs exercise staged
+cancellation, validation correction, nested property dialogs, a single source/
+styles/manifest undo step, renamed definitions without body XML changes, heading
+continuation and rejected deletion of referenced styles. GUI leak checking is
+disabled for third-party libraries; address/undefined checks stay enabled.
+
+The private CUPS integration completes 16 jobs, including created and edited
+named styles. ODF export, reopen, PDF and captured CUPS pages match; the edited
+style changes title size without changing content.xml. All nine accepted
+Words/Sheets/Stage baseline page rasters remain byte-identical. Generated ODF
+packages pass offline version-matched schemas. These checks preserve the export/
+printing floor and do not establish full Words editing or layout parity. Words
+remains first, Sheets functions next and Stage last.

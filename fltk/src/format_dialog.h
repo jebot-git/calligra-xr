@@ -8,4 +8,10 @@ character_format_dialog(Fl_Window &, const WordsCharacterFormat &,
                         std::optional<bool> bold);
 std::optional<WordsParagraphFormat>
 paragraph_format_dialog(Fl_Window &, const WordsParagraphFormat &);
+struct WordsStylesDialogResult {
+  OdfPackage document;
+  std::optional<Text> paragraph;
+};
+std::optional<WordsStylesDialogResult>
+paragraph_styles_dialog(Fl_Window &, OdfPackage, std::optional<Text> selected);
 } // namespace DomeOffice
