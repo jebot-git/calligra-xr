@@ -203,6 +203,7 @@ struct TextTableColumn {
   Text default_cell_style;
 };
 struct TextTable {
+  XmlElement source; // Stable source identity for structural editing.
   Text name, master;
   std::vector<Text> unsupported;
   std::vector<TextTableColumn> columns;

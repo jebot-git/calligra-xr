@@ -537,6 +537,32 @@ std::optional<TextSelection> TextDocument::travel(bool redo)
     ++revision_;
     return redo ? edit.next : edit.previous;
 }
+bool TextDocument::commit_structure(OdfPackage candidate, TextSelection previous,
+    TextSelection next, uint64_t expected_revision)
+try {
+    if (edit_cancelled())
+        fail("This text edit was cancelled");
+    if (read_only() || candidate.kind() != Kind::Words || candidate.read_only())
+        fail("This document cannot be edited");
+    if (revision_ != expected_revision)
+        fail("The document changed while its structure was being edited");
+    auto old_length = text().size();
+    if (previous.anchor > old_length || previous.cursor > old_length)
+        fail("Invalid original selection");
+    candidate.xml = read_document_xml(candidate.xml.toByteArray());
+    auto new_length = joined(candidate.body()).size();
+    if (next.anchor > new_length || next.cursor > new_length)
+        fail("Invalid structural edit selection");
+    (void)read_text_flow(candidate);
+    auto revision = revision_;
+    apply(std::move(candidate), previous, next);
+    if (revision_ != revision)
+        typing_format_.reset();
+    return revision_ != revision;
+} catch (...) {
+    cancel_edit();
+    throw;
+}
 std::optional<TextSelection> TextDocument::undo() { return travel(false); }
 std::optional<TextSelection> TextDocument::redo() { return travel(true); }
 Presentation::Presentation() { add_slide("Title"); clear_history(); }

@@ -156,6 +156,15 @@ CUPS test queues.
   Page definitions use the same archive-part undo, including creating a missing
   styles part and restoring its absence. Existing headers/footers remain a
   rendering limitation; page setup does not add their editor.
+  Table → Insert table adds a bordered grid at the caret in the body, a section,
+  or an existing cell, with configurable rows/columns and an optional repeating
+  first row. Rich paragraph text on either side is retained. New tables fit
+  within 10000 cells; native pagination checks the proposed layout before
+  insertion. Table → Delete table removes the nearest enclosing table; nested
+  deletion retains its outer cell. Root page transitions remain on a caret
+  paragraph. Insertion/deletion, selected ranges and changed package parts use
+  one structural undo transaction. Direct placement in lists needs an anchored
+  table or list splitting; row/column operations and merge/split remain pending.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

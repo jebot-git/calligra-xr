@@ -4,6 +4,7 @@
 #include "odf_package.h"
 #include "native_presentation.h"
 #include "native_words_edit.h"
+#include "native_words_tables.h"
 #include "native_words_format.h"
 namespace DomeOffice {
 struct TextSelection {
@@ -39,6 +40,8 @@ public:
     std::optional<Text> current_character_style(TextSelection) const;
     bool commit_styles(OdfPackage, TextSelection, uint64_t expected_revision,
         std::optional<Text> apply_paragraph = { }, std::optional<Text> apply_character = { });
+    bool commit_structure(OdfPackage, TextSelection previous, TextSelection next,
+        uint64_t expected_revision);
     void clear_typing_format() { typing_format_.reset(); }
     bool has_typing_format() const { return bool(typing_format_); }
     std::optional<TextSelection> undo();

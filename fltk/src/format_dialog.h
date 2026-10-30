@@ -3,6 +3,7 @@
 #include "native_words_format.h"
 #include "native_words_page.h"
 #include "native_words_tabs.h"
+#include "native_words_tables.h"
 #include <FL/Fl_Window.H>
 namespace DomeOffice {
 std::optional<WordsCharacterFormat>
@@ -22,4 +23,6 @@ std::optional<OdfPackage> page_setup_dialog(Fl_Window &, OdfPackage,
                                             const Text &page_style);
 std::optional<OdfPackage> tab_stops_dialog(Fl_Window &, OdfPackage,
                                            size_t begin, size_t end);
+std::optional<WordsTableEdit> insert_table_dialog(Fl_Window &, OdfPackage,
+                                                  size_t position);
 } // namespace DomeOffice

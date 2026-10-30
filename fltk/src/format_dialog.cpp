@@ -1213,4 +1213,48 @@ std::optional<OdfPackage> tab_stops_dialog(Fl_Window &window,
     }
   }
 }
+std::optional<WordsTableEdit>
+insert_table_dialog(Fl_Window &window, OdfPackage original, size_t position) {
+  const int width = 520, height = 300,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Insert table");
+  background.hint.copy_label(
+      "Insert at the caret; text on either side is retained");
+  background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Fl_Input rows(x + 100, y + 65, 100, 30, "Rows:");
+  rows.value("2");
+  Fl_Input columns(x + 350, y + 65, 100, 30, "Columns:");
+  columns.value("2");
+  Fl_Check_Button header(x + 20, y + 115, width - 40, 30,
+                         "Repeat first row on following pages");
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  buttons.apply.label("Insert");
+  Fl_Group::current(previous);
+  while (panel.run(rows)) {
+    try {
+      bool rows_ok = false, columns_ok = false;
+      auto r = Text(rows.value()).trimmed().toInt(&rows_ok);
+      auto c = Text(columns.value()).trimmed().toInt(&columns_ok);
+      if (!rows_ok || !columns_ok || r <= 0 || c <= 0)
+        throw std::runtime_error(
+            "Enter positive whole numbers for rows and columns");
+      auto candidate = insert_words_table(
+          original, position, {size_t(r), size_t(c), bool(header.value())});
+      NativeTextShaper shaper(
+          Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+      (void)paginate_text(read_text_flow(candidate.document), shaper);
+      return candidate;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+  return {};
+}
 } // namespace DomeOffice

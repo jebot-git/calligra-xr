@@ -169,6 +169,7 @@ def main():
                         help='Optional named character style UI snapshots (defaults to --ui-artifacts)')
     parser.add_argument('--page-setup-artifacts', type=Path,
                         help='Optional native page setup UI snapshots (defaults to --ui-artifacts)')
+    parser.add_argument('--tables-artifacts', type=Path, help='Optional native structural table UI snapshots')
     parser.add_argument('--tabs-artifacts', type=Path, help='Optional native tab control UI snapshots')
     parser.add_argument('--test-bin-dir', type=Path,
                         help='Native geometry test binary directory (defaults to --bin-dir)')
@@ -216,6 +217,11 @@ def main():
                 source=args.tabs_artifacts.resolve()/('tabs-'+name+'.odt')
                 assert source.is_file(), source
                 cases.append(('tabs-'+name,source))
+        if args.tables_artifacts:
+            for name in ('filled','nested','deleted'):
+                source=args.tables_artifacts.resolve()/('table-'+name+'.odt')
+                assert source.is_file(),source
+                cases.append(('table-'+name,source))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
@@ -274,6 +280,10 @@ def main():
                 (art / 'unicode-extracted.txt').write_text(extracted)
                 (art / 'unicode-pypdf-extracted.txt').write_text(text)
                 (art / 'unicode-actual-text.json').write_text(json.dumps(actual, ensure_ascii=False) + '\n')
+            elif name.startswith('table-'):
+                assert 'Section alpha' in text and 'Cell link' in text
+                if name != 'table-deleted':
+                    assert 'A1' in text and 'B1' in text and 'A2' in text
             else:
                 assert ('Česxký' if native_page else 'A' if name == 'soft-lines' else 'Český') in text
             if name == 'page-ime':

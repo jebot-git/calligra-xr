@@ -281,6 +281,7 @@ void GpuTextCache::draw_paints(const std::vector<TextPaint> &paints,
   }();
   for (const auto &paint : paints) {
     auto r = paint.rect;
+    auto clip = paint.clip;
     double alpha = paint.color.alpha;
     if (r.width <= 0 || r.height <= 0 || alpha <= 0)
       continue;
@@ -316,8 +317,27 @@ void GpuTextCache::draw_paints(const std::vector<TextPaint> &paints,
       points[2] = {r.x + r.width, r.y + r.height};
       points[3] = {r.x, r.y + r.height};
     }
+    // A fully contained thin stroke needs its complete pixel footprint. Row
+    // bands otherwise clip the expanded outside edge back below one pixel,
+    // making a valid bottom/right border disappear at some preview scales.
+    if (clip) {
+      const auto &original = paint.rect;
+      if (paint.coverage == TextPaint::Horizontal &&
+          original.y >= clip->y - 1e-8 &&
+          original.y + original.height <= clip->y + clip->height + 1e-8) {
+        auto bottom = std::max(clip->y + clip->height, r.y + r.height);
+        clip->y = std::min(clip->y, r.y);
+        clip->height = bottom - clip->y;
+      } else if (paint.coverage == TextPaint::Vertical &&
+                 original.x >= clip->x - 1e-8 &&
+                 original.x + original.width <= clip->x + clip->width + 1e-8) {
+        auto right = std::max(clip->x + clip->width, r.x + r.width);
+        clip->x = std::min(clip->x, r.x);
+        clip->width = right - clip->x;
+      }
+    }
     auto polygon =
-        clip_polygon(std::span<const ClipPoint>(points.data(), n), paint.clip);
+        clip_polygon(std::span<const ClipPoint>(points.data(), n), clip);
     if (polygon.size < 3)
       continue;
     glColor4d(paint.color.red / 255., paint.color.green / 255.,

@@ -242,6 +242,7 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
                                     const ReadCell &read_cell, size_t &budget,
                                     bool styles_source) const {
   TextTable table;
+  table.source = node;
   table.name = node.attributeNS(TABLE, "name");
   auto warn = [&](const Text &text) {
     if (std::find(table.unsupported.begin(), table.unsupported.end(), text) ==

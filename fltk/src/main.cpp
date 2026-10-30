@@ -84,6 +84,8 @@ enum Command {
     CharacterStyles,
     PageSetup,
     TabStops,
+    InsertTable,
+    DeleteTable,
     Bold,
     Italic,
     Underline,
@@ -371,6 +373,8 @@ public:
             add("&Format/Character/&Strikethrough", 0, Strikethrough);
             add("&Format/&Paragraph…", 0, ParagraphFormat);
             add("&Format/&Tabs…", 0, TabStops);
+            add("&Table/&Insert table…", 0, InsertTable);
+            add("&Table/&Delete table", 0, DeleteTable);
             add("&Format/Paragraph &styles…", 0, ParagraphStyles);
             add("&Format/Character &styles…", 0, CharacterStyles);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
@@ -864,7 +868,9 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == TabStops)
+                if (action == InsertTable || action == DeleteTable)
+                    office->word_table(action == InsertTable);
+                else if (action == TabStops)
                     office->word_tabs();
                 else if (action == PageSetup)
                     office->word_page_setup();
@@ -873,6 +879,46 @@ public:
                 else
                     office->word_format(action);
             });
+    }
+    void word_table(bool insert)
+    {
+        if (kind != Kind::Words || !words)
+            return;
+        if (words->read_only())
+            throw std::runtime_error("This document is read-only");
+        cancel_word_composition();
+        finish_word_edit();
+        auto previous = word_selection();
+        auto revision = words->revision();
+        auto snapshot = words->style_snapshot();
+        std::optional<WordsTableEdit> result;
+        formatting_dialog = true;
+        try {
+            if (insert)
+                result = insert_table_dialog(window, std::move(snapshot), previous.cursor);
+            else {
+                result = delete_words_table(snapshot, previous.cursor);
+                NativeTextShaper shaper(Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+                (void)paginate_text(read_text_flow(result->document), shaper);
+            }
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        if (result) {
+            TextSelection next { result->cursor, result->cursor };
+            words->commit_structure(std::move(result->document), previous, next, revision);
+            words_edit_previous.reset();
+            fill_buffer(words->text());
+            restore_word_selection(next);
+        } else
+            restore_word_selection(previous);
+        modified = words->modified();
+        title();
+        sync_pages();
+        if (result)
+            message(insert ? "Table inserted" : "Table deleted");
     }
     void word_tabs()
     {
@@ -1412,7 +1458,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

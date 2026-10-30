@@ -1691,3 +1691,39 @@ ODF export/reopen and CUPS raster comparison. All nine accepted suite baseline
 page PNGs remain byte-identical. This retains the export/printing floor;
 structural tables/lists, sections/columns, headers/footers, notes and anchored
 images still require further Words work before Sheets functions and Stage.
+
+
+## Native Words table insertion and deletion — 2026-10-30
+
+All 44 core suites pass in optimized Release and ASan/UBSan with core leak
+checking. Structural transactions validate source/next selections, stale
+revisions, read-only documents, grouped cancellation and exact XML/package
+undo. Insertion keeps rich Unicode paragraph halves, links, IDs and next styles;
+body, sections and nested cells retain their containers. Empty bodies have a
+first cell and an exit paragraph. Root-flow table page/master transitions
+transfer to a caret paragraph on deletion. New table dimensions are bounded;
+source identities remain available for later row/column editing.
+
+ODF list items cannot directly contain tables. Anchored placement/list splitting
+remains unfinished, and this command rejects direct list insertion without
+changing source/history. Independent fixture validation corrected an invalid
+xml:id on a text:span; paragraph IDs remain covered. Twelve current ODT fixture
+packages pass official version-matched content/styles schemas in each build.
+
+Real table-menu checks pass on X11, native Wayland and ASan/UBSan Wayland. They
+cover invalid/cancelled inserts, repeating header creation, caret/range retention,
+cell typing, nested insert/delete and exact one-step structural undo/redo. The
+private CUPS run completes 26 jobs, including filled/nested/deleted table UI
+snapshots with ODF export/reopen and matching PDF/CUPS rasters. The full native X11 editor and native Wayland Fcitx/Anthy IME regression also
+pass after the thin-border clipping correction. All nine accepted baseline page
+PNGs remain byte-identical.
+
+The preview pixel regression first reproduced a missing 0.5pt bottom border
+while the native PDF retained it. GPU stroke coverage now keeps the full pixel
+footprint when an original stroke is wholly inside its clip. Actual partial
+clipping remains bounded. X11, native Wayland and ASan/UBSan Wayland pixel checks
+pass. New cell paragraphs inherit the surrounding continuation paragraph style,
+including its document font. Sanitizer GUI checks wait for the typed source
+report before comparing saved nested-deletion snapshots; source packages already
+matched when that synchronization issue was found. GUI leak checking remains
+disabled for third-party libraries.

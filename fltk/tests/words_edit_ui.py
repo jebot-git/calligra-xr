@@ -164,6 +164,7 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
 parser.add_argument('--tabs-only', action='store_true', help='Run focused native tab stop UI checks')
 parser.add_argument('--page-setup-only', action='store_true', help='Run focused native page setup UI checks')
 parser.add_argument('--character-styles-only', action='store_true', help='Run focused named character style UI checks')
@@ -171,6 +172,8 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.tables_only and (args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
+    parser.error('--tables-only is incompatible with other focused modes or --ime')
 if args.tabs_only and (args.page_only or args.page_setup_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
     parser.error('--tabs-only is incompatible with other focused modes or --ime')
 if args.page_setup_only and (args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
@@ -477,7 +480,7 @@ try:
                 return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                         for e in root.iter(STYLE+'style')}
 
-            if not (args.styles_only or args.character_styles_only or args.page_setup_only or args.tabs_only):
+            if not (args.styles_only or args.character_styles_only or args.page_setup_only or args.tabs_only or args.tables_only):
                 # Invalid fields stay in the panel and cannot consume redo or saved
                 # state. Correcting a quoted fallback list must render and round-trip.
                 go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
@@ -723,7 +726,7 @@ try:
                 delta=index-current
                 key('Down' if delta>=0 else 'Up', count=abs(delta))
                 key('Return'); time.sleep(.15)
-            if not (args.character_styles_only or args.page_setup_only or args.tabs_only):
+            if not (args.character_styles_only or args.page_setup_only or args.tabs_only or args.tables_only):
                 style_id = []
                 def definition_check(label, size):
                     def check(raw):
@@ -853,7 +856,7 @@ try:
                         'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
                     raise FormatComplete
-            if not (args.page_setup_only or args.tabs_only):
+            if not (args.page_setup_only or args.tabs_only or args.tables_only):
                 # Named character styles replace selected inline overrides and can
                 # remain as a named reference for future typing at a caret.
                 char_ids = []
@@ -968,7 +971,109 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named character style UI, range/default handling, named typing, source/archive undo and links',flush=True)
                     raise FormatComplete
-            if not args.page_setup_only:
+            if not (args.tabs_only or args.page_setup_only):
+                def open_table():
+                    menu_action('Insert table…'); wait(lambda:data()['format_dialog']); time.sleep(.2)
+                    return panel_origin(520,300)
+                def table_count(root):
+                    return len(root.findall('.//'+TABLE+'table'))
+                # Cancel and invalid input retain source, selection and redo.
+                go(6); key('Right',('Shift_L',),count=3)
+                selected={k:data()['editing'][k] for k in ('anchor','cursor')}
+                revision=data()['editing']['revision']
+                x,y=open_table(); field(x+150,y+80,'4'); click(x+340,y+265)
+                wait(lambda:not data()['format_dialog'])
+                assert save('table-cancelled')[1]==original_xml
+                assert data()['editing']['revision']==revision
+                assert {k:data()['editing'][k] for k in selected}==selected
+                x,y=open_table(); field(x+150,y+80,'0'); click(x+445,y+265); time.sleep(.3)
+                assert data()['format_dialog'] and data()['editing']['revision']==revision
+                field(x+150,y+80,'1000'); field(x+400,y+80,'1000'); click(x+445,y+265); time.sleep(.3)
+                assert data()['format_dialog'] and data()['editing']['revision']==revision
+                capture_window('table-invalid-size')
+                field(x+150,y+80,'3'); field(x+400,y+80,'2'); click(x+30,y+130)
+                capture_window('table-insert-dialog'); click(x+445,y+265)
+                wait(lambda:not data()['format_dialog'] and data()['modified'])
+                expected=original[:9]+'\n'*7+original[9:]
+                check_text(expected,10)
+                root,inserted_xml=save('table-inserted')
+                inserted_parts=parts('table-inserted')
+                assert table_count(root)==2
+                table=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Table1')
+                assert len(table.findall('.//'+TABLE+'table-row'))==3
+                assert len(table.findall('.//'+TABLE+'table-cell'))==6
+                assert table.find(TABLE+'table-header-rows') is not None
+                key('z',('Control_L',)); check_text(original,selected['cursor'])
+                assert data()['editing']['anchor']==selected['anchor']
+                assert save('table-insert-undone')[1]==original_xml
+                assert parts('table-insert-undone')==original_parts
+                key('y',('Control_L',)); check_text(expected,10)
+                assert save('table-insert-redone')[1]==inserted_xml
+                assert parts('table-insert-redone')==inserted_parts
+                # Fill source cells through real keyboard editing, retaining the
+                # other paragraph half, inline style/link and existing table.
+                first_cell=expected[:10]+'A1'+expected[10:]
+                type_text('A1'); check_text(first_cell,12)
+                second_cell=first_cell[:13]+'B1'+first_cell[13:]
+                go(13); type_text('B1'); check_text(second_cell,15)
+                filled=second_cell[:16]+'A2'+second_cell[16:]
+                go(16); type_text('A2'); check_text(filled,18)
+                root,filled_xml=save('table-filled')
+                assert table_count(root)==2
+                assert len(root.findall('.//'+TEXT+'a'))==1
+                view_labels('table-filled-layout')
+                # Thin bottom borders must retain a preview pixel at the row
+                # band edge; PDF comparison alone cannot catch a GPU clip loss.
+                paged=data()['page_layout']
+                (art/'table-filled-layout.json').write_text(json.dumps(paged,indent=2)+'\n')
+                cells=[c for c in paged['table_cells'] if c['table']==0]
+                cell=next(c for c in cells if c['row']==2 and c['column']==0)
+                vx,vy,vw,vh=paged['viewport']
+                zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in paged['paper_styles'])))
+                px=vx+(vw-cell['page_width']*zoom)/2
+                py=vy+12-paged['scroll']
+                if args.wayland:
+                    box=next(w for w in scene()['windows'] if w['id']==window['id'])['desktop']
+                    px+=int(box['x']);py+=int(box['y'])
+                picture=Image.open(art/'table-filled-layout.png').convert('RGB')
+                left=round(px+cell['x']*zoom)+10
+                right=round(px+(cell['x']+cell['width'])*zoom)-10
+                bottom=round(py+(cell['y']+cell['height'])*zoom)
+                gray=sum(1 for y in range(bottom-2,bottom+2) for x in range(left,right)
+                         if max(picture.getpixel((x,y)))-min(picture.getpixel((x,y)))<3
+                         and 100<picture.getpixel((x,y))[0]<240)
+                assert gray>(right-left)//2,(gray,left,right,bottom)
+                go(10); x,y=open_table(); field(x+150,y+80,'2'); field(x+400,y+80,'1')
+                click(x+445,y+265); wait(lambda:not data()['format_dialog'] and data()['modified'])
+                root,nested_xml=save('table-nested'); assert table_count(root)==3
+                assert data()['editing']['cursor']==10
+                menu_action('Delete table'); wait(lambda:data()['modified'] and not data()['format_dialog'])
+                root,_=save('table-nested-deleted'); assert table_count(root)==2
+                assert data()['text']==filled
+                key('z',('Control_L',)); assert save('table-nested-delete-undone')[1]==nested_xml
+                key('z',('Control_L',)); assert save('table-nested-insert-undone')[1]==filled_xml
+                go(10); menu_action('Delete table'); time.sleep(.2)
+                root,_=save('table-deleted'); assert table_count(root)==1
+                assert 'A1' not in data()['text'] and 'B1' not in data()['text']
+                key('z',('Control_L',)); assert save('table-delete-undone')[1]==filled_xml
+                # Undo the six real character events before undoing the table.
+                for _ in range(6):
+                    if data()['text']==expected: break
+                    revision=data()['editing']['revision']; key('z',('Control_L',))
+                    wait(lambda:data()['editing']['revision']!=revision)
+                check_text(expected)
+                key('z',('Control_L',)); check_text(original)
+                assert save('table-all-restored')[1]==original_xml
+                assert parts('table-all-restored')==original_parts
+                layout_report['table_blocks']={'insert_delete':True,'invalid_cancel':True,'rich_split_retained':True,
+                    'native_cell_typing':True,'nested_scope':True,'header_row':True,'one_step_exact_part_undo':True}
+                if args.tables_only:
+                    key('q',('Control_L',)); assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_table_blocks':True,
+                        'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
+                    print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
+                    raise FormatComplete
+            if not (args.page_setup_only or args.tables_only):
                 # Direct tab stops stage one transaction, including document defaults.
                 def open_tabs():
                     menu_action('Tabs…'); wait(lambda:data()['format_dialog']); time.sleep(.2)
