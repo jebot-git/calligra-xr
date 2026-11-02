@@ -27,6 +27,9 @@ tab_stops_dialog(Fl_Window &, OdfPackage, size_t begin, size_t end,
 std::optional<WordsTableEdit> insert_table_dialog(Fl_Window &, OdfPackage,
                                                   size_t position);
 std::optional<WordsTableEdit>
+cell_format_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
+                   const std::vector<TextCellAddress> &, size_t position);
+std::optional<WordsTableEdit>
 merge_cells_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
                    const std::vector<TextCellAddress> &);
 std::optional<WordsTableEdit>

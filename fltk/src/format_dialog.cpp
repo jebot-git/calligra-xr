@@ -2,6 +2,7 @@
 #include "format_dialog.h"
 #include "native_text_shaper.h"
 #include "suite/fltk_appearance.h"
+#include <charconv>
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Choice.H>
@@ -1254,6 +1255,122 @@ insert_table_dialog(Fl_Window &window, OdfPackage original, size_t position) {
             "Enter positive whole numbers for rows and columns");
       auto candidate = insert_words_table(
           original, position, {size_t(r), size_t(c), bool(header.value())});
+      NativeTextShaper shaper(
+          Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+      (void)paginate_text(read_text_flow(candidate.document), shaper);
+      return candidate;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+  return {};
+}
+
+std::optional<WordsTableEdit>
+cell_format_dialog(Fl_Window &window, OdfPackage original,
+                   const TextCellAddress &address,
+                   const std::vector<TextCellAddress> &path, size_t position) {
+  const auto initial = words_table_cell_format(original, address, path);
+  const int width = 760, height = 450,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Cell format");
+  Fl_Choice vertical(x + 160, y + 55, 180, 30, "Vertical alignment:");
+  vertical.add("Top|Middle|Bottom");
+  vertical.value(initial.vertical);
+  Fl_Input fill(x + 510, y + 55, 215, 30, "Background:");
+  auto color_text = [](TextColor c) {
+    if (c.alpha == 0)
+      return Text("transparent");
+    const char *digits = "0123456789abcdef";
+    std::string result = "#";
+    for (unsigned char v : {c.red, c.green, c.blue}) {
+      result += digits[v >> 4];
+      result += digits[v & 15];
+    }
+    return Text(result);
+  };
+  auto parse_color = [](Text value) {
+    if (value == "transparent")
+      return TextColor{0, 0, 0, 0};
+    auto s = value.toStdString();
+    unsigned rgb = 0;
+    if (s.size() != 7 || s.front() != '#')
+      throw std::runtime_error("Use #RRGGBB or transparent for cell colors");
+    auto result = std::from_chars(s.data() + 1, s.data() + 7, rgb, 16);
+    if (result.ec != std::errc() || result.ptr != s.data() + 7)
+      throw std::runtime_error("Use #RRGGBB or transparent for cell colors");
+    return TextColor{static_cast<unsigned char>(rgb >> 16),
+                     static_cast<unsigned char>(rgb >> 8),
+                     static_cast<unsigned char>(rgb)};
+  };
+  auto initial_fill =
+      color_text(initial.background.value_or(TextColor{0, 0, 0, 0}));
+  fill.value(initial_fill.toUtf8().c_str());
+  fill.tooltip("#RRGGBB; transparent reveals the row or table background");
+  Fl_Box pad_label(x + 125, y + 100, 110, 25, "Padding (pt)");
+  Fl_Box style_label(x + 285, y + 100, 140, 25, "Border style");
+  Fl_Box width_label(x + 460, y + 100, 110, 25, "Width (pt)");
+  Fl_Box ink_label(x + 610, y + 100, 115, 25, "Border color");
+  const char *sides[] = {"Top:", "Right:", "Bottom:", "Left:"};
+  std::array<std::unique_ptr<Fl_Input>, 4> padding, widths, colors;
+  std::array<std::unique_ptr<Fl_Choice>, 4> borders;
+  for (size_t i = 0; i < 4; ++i) {
+    int row = y + 135 + int(i) * 45;
+    padding[i] = std::make_unique<Fl_Input>(x + 125, row, 110, 30, sides[i]);
+    borders[i] = std::make_unique<Fl_Choice>(x + 285, row, 140, 30);
+    borders[i]->add(
+        "None|Solid|Double|Dashed|Dotted|Groove|Ridge|Inset|Outset");
+    widths[i] = std::make_unique<Fl_Input>(x + 460, row, 110, 30);
+    colors[i] = std::make_unique<Fl_Input>(x + 610, row, 115, 30);
+    padding[i]->value(Text::number(initial.padding[i]).toUtf8().c_str());
+    borders[i]->value(initial.borders[i].style);
+    widths[i]->value(Text::number(initial.borders[i].width).toUtf8().c_str());
+    colors[i]->value(color_text(initial.borders[i].color).toUtf8().c_str());
+  }
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  while (panel.run(*padding[0])) {
+    try {
+      WordsCellFormat format;
+      if (vertical.value() != initial.vertical)
+        format.vertical = TextCellStyle::Vertical(vertical.value());
+      auto value = Text(fill.value()).trimmed();
+      if (!value.empty() && value != initial_fill)
+        format.background = parse_color(value);
+      for (size_t i = 0; i < 4; ++i) {
+        changed_number(*padding[i], initial.padding[i], format.padding[i]);
+        auto edge = initial.borders[i];
+        auto original_edge = edge;
+        std::optional<double> changed;
+        changed_number(*widths[i], edge.width, changed);
+        if (changed) {
+          edge.width = *changed;
+          edge.double_widths.reset();
+        }
+        if (borders[i]->value() != edge.style) {
+          edge.style = TextTableBorder::Style(borders[i]->value());
+          if (edge.style != TextTableBorder::None && edge.width == 0 &&
+              !changed) {
+            edge.width = .75;
+            widths[i]->value("0.75");
+          }
+          edge.double_widths.reset();
+        }
+        value = Text(colors[i]->value()).trimmed();
+        if (!value.empty() && value != color_text(edge.color))
+          edge.color = parse_color(value);
+        if (edge != original_edge)
+          format.borders[i] = edge;
+      }
+      auto candidate =
+          format_words_table_cell(original, address, format, path, position);
       NativeTextShaper shaper(
           Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
       (void)paginate_text(read_text_flow(candidate.document), shaper);

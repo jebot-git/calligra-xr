@@ -204,6 +204,11 @@ CUPS test queues.
   shrink also preserves the current resolved widths. The selected page and nested
   cell padding/borders determine the measurement context. Direct placement in
   lists still needs an anchored table or list splitting.
+  Table → Cells → Cell format edits each side's padding and border, background
+  color (including transparent) and vertical alignment. It retains effective
+  inherited styles and changes only the chosen displayed instance, including
+  repeated/nested content. Blank fields retain existing properties. The caret
+  is retained across materialization and the complete edit has one-step undo.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

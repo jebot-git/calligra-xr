@@ -95,6 +95,7 @@ enum Command {
     MergeCells,
     SplitCell,
     SubdivideCell,
+    CellFormat,
     Bold,
     Italic,
     Underline,
@@ -404,6 +405,7 @@ public:
             add("&Table/Cells/&Merge cells…", 0, MergeCells);
             add("&Table/Cells/&Split cell", 0, SplitCell);
             add("&Table/Cells/S&ubdivide cell…", 0, SubdivideCell);
+            add("&Table/Cells/&Cell format…", 0, CellFormat);
             add("&Format/Paragraph &styles…", 0, ParagraphStyles);
             add("&Format/Character &styles…", 0, CharacterStyles);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
@@ -929,7 +931,7 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell)
+                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell || action == CellFormat)
                     office->word_grid(action);
                 else if (action == InsertTable || action == DeleteTable)
                     office->word_table(action == InsertTable);
@@ -987,6 +989,7 @@ public:
         case MergeCells:
         case SplitCell:
         case SubdivideCell:
+        case CellFormat:
             break;
         default:
             throw std::runtime_error("Invalid table action");
@@ -994,7 +997,9 @@ public:
         formatting_dialog = true;
         std::optional<WordsTableEdit> result;
         try {
-            if (command == MergeCells)
+            if (command == CellFormat)
+                result = cell_format_dialog(window, snapshot, address, path, previous.cursor);
+            else if (command == MergeCells)
                 result = merge_cells_dialog(window, snapshot, address, path);
             else if (command == SubdivideCell) {
                 if (!page_view)
@@ -1025,7 +1030,7 @@ public:
         TextSelection next { result->cursor, result->cursor, result->cell, result->cells };
         if (!words->commit_structure(std::move(result->document), previous, next, revision)) {
             restore_word_selection(previous);
-            message("Cells already have this layout");
+            message("Cell properties are unchanged");
             return;
         }
         words_edit_previous.reset();
@@ -1034,7 +1039,7 @@ public:
         modified = words->modified();
         title();
         sync_pages();
-        message("Table grid updated");
+        message(command == CellFormat ? "Cell formatting updated" : "Table grid updated");
     }
     void word_table(bool insert)
     {
@@ -1644,7 +1649,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

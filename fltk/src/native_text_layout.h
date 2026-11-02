@@ -175,6 +175,7 @@ struct TextTableBorder {
   double width = 0;
   TextColor color;
   std::optional<std::array<double, 3>> double_widths;
+  bool operator==(const TextTableBorder &) const = default;
 };
 struct TextCellStyle {
   // Top, right, bottom, left; borders and padding are inside the cell extent.
@@ -182,6 +183,7 @@ struct TextCellStyle {
   std::array<double, 4> padding{};
   std::optional<TextColor> background;
   enum Vertical { Top, Middle, Bottom } vertical = Top;
+  bool operator==(const TextCellStyle &) const = default;
 };
 struct TextTableCell {
   XmlElement source;

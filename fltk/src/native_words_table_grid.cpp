@@ -1341,6 +1341,185 @@ split_words_table_cell(const OdfPackage &original,
   return finish(std::move(p), source, address.row, address.column, names);
 }
 
+TextCellStyle
+words_table_cell_format(const OdfPackage &p, const TextCellAddress &address,
+                        const std::vector<TextCellAddress> &context) {
+  auto flow = read_text_flow(p);
+  (void)checked_path(flow, address, context);
+  return validate_address(flow.tables[address.table], address).style;
+}
+WordsTableEdit format_words_table_cell(
+    const OdfPackage &original, const TextCellAddress &address,
+    const WordsCellFormat &format, const std::vector<TextCellAddress> &context,
+    std::optional<size_t> position) {
+  if (original.kind() != Kind::Words || original.read_only())
+    fail("This document cannot be edited");
+  auto flow = read_text_flow(original);
+  auto path = checked_path(flow, address, context);
+  const auto &old = validate_address(flow.tables[address.table], address);
+  auto old_paragraphs = paragraphs(old.source);
+  size_t caret_offset = 0;
+  if (position && !old_paragraphs.empty()) {
+    size_t first = offset_of(original, old_paragraphs.front());
+    size_t last = offset_of(original, old_paragraphs.back()) +
+                  plain_text(old_paragraphs.back()).size();
+    if (*position < first || *position > last)
+      fail("The caret is outside the selected cell");
+    caret_offset = *position - first;
+  }
+  auto desired = old.style;
+  auto valid_length = [](double value) {
+    if (!std::isfinite(value) || value < 0 || value > 100000)
+      fail("Cell lengths must be between 0 and 100000 points");
+  };
+  auto color_text = [](const TextColor &color) {
+    if (color.alpha == 0)
+      return Text("transparent");
+    if (color.alpha != 1)
+      fail("Cell colors must be opaque or transparent");
+    static const char digits[] = "0123456789abcdef";
+    std::string result = "#";
+    for (unsigned char v : {color.red, color.green, color.blue}) {
+      result += digits[v >> 4];
+      result += digits[v & 15];
+    }
+    return Text(result);
+  };
+  if (format.background) {
+    (void)color_text(*format.background);
+    desired.background = format.background;
+    // Missing and transparent paint both reveal the table/row background.
+    if (format.background->alpha == 0 && !old.style.background)
+      desired.background.reset();
+  }
+  if (format.vertical) {
+    if (*format.vertical < TextCellStyle::Top ||
+        *format.vertical > TextCellStyle::Bottom)
+      fail("Invalid cell vertical alignment");
+    desired.vertical = *format.vertical;
+  }
+  for (size_t i = 0; i < 4; ++i) {
+    if (format.padding[i]) {
+      valid_length(*format.padding[i]);
+      desired.padding[i] = *format.padding[i];
+    }
+    if (format.borders[i]) {
+      auto border = *format.borders[i];
+      if (border.style < TextTableBorder::None ||
+          border.style > TextTableBorder::Outset)
+        fail("Invalid cell border style");
+      valid_length(border.width);
+      (void)color_text(border.color);
+      if (border.double_widths) {
+        double total = 0;
+        for (double width : *border.double_widths) {
+          valid_length(width);
+          total += width;
+        }
+        valid_length(total);
+      }
+      if (border.style == TextTableBorder::None || border.width == 0) {
+        border.style = TextTableBorder::None;
+        border.width = 0;
+      }
+      desired.borders[i] = border;
+    }
+  }
+  auto canonical = [](TextCellStyle style) {
+    if (style.background && style.background->alpha == 0)
+      style.background.reset();
+    for (auto &edge : style.borders) {
+      if (edge.style == TextTableBorder::None || edge.width == 0)
+        edge = {};
+      else if (edge.style != TextTableBorder::Double)
+        edge.double_widths.reset();
+      else if (!edge.double_widths)
+        edge.double_widths = std::array<double, 3>{
+            edge.width / 3, edge.width / 3, edge.width / 3};
+    }
+    return style;
+  };
+  if (canonical(desired) == canonical(old.style)) {
+    auto result = unchanged_cell(original, address, path);
+    if (position)
+      result.cursor = *position;
+    return result;
+  }
+  auto p = original;
+  p.xml = read_document_xml(original.xml.toByteArray());
+  Names names(p);
+  auto target = prepare_target(p, read_text_flow(p), path, names);
+  auto current = read_text_flow(p);
+  Grid grid(current.tables[table_index(current, target)]);
+  auto selected = isolate_cell(p, grid, address.row, address.column, names);
+  // A cell may obtain its complete style from a row/column/table default.
+  // Derive from that resolved style, not merely its explicit attribute.
+  auto prototype = selected.cloneNode(false);
+  prototype.setAttributeNS(TABLE, "table:style-name", old.style_name);
+  size_t serial = 1;
+  auto name = fraction_style(p, prototype, "table-cell", {}, serial);
+  XmlElement style;
+  for (auto node : p.xml.elementsByTagNameNS(STYLE, "style"))
+    if (node.attributeNS(STYLE, "name") == name)
+      style = node;
+  auto props = child(style, STYLE, "table-cell-properties");
+  const Text fo = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
+  if (format.background)
+    props.setAttributeNS(fo, "fo:background-color",
+                         color_text(*format.background));
+  if (format.vertical) {
+    const char *values[] = {"top", "middle", "bottom"};
+    props.setAttributeNS(STYLE, "style:vertical-align",
+                         values[*format.vertical]);
+  }
+  const char *sides[] = {"top", "right", "bottom", "left"};
+  const char *styles[] = {"none",   "solid", "double", "dashed", "dotted",
+                          "groove", "ridge", "inset",  "outset"};
+  for (size_t i = 0; i < 4; ++i) {
+    if (format.padding[i])
+      props.setAttributeNS(fo, Text("fo:padding-") + sides[i],
+                           point_length(*format.padding[i]));
+    if (format.borders[i]) {
+      const auto &border = desired.borders[i];
+      props.setAttributeNS(fo, Text("fo:border-") + sides[i],
+                           border.style == TextTableBorder::None
+                               ? Text("none")
+                               : point_length(border.width) + " " +
+                                     styles[border.style] + " " +
+                                     color_text(border.color));
+      if (border.style == TextTableBorder::Double) {
+        auto widths = border.double_widths.value_or(std::array<double, 3>{
+            border.width / 3, border.width / 3, border.width / 3});
+        for (double width : widths)
+          if (!std::isfinite(width) || width <= 0)
+            fail("Double border line widths must be positive");
+        props.setAttributeNS(STYLE, Text("style:border-line-width-") + sides[i],
+                             point_length(widths[0]) + " " +
+                                 point_length(widths[1]) + " " +
+                                 point_length(widths[2]));
+      }
+    }
+  }
+  selected.setAttributeNS(TABLE, "table:style-name", name);
+  auto result_flow = read_text_flow(p);
+  // Formatting does not add paragraphs, even to an originally empty cell.
+  std::vector<TextCellAddress> cells;
+  for (auto node = selected; node.isElement(); node = node.parentNode())
+    if (node.namespaceURI() == TABLE && node.localName() == "table-cell") {
+      auto index = table_index(result_flow, ancestor(node, "table"));
+      for (const auto &cell : result_flow.tables[index].cells)
+        if (cell.source == node) {
+          cells.push_back(
+              {index, cell.row, cell.column, cell.rows, cell.columns});
+          break;
+        }
+    }
+  std::reverse(cells.begin(), cells.end());
+  auto result = unchanged_cell(p, cells.back(), cells);
+  result.cursor += caret_offset;
+  return result;
+}
+
 WordsTableEdit subdivide_words_table_cell(
     const OdfPackage &original, const TextCellAddress &address, size_t rows,
     size_t columns, const std::vector<TextCellAddress> &context,

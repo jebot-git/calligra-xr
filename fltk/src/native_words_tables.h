@@ -58,6 +58,22 @@ merge_words_table_cells(const OdfPackage &, const TextCellAddress &,
 WordsTableEdit
 split_words_table_cell(const OdfPackage &, const TextCellAddress &,
                        const std::vector<TextCellAddress> &path = {});
+// Missing properties retain the effective cell style, including row/column
+// defaults.
+struct WordsCellFormat {
+  std::optional<TextColor> background;
+  std::optional<TextCellStyle::Vertical> vertical;
+  std::array<std::optional<double>, 4> padding;
+  std::array<std::optional<TextTableBorder>, 4> borders;
+};
+TextCellStyle
+words_table_cell_format(const OdfPackage &, const TextCellAddress &,
+                        const std::vector<TextCellAddress> &path = {});
+WordsTableEdit
+format_words_table_cell(const OdfPackage &, const TextCellAddress &,
+                        const WordsCellFormat &,
+                        const std::vector<TextCellAddress> &path = {},
+                        std::optional<size_t> position = {});
 // Split one displayed cell into an explicit count of logical row/column parts.
 // Existing grid boundaries remain; neighboring cells span the refined slots.
 WordsTableEdit subdivide_words_table_cell(

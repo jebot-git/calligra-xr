@@ -2109,3 +2109,46 @@ editing remain unfinished. This is not full Words parity or completion of the
 broader goal. Sheets functions follow Words, with Stage last. The user requested
 a pause at rudimentary Words compliance; further implementation waits for resume.
 No active desktop session or system printer queue is restarted by this increment.
+
+
+## Native Words cell formatting — 2026-11-02
+
+Table → Cells → Cell format exposes independent padding, border style/width/color,
+background (including transparent), and vertical alignment through native FLTK.
+The engine derives from the effective cell style, including row/column/table
+fallbacks and common styles.xml definitions. It retains unrelated text/paragraph
+properties, covered metadata, values, IDs/references and opaque ZIP entries.
+Only the chosen displayed instance is materialized, including repeated nested
+ancestors. Empty source cells stay empty. The caret retains its source-relative
+offset after localization. Native pagination precedes one structural commit;
+Cancel, validation rejection and semantic no-ops preserve source and history.
+
+All 49 applicable optimized Release core suites and the same 49 ASan/UBSan
+suites pass; core leak detection is enabled. Three legacy outline-font-assumption
+suites remain excluded and are not counted as passing. The new core suite covers
+four-sided padding, independent double/removed borders, background clearing,
+vertical alignment, inherited cell and text styles, repeated/nested/merged scope,
+empty cells, invalid lengths/colors/context, unique IDs and exact history.
+Eleven final core ODF fixtures per build include common-style inheritance.
+
+Flat and nested native Wayland GUI checks pass, as do nested Wayland sanitizer
+GUI checks (GUI leak detection disabled) and X11. They drive Cancel, negative
+padding rejection/correction, per-side double/dashed border editing, background
+and bottom alignment, no-op Apply, caret retention and exact archive-part
+undo/redo. The FLTK panel was visually inspected with the current bitmap font.
+
+Eleven actual private CUPS jobs pass for flat/nested UI exports and seven core
+exports covering ordinary, cleared, repeated/nested, merged, empty and common
+style cells plus redo. All source ZIP entries except the generated manifest
+remain exact, native/reopened and captured CUPS pixels agree, and all eleven
+rendered pages were visually reviewed. The combined gate validates 61 ODF
+packages against version-matched content/styles schemas. An initial serialization
+of unused zero-valued double-border subdivisions failed the positive-length
+schema; explicit subdivisions are now emitted only for double borders with
+positive component widths. The final schema and CUPS runs pass.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-cell-format-20261102`.
+The full goal remains active: cross-cell range formatting, table size/style
+controls, formula/reference adjustment and broader Words layout/editing remain
+unfinished. Sheets functions follow Words; Stage remains last. This increment
+does not restart active desktop sessions or modify system printer queues.
