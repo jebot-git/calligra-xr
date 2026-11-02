@@ -285,7 +285,12 @@ paragraph range; the universal Format → List menu also works inside an item.
 Selected items must share a list/level after contained descendants are removed
 from the operation. Outdent at the top level is a no-op. Enter on a sole empty
 root item leaves numbering, and terminal nested empty items can leave all list
-levels. No paragraph text or editing offsets are invented by these operations.
+levels. List operations within repeated table cells isolate the clicked copy
+and all repeated ancestors, rebase its source selection, and retain pending
+caret formatting. Other displayed copies keep their original lists. No-op
+commands leave repeated XML compact and do not add history. Undo restores the
+original source and complete cell path in one step. Paragraph text and source
+order within the edited cell stay unchanged.
 List fragments retain ID anchors and following continuation references; when
 an unlisted item and its paragraph both have IDs, a valid empty text:meta anchor
 retains the item's identity. Metadata text renders transparently, and empty

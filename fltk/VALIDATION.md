@@ -1896,3 +1896,55 @@ Artifacts: `/home/blux/de-xr/artifacts/calligra-words-repeated-format-20261102`.
 Cross-cell repeated selections, remaining list controls, table merge/split,
 formula references, sections/columns, headers/footers, notes, images/anchors and
 broader Words layout remain. Sheets functions follow Words; Stage remains last.
+
+
+## Repeated-cell list actions — 2026-11-02
+
+Before this increment, direct list commands changed shared XML and therefore
+all displayed copies of a repeated table cell. The native list model now uses
+the same isolated-candidate mutation path as local formatting: a real change
+materializes only the selected copy and its repeated ancestors, rebases the
+selection, and preserves the pending caret format. Valid no-op commands remain
+consumed without source expansion or an undo entry. The frontend refills its
+source buffer before restoring the rebased selection. Keyboard preparation can
+advance the view revision while cancelling a no-op; the package and history
+remain unchanged.
+
+The new native repeated-list regression failed against the previous model
+(`core-before.log`). It independently enumerates all 9 flat or 36 nested cells
+to check list levels and empty-item exit, Unicode forward/reverse ranges,
+complete cell paths, unique IDs, exact source/style/opaque-part undo/redo,
+rejected unrelated ranges/incomplete paths, no-op state, and retained pending
+blue typing. Release and ASan/UBSan pass all 45 core suites applicable to the
+bitmap runtime, with leak checks enabled for core tests. The same three legacy
+outline-font-assumption suites remain excluded, not counted as passing.
+
+Native Wayland Release checks pass for flat and nested fixtures, as do nested
+Wayland sanitizer and X11 checks. They drive the universal List menu, Tab,
+Shift+Tab and empty-item Enter, inspect independently expanded source lists,
+and verify exact package parts and clicked-cell history. The existing nested
+character/paragraph/tab/named-format regression also passes after sharing the
+stable cell-selection helper. The keyboard no-op assertion checks package and
+history preservation rather than requiring its speculative view revision to
+stay fixed.
+
+The focused print gate completes 18 actual private CUPS capture jobs, including
+flat/nested menu and keyboard snapshots, empty exit, and blue typing after a
+list-level change. Every original package entry except the generated manifest
+is retained; export/reopen and CUPS rasters match, every page has visible ink,
+and the typed-blue samples contain the expected color. All 18 pages were
+visually reviewed. The combined gate validates 117 ODF packages against their
+version-matched content/styles schemas. Artifacts are retained under
+`/home/blux/de-xr/artifacts/calligra-words-repeated-lists-20261102`.
+
+The preceding scoped-formatting increment (`b85edb9`) was also installed and
+verified on resume: 29 root-owned artifacts match the optimized Release stage,
+all three launchers use system FLTK 1.4 with no Qt/GTK ELF dependency, installed
+Wayland flat/nested formatting and nested text-edit checks pass, 35 private CUPS
+jobs match, and 103 installed-test ODF packages pass schemas. No active desktop
+session or system printer queue was restarted or changed.
+
+Remaining Words work includes merge/split controls, richer repeated cross-cell
+ranges, formula reference adjustment, list controls, sections/columns,
+headers/footers, notes and image anchors. Sheets functions remain next and
+Stage remains last; this increment does not complete that broader goal.

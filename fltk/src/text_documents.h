@@ -39,7 +39,8 @@ public:
         std::optional<TextSelection> next = { });
     // Changes whole list items (including their descendants) without changing
     // paragraph text. Keyboard Tab applies only at paragraph/range boundaries.
-    bool list_action(TextSelection, WordsListAction, bool at_start_only = false);
+    // resolved receives the localized source offsets and displayed cell path.
+    bool list_action(TextSelection, WordsListAction, bool at_start_only = false, TextSelection* resolved = nullptr);
     WordsFormatInfo format_info(TextSelection) const;
     // Receives the rebased selection when formatting localizes a repeated cell.
     bool format_characters(TextSelection, const WordsCharacterFormat&, TextSelection* resolved = nullptr);

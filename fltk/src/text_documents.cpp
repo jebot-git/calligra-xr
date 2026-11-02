@@ -187,13 +187,13 @@ namespace {
         const auto before = joined(candidate.body());
         mutate(candidate, selection);
         if (joined(candidate.body()) != before)
-            fail("Formatting would change document text");
+            fail("The operation would change document text");
         if (candidate.xml.toByteArray() == original.xml.toByteArray()
             && candidate.part_changes_from(original).empty())
             return { };
-        // Probe first: an already effective format must not leave a structural
+        // Probe first: an already effective operation must not leave a structural
         // edit. Reapply to unmodified localized source so other copies retain
-        // their old formatting.
+        // their old content and formatting.
         bool localized = false;
         if (local)
             if (auto range = materialize_words_table_range(original, selection.cells,
@@ -208,7 +208,7 @@ namespace {
                 const auto expanded = joined(candidate.body());
                 mutate(candidate, selection);
                 if (joined(candidate.body()) != expanded)
-                    fail("Formatting would change localized document text");
+                    fail("The operation would change localized document text");
             }
         (void)read_text_flow(candidate);
         return ScopedMutation { std::move(candidate), std::move(selection), localized };
@@ -435,7 +435,7 @@ try {
     cancel_edit();
     throw;
 }
-bool TextDocument::list_action(TextSelection selection, WordsListAction action, bool at_start_only)
+bool TextDocument::list_action(TextSelection selection, WordsListAction action, bool at_start_only, TextSelection* resolved)
 try {
     if (edit_cancelled())
         fail("This text edit was cancelled");
@@ -444,15 +444,28 @@ try {
     auto before = text();
     if (selection.anchor > before.size() || selection.cursor > before.size())
         fail("Invalid text selection");
-    OdfPackage candidate = package_;
-    candidate.xml = read_document_xml(package_.xml.toByteArray());
-    if (!change_words_list(candidate, std::min(selection.anchor, selection.cursor),
-            std::max(selection.anchor, selection.cursor), action, at_start_only))
-        return false;
-    if (joined(candidate.body()) != before)
-        fail("List operation would change paragraph text or source order");
-    (void)read_text_flow(candidate);
-    apply(std::move(candidate), selection, selection);
+    if (resolved)
+        *resolved = selection;
+    const auto previous = selection;
+    bool handled = false;
+    auto result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) {
+        handled = change_words_list(candidate, std::min(scope.anchor, scope.cursor),
+            std::max(scope.anchor, scope.cursor), action, at_start_only);
+    });
+    if (!result)
+        return handled; // Consume valid no-op keys without expanding repetitions.
+    selection = result->selection;
+    auto typing = typing_format_;
+    if (result->localized && typing) {
+        if (typing->position == previous.cursor)
+            typing->position = selection.cursor;
+        else
+            typing.reset();
+    }
+    apply(std::move(result->document), previous, selection);
+    typing_format_ = std::move(typing);
+    if (resolved)
+        *resolved = selection;
     return true;
 } catch (...) {
     cancel_edit();

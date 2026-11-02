@@ -1213,9 +1213,11 @@ public:
             return false;
         auto selection = word_selection();
         try {
-            if (!words->list_action(selection, action, key))
+            if (!words->list_action(selection, action, key, &selection))
                 return false;
             words_edit_previous.reset();
+            if (Text(buffer_text()) != words->text())
+                fill_buffer(words->text());
             modified = words->modified();
             restore_word_selection(selection);
             title();

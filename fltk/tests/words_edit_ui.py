@@ -172,7 +172,8 @@ parser.add_argument('--rudimentary-only', action='store_true', help='Verify basi
 parser.add_argument('--grid-repeat-only', action='store_true', help='Run repeated-row caret/undo UI checks')
 parser.add_argument('--repeated-edit-only', action='store_true', help='Run local typing, deletion and clipboard checks in preexisting repeated cells')
 parser.add_argument('--repeated-format-only', action='store_true', help='Run local character, paragraph, tab and named formatting in repeated cells')
-parser.add_argument('--nested-fixture', type=Path, help='Also test the nested/repeated source fixture in repeated-edit mode')
+parser.add_argument('--repeated-lists-only', action='store_true', help='Run local list indent/outdent and empty exit in repeated cells')
+parser.add_argument('--nested-fixture', type=Path, help='Nested text fixture, or flat/nested source fixture for repeated format/list modes')
 parser.add_argument('--grid-only', action='store_true', help='Run focused table row/column UI checks')
 parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
 parser.add_argument('--tabs-only', action='store_true', help='Run focused native tab stop UI checks')
@@ -182,12 +183,14 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
-if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only):
-    parser.error('--nested-fixture requires a repeated edit/format mode')
+if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only):
+    parser.error('--nested-fixture requires a repeated edit/format/list mode')
+if args.repeated_lists_only and not args.nested_fixture:
+    parser.error('--repeated-lists-only requires a flat or nested list fixture via --nested-fixture')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only))>1:
+if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only))>1:
         parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
@@ -312,10 +315,10 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        if args.repeated_format_only and args.nested_fixture:
+        if (args.repeated_format_only or args.repeated_lists_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
         else:
-            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only)
+            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -487,7 +490,7 @@ try:
             assert process.wait(timeout=15) == 0
         else:
             original = data()['text']
-            if not args.repeated_format_only:
+            if not (args.repeated_format_only or args.repeated_lists_only):
                 assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
             _, original_xml = save('original')
 
@@ -1103,7 +1106,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only:
+            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1141,31 +1144,110 @@ try:
                     wait(lambda:data()['editing']['cell']==[0,1,0,1,1])
                     assert save(name)[1]==original_xml
                     assert parts(name)==original_parts
+                def pick_repeated(prefix, ranged=True, column=0):
+                    snapshot=settled_page();page=snapshot['page_layout'];boxes=page['table_cells']
+                    ids={c['table'] for c in boxes}
+                    if len(ids)==1:
+                        cell=next(c for c in boxes if c['row']==1 and c['column']==column)
+                        path=[[cell['table'],1,column,1,1]]
+                    else:
+                        outer_id=max(ids,key=lambda id:max(c['width'] for c in boxes if c['table']==id))
+                        outer=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==2)
+                        cell=next(c for c in boxes if c['table']!=outer_id and c['row']==1 and c['column']==1
+                            and outer['x']<=c['x']<outer['x']+outer['width']
+                            and outer['y']<=c['y']<outer['y']+outer['height'])
+                        path=[[outer_id,1,2,1,1],[cell['table'],1,1,1,1]]
+                    vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                    left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']
+                    click(round(left+(cell['x']+1)*zoom),round(top+(cell['y']+3)*zoom))
+                    wait(lambda:data()['editing']['cells']==path)
+                    key('Home');check_text(original,original.index(prefix))
+                    if ranged:key('Right',('Shift_L',),count=len(prefix))
+                    check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
+                    return path
+                if args.repeated_lists_only:
+                    def list_pick(word='Český Beta'):
+                        path=pick_repeated('Alpha',False,2)
+                        key('Right',count=original.index(word)-original.index('Alpha'))
+                        check_text(original,original.index(word))
+                        return path
+                    def list_cells(root):
+                        def cells(table):
+                            result=[]
+                            for row in table.findall(TABLE+'table-row'):
+                                values=[]
+                                for cell in row.findall(TABLE+'table-cell'):
+                                    values.extend([cell]*int(cell.get(TABLE+'number-columns-repeated','1')))
+                                result.extend([values]*int(row.get(TABLE+'number-rows-repeated','1')))
+                            return result
+                        outer=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Outer')
+                        leaves=[]
+                        for r,row in enumerate(cells(outer)):
+                            for c,cell in enumerate(row):
+                                inner=cell.find(TABLE+'table')
+                                if inner is None:leaves.append((cell,r==1 and c==2))
+                                else:
+                                    for ir,irow in enumerate(cells(inner)):
+                                        for ic,leaf in enumerate(irow):leaves.append((leaf,r==1 and c==2 and ir==1 and ic==1))
+                        return leaves
+                    def check_list(name,mode):
+                        root,xml=save(name);leaves=list_cells(root)
+                        assert len(leaves) in (9,36)
+                        for leaf,target in leaves:
+                            paragraphs=[]
+                            def walk(node,level=0):
+                                if node.tag==TEXT+'list':level+=1
+                                if node.tag in (TEXT+'p',TEXT+'h'):paragraphs.append((plain(node),level))
+                                else:
+                                    for child in node:walk(child,level)
+                            walk(leaf)
+                            expected=[('Alpha',1),('Český Beta',2 if target and mode=='indent' else 1),('Gamma',1),('',0 if target and mode=='exit' else 1)]
+                            assert paragraphs==expected,(name,target,paragraphs,expected)
+                        return xml
+                    def list_undo(name,path,position):
+                        revision=data()['editing']['revision'];key('z',('Control_L',))
+                        wait(lambda:data()['editing']['revision']!=revision)
+                        check_text(original,position)
+                        wait(lambda:data()['editing']['cells']==path)
+                        assert save(name)[1]==original_xml and parts(name)==original_parts
+                        assert not data()['editing']['can_undo'] and data()['editing']['can_redo']
+                    path=list_pick();position=original.index('Český Beta')
+                    revision=data()['editing']['revision'];key('Tab',('Shift_L',))
+                    assert save('list-key-noop')[1]==original_xml and not data()['editing']['can_undo']
+                    # Keyboard preparation/cancellation advances the view revision
+                    # while restoring the original package and history.
+                    revision=data()['editing']['revision']
+                    menu_action('Outdent')
+                    assert data()['editing']['revision']==revision and not data()['editing']['can_undo']
+                    assert save('list-noop')[1]==original_xml
+                    menu_action('Indent');wait(lambda:data()['modified'])
+                    changed_xml=check_list('list-menu-indent','indent')
+                    cursor=data()['editing']['cursor'];assert cursor>position
+                    menu_action('Outdent');check_list('list-menu-outdent','outdent')
+                    key('z',('Control_L',));assert save('list-outdent-undone')[1]==changed_xml
+                    list_undo('list-menu-indent-undone',path,position)
+                    key('Tab');wait(lambda:data()['modified'])
+                    check_list('list-key-indent','indent')
+                    key('Tab',('Shift_L',));check_list('list-key-outdent','outdent')
+                    key('z',('Control_L',))
+                    list_undo('list-key-indent-undone',path,position)
+                    path=list_pick('Gamma');key('Right',count=len('Gamma')+1)
+                    blank=original.index('Gamma')+len('Gamma')+1
+                    check_text(original,blank)
+                    key('Return');wait(lambda:data()['modified'])
+                    check_list('list-empty-exit','exit')
+                    list_undo('list-empty-exit-undone',path,blank)
+                    key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,
+                        'local_list_menu_and_keys':True,'empty_exit':True,'noop_and_exact_history':True},indent=2)+'\n')
+                    print('PASS local repeated/nested list menu, keyboard, empty exit, no-op and exact history',flush=True)
+                    raise FormatComplete
                 if args.repeated_format_only:
                     leaf='Český link' if args.nested_fixture else 'Cell link   \tend\nsoft'
                     prefix='Český' if args.nested_fixture else 'Cell'
                     expected_count=36 if args.nested_fixture else 3
                     def format_pick(ranged=True):
-                        snapshot=settled_page();page=snapshot['page_layout'];boxes=page['table_cells']
-                        ids={c['table'] for c in boxes}
-                        if len(ids)==1:
-                            cell=next(c for c in boxes if c['row']==1 and c['column']==0)
-                            path=[[cell['table'],1,0,1,1]]
-                        else:
-                            outer_id=max(ids,key=lambda id:max(c['width'] for c in boxes if c['table']==id))
-                            outer=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==2)
-                            cell=next(c for c in boxes if c['table']!=outer_id and c['row']==1 and c['column']==1
-                                and outer['x']<=c['x']<outer['x']+outer['width']
-                                and outer['y']<=c['y']<outer['y']+outer['height'])
-                            path=[[outer_id,1,2,1,1],[cell['table'],1,1,1,1]]
-                        vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
-                        left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']
-                        click(round(left+(cell['x']+1)*zoom),round(top+(cell['y']+3)*zoom))
-                        wait(lambda:data()['editing']['cells']==path)
-                        key('Home');check_text(original,original.index(prefix))
-                        if ranged:key('Right',('Shift_L',),count=len(prefix))
-                        check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
-                        return path
+                        return pick_repeated(prefix,ranged)
                     def property_count(root,kind):
                         with zipfile.ZipFile(source) as archive:styles=ET.fromstring(archive.read('styles.xml'))
                         nodes=[*root.iter(STYLE+'style'),*styles.iter(STYLE+'style')];refs=set()

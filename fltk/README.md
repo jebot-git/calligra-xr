@@ -101,8 +101,11 @@ CUPS test queues.
   their scope. Tab/Shift+Tab at paragraph starts or across paragraph selections,
   and Format → List → Indent/Outdent, change item levels without changing text.
   Enter leaves a sole empty root item or a terminal nested empty item. Undo
-  restores these formatting-only changes and their selections. Cross-cell/
-  unrelated-list joins, complex paragraph-level list moves and list-formatting
+  restores these formatting-only changes and their selections. In repeated
+  table cells, level changes and empty-item exit isolate the selected displayed
+  copy, including nested repeated ancestors. A valid no-op keeps repeats compact.
+  Cross-cell/unrelated-list joins, complex paragraph-level list moves and
+  list-formatting
   controls remain restricted or unfinished.
   Format → Character adds bold/italic (Ctrl+B/I), family, size and color;
   Ctrl+D opens the Font dialog. A selection formats existing runs; a caret
