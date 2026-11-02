@@ -79,6 +79,37 @@ int main(int argc, char **argv) {
   }
   const std::string config = getenv("FONTCONFIG_FILE") ? getenv("FONTCONFIG_FILE") : "";
   NativeTextShaper engine;
+  if (argc == 3 && Text::fromUtf8(argv[1]) == "--bitmap-only") {
+    // Compare actual strike metrics, rather than accepting tiny positive
+    // advances that make every glyph overlap on screen and in printed output.
+    FT_Library library;
+    assert(!FT_Init_FreeType(&library));
+    for (double size : {12., 24.}) {
+      auto shaped =
+          engine.shape("Hello World", font(Text::fromUtf8(argv[2]), size));
+      coverage(shaped, 11);
+      assert(!shaped.missing_glyphs && shaped.glyphs.size() == 11);
+      double expected = 0;
+      for (const auto &glyph : shaped.glyphs) {
+        assert(!glyph.face->scalable);
+        FT_Face face;
+        assert(!FT_New_Face(library, glyph.face->file.c_str(),
+                            glyph.face->index, &face));
+        assert(face->num_fixed_sizes == 1 && !FT_Select_Size(face, 0));
+        assert(!FT_Load_Glyph(face, glyph.glyph, FT_LOAD_DEFAULT));
+        const double advance =
+            face->glyph->advance.x * size / (64. * face->size->metrics.y_ppem);
+        assert(advance > 0 && std::abs(glyph.advance - advance) < 1e-7);
+        assert(std::abs(glyph.x - expected) < 1e-7);
+        expected += advance;
+        FT_Done_Face(face);
+      }
+      assert(std::abs(shaped.metrics.width - expected) < 1e-7);
+    }
+    FT_Done_FreeType(library);
+    std::cout << "PASS native bitmap strike advances at 12 and 24 points\n";
+    return 0;
+  }
   if (argc == 3 && Text::fromUtf8(argv[1]) == "--layout") {
     OdfPackage package(Kind::Words);
     package.load(Text::fromUtf8(argv[2]));

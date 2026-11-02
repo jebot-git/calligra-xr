@@ -236,6 +236,9 @@ struct NativeTextShaper::Impl {
           native.hb, face->scalable ? FT_LOAD_NO_HINTING | FT_LOAD_NO_BITMAP
                                     : FT_LOAD_DEFAULT);
       native.units = native.shaping->size->metrics.y_ppem * 64.;
+      // Keep positions in 26.6 strike pixels. Bitmap HarfBuzz backends may
+      // initialize the scale to pixels per em instead of FreeType's 26.6 scale.
+      hb_font_set_scale(native.hb, native.units, native.units);
       native.metrics = {
           0,
           std::max(0., native.shaping->size->metrics.ascender / native.units),

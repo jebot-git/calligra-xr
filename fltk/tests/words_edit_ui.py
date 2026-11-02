@@ -164,6 +164,7 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
+parser.add_argument('--rudimentary-only', action='store_true', help='Verify basic native editing, save/reopen and history with the current system font')
 parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
 parser.add_argument('--tabs-only', action='store_true', help='Run focused native tab stop UI checks')
 parser.add_argument('--page-setup-only', action='store_true', help='Run focused native page setup UI checks')
@@ -172,6 +173,8 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.rudimentary_only:
+    args.page_only = True
 if args.tables_only and (args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
     parser.error('--tables-only is incompatible with other focused modes or --ime')
 if args.tabs_only and (args.page_only or args.page_setup_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
@@ -1790,6 +1793,9 @@ try:
         key('Right', count=3); check_text(page_text, 3)
         key('Left'); check_text(page_text, 2)
         key('Right'); check_text(page_text, 3)
+        if args.rudimentary_only:
+            caret = data()['page_layout']['caret_rect']
+            px, py = round(caret[0]), round(caret[1]+caret[3]/2)
         click(px, py)
         wait(lambda: data()['page_layout']['editing'])
         assert data()['page_layout']['visible']
@@ -1814,6 +1820,23 @@ try:
         check_text(page_text[:3] + 'x' + page_text[3:], 4)
         save('page-hit-saved')
         expected = page_text[:3] + 'x' + page_text[3:]
+        if args.rudimentary_only:
+            capture_window('rudimentary-edited')
+            key('q', ('Control_L',)); assert process.wait(timeout=15) == 0
+            reopened = art / 'rudimentary-reopened.json'
+            process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
+                             '--report', reopened, '--quit-after-ms', '1800'], client, 'rudimentary-reopened')
+            assert process.wait(timeout=15) == 0
+            restored = json.loads(reopened.read_text())
+            assert restored['text'] == expected and not restored['modified']
+            assert restored['page_layout']['visible'] and not restored['page_layout']['render_error']
+            (art / 'results.json').write_text(json.dumps({
+                'native_wayland': args.wayland, 'rudimentary_editing': True,
+                'keyboard_and_caret_click': True, 'selection': True,
+                'undo_redo': True, 'save_reopen': True, 'archive_retention': True,
+                'advanced_regressions': False}, indent=2)+'\n')
+            print('PASS rudimentary native Words typing, caret click, selection, undo/redo, save/reopen and archive retention', flush=True)
+            raise FormatComplete
         first_length = len(expected.split('\n')[0])
         # Visual RTL movement stays on the native line and source positions.
         key('Home', ('Control_L',)); key('Down', ('Control_L',))

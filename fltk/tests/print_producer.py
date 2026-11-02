@@ -70,7 +70,7 @@ def produce(directory):
     return paths
 
 
-def verify(binary_dir, directory, cups=None):
+def verify(binary_dir, directory, cups=None, bitmap_fonts=False):
     directory=Path(directory);directory.mkdir(parents=True,exist_ok=True)
     sources=produce(directory/'fixtures');results={}
     env={**os.environ,'LD_LIBRARY_PATH':'/usr/local/lib/domed/bitmap'}
@@ -89,31 +89,45 @@ def verify(binary_dir, directory, cups=None):
         assert len(reader.pages)==expected,(app,len(reader.pages),expected)
         alltext='\n'.join(page.extract_text() or '' for page in reader.pages)
         (directory/(app+'-extracted.txt')).write_text(alltext)
-        assert {'words':'PAGE TWO','sheets':'LAST TILE','stage':'SLIDE 2'}[app] in alltext,(app,alltext)
+        marker={'words':'PAGE TWO','sheets':'LAST TILE','stage':'SLIDE 2'}[app]
+        if not bitmap_fonts:
+            assert marker in alltext,(app,alltext)
         assert before==hashlib.sha256(source.read_bytes()).hexdigest()
         with zipfile.ZipFile(exported) as archive:
             assert archive.infolist()[0].filename=='mimetype' and archive.infolist()[0].compress_type==zipfile.ZIP_STORED
             assert archive.read('mimetype').decode()=='application/vnd.oasis.opendocument.'+{'words':'text','sheets':'spreadsheet','stage':'presentation'}[app]
-            ET.fromstring(archive.read('content.xml'));ET.fromstring(archive.read('META-INF/manifest.xml'))
+            content=ET.fromstring(archive.read('content.xml'));ET.fromstring(archive.read('META-INF/manifest.xml'))
+            assert marker in ''.join(content.itertext()),(app,'OpenDocument text lost')
         second=directory/(app+'-reopened.pdf')
         subprocess.run([command[0],str(exported),'--print-pdf',str(second)],env=env,text=True,capture_output=True,check=True)
         assert len(PdfReader(second).pages)==expected
         # Rasterize every page; visual review and pixel checks consume these PNGs.
         subprocess.run(['pdftoppm','-r','100','-png',str(output),str(directory/(app+'-page'))],check=True,capture_output=True)
-        results[app]={'pages':expected,'exported_odf':str(exported),'pdf':str(output),'headless':True,'source_unchanged':True,'reopened':True}
+        if bitmap_fonts:
+            # Bitmap output uses masks and has no searchable PDF text. Require
+            # visible ink on every page and identical rendering after ODF reopen.
+            subprocess.run(['pdftoppm','-r','100','-png',str(second),str(directory/(app+'-reopened-page'))],check=True,capture_output=True)
+            for number in range(1,expected+1):
+                first=directory/(app+f'-page-{number}.png')
+                reopened=directory/(app+f'-reopened-page-{number}.png')
+                image=PillowImage.open(first).convert('RGB')
+                assert sum(max(pixel)<100 for pixel in image.getdata())>50,(app,number,'blank page')
+                assert first.read_bytes()==reopened.read_bytes(),(app,number,'reopen rendering differs')
+        results[app]={'pages':expected,'exported_odf':str(exported),'pdf':str(output),'headless':True,'source_unchanged':True,'reopened':True,'bitmap_masks':bitmap_fonts}
         print('PASS',app,'OpenDocument export, headless native print pages, all-page rasterization and reopen',flush=True)
     if cups:
         jobs=cups.completed(3)
         for captured in jobs:
             assert captured.read_bytes().startswith(b'%PDF-')
         assert sorted(len(PdfReader(path).pages) for path in jobs)==[2,2,5]
+        assert sorted(hashlib.sha256(path.read_bytes()).hexdigest() for path in jobs)==sorted(hashlib.sha256((directory/(app+'.pdf')).read_bytes()).hexdigest() for app in sources)
         results['cups']={'server':cups.server,'completed_jobs':3,'captured_documents':[str(path) for path in jobs],'system_printers_changed':False}
         print('PASS three actual CUPS jobs completed through the private capture backend',flush=True)
     (directory/'results.json').write_text(json.dumps(results,indent=2)+'\n')
     return results
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('directory',type=Path);parser.add_argument('--bin-dir',type=Path,default=ROOT/'build-native/fltk');parser.add_argument('--cups',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('directory',type=Path);parser.add_argument('--bin-dir',type=Path,default=ROOT/'build-native/fltk');parser.add_argument('--cups',action='store_true');parser.add_argument('--bitmap-fonts',action='store_true',help='Verify bitmap mask output by raster ink and identical ODF reopen rendering instead of PDF text extraction');args=parser.parse_args()
     if args.cups:
-        with PrivateCups(args.directory/'cups') as cups:verify(args.bin_dir,args.directory,cups)
-    else:verify(args.bin_dir,args.directory)
+        with PrivateCups(args.directory/'cups') as cups:verify(args.bin_dir,args.directory,cups,args.bitmap_fonts)
+    else:verify(args.bin_dir,args.directory,bitmap_fonts=args.bitmap_fonts)

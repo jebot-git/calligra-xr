@@ -1727,3 +1727,34 @@ including its document font. Sanitizer GUI checks wait for the typed source
 report before comparing saved nested-deletion snapshots; source packages already
 matched when that synchronization issue was found. GUI leak checking remains
 disabled for third-party libraries.
+
+
+## Rudimentary Words bitmap baseline — 2026-11-02
+
+The current DomeD runtime enforces BDF/PCF fonts. Its HarfBuzz bitmap backend
+initializes the font scale in pixels per em; native document layout consumes
+26.6 strike positions. Explicitly setting that scale prevents advances from
+shrinking to 1/64 of their intended width. The system font policy stays active.
+
+`calligra-native-text-shaper-test --bitmap-only FAMILY` independently compares
+ASCII glyph advances and pen positions against FreeType strike metrics at 12
+and 24 points. Both the current monospace match and the DejaVu Sans substitution
+pass. Native Wayland `words_edit_ui.py --rudimentary-only --wayland` checks
+startup typing, scalar movement, caret clicks, selection, undo/redo, atomic save,
+archive/style retention and reopen. It deliberately excludes advanced layout.
+
+`print_producer.py --bitmap-fonts --cups` checks OpenDocument export/reopen,
+visible ink on every page, byte-identical raster output after reopening, and
+three real private CUPS capture jobs matching the generated PDFs. All nine
+pages were visually reviewed. Bitmap text prints as masks; searchable PDF text
+is outside this acceptance floor. No system printer queues were changed.
+
+The full core run passes 41 of 44 suites. The remaining native-text-shaping,
+native-text-hit and native-text-editing cases assume specific outline-font
+ligatures/GDEF widths and require adaptation for bitmap fonts. They are recorded
+as failures, not counted as passing. The focused bitmap and basic editor checks
+pass independently. Advanced table grid work remains in its separate worktree;
+it is excluded from this update. Words layout beyond the rudimentary floor,
+Sheets functions and Stage remain unfinished when the goal is paused.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-bitmap-baseline-20261102`.
