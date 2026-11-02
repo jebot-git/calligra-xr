@@ -182,9 +182,18 @@ CUPS test queues.
   formatting stays transient on nonempty text; empty paragraph defaults persist
   only in the selected copy. Named-definition edits and document tab defaults
   keep their global scope. Cross-cell ranges in repeated source still need richer
-  selection metadata. Tables containing formulas reject these structural edits
-  until reference adjustment is implemented. Direct placement in lists needs an
-  anchored table or list splitting; merge/split controls remain pending.
+  selection metadata. Row/column edits reject formula-bearing tables until
+  reference adjustment is implemented. Table → Cells → Merge cells combines a
+  rectangle starting at the current cell; every existing span must fit inside it.
+  Paragraphs, lists, links and nested tables remain in row order. Moved content
+  retains its inherited appearance through explicit paragraph formatting when
+  cell styles differ. Split cell restores an existing merge's underlying grid;
+  combined text stays in its first cell, while retained covered-cell content
+  becomes editable in its own cells. Both operations have one-step exact undo.
+  Merge rejects repeating-header/body boundaries and selected numeric/formula
+  data pending value/reference merging. Arbitrary subdivision of independent
+  cells remains unfinished. Direct placement in lists still needs an anchored
+  table or list splitting.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

@@ -47,20 +47,31 @@ def main():
     parser.add_argument('--format-only', action='store_true', help='Run repeated formatting UI/core snapshots')
     parser.add_argument('--list-artifacts', type=Path, help='Repeated-cell list menu and keyboard UI snapshots')
     parser.add_argument('--list-only', action='store_true', help='Run repeated-cell list UI/core snapshots')
+    parser.add_argument('--merge-artifacts', type=Path, help='Words merge/split UI snapshots')
+    parser.add_argument('--merge-only', action='store_true', help='Run merge/split UI and optional core snapshots')
     parser.add_argument('--artifacts', type=Path, required=True)
     args = parser.parse_args()
+    if args.merge_only and (args.edit_only or args.format_only or args.list_only or not args.merge_artifacts):
+        parser.error('--merge-only requires --merge-artifacts and excludes other focused modes')
     if args.list_only and (args.edit_only or args.format_only or not args.list_artifacts):
         parser.error('--list-only requires --list-artifacts and excludes edit/format modes')
     if args.format_only and (args.edit_only or not args.format_artifacts):
         parser.error('--format-only requires --format-artifacts and excludes --edit-only')
     if args.edit_only and not args.edit_artifacts:
         parser.error('--edit-only requires --edit-artifacts')
-    if not (args.edit_only or args.format_only or args.list_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
+    if not (args.edit_only or args.format_only or args.list_only or args.merge_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
         parser.error('Grid mode requires --grid-artifacts, --repeat-artifacts and --core-artifacts')
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
     cases = []
-    if args.list_only:
+    if args.merge_only:
+        cases=[('merge-'+name,args.merge_artifacts/('merge-'+name+'.odt')) for name in ('merged','split','typed')]
+        if args.core_artifacts:
+            cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in (
+                'merged','split','hidden-split','styled-merged','styled-split',
+                'repeated-merged','nested-merged','nested-split','typed-merged',
+                'common-styled-merged','common-styled-split')]
+    elif args.list_only:
         cases=[('list-'+name,args.list_artifacts/('list-'+name+'.odt')) for name in (
             'menu-indent','menu-outdent','key-indent','key-outdent','empty-exit')]
         if args.core_artifacts:
@@ -128,7 +139,7 @@ def main():
                 assert sum(picture.histogram()[:80]) > 50, (name, 'blank page')
             if name in ('nested-blue','core-nested-blue','core-range-blue','core-named-character',
                          'format-color','format-named-character','format-named-paragraph',
-                         'core-flat-typed-blue','core-nested-typed-blue'):
+                         'core-flat-typed-blue','core-nested-typed-blue','core-styled-merged','core-styled-split','core-common-styled-merged','core-common-styled-split'):
                 assert sum(color_count(Image.open(page), (22, 90, 167)) for page in pages) > 5
             if name in ('style-row', 'style-column'):
                 picture = Image.open(pages[0]).convert('RGB')

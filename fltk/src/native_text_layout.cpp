@@ -300,8 +300,10 @@ struct Reader {
       font.family = p.attributeNS(FO, "font-family");
     if (p.hasAttributeNS(FO, "language")) {
       font.language = p.attributeNS(FO, "language");
+      if (font.language == "none")
+        font.language.clear();
       auto country = p.attributeNS(FO, "country");
-      if (!country.empty() && country != "none")
+      if (!font.language.empty() && !country.empty() && country != "none")
         font.language += "-" + country;
     }
   }

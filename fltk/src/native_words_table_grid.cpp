@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_tables.h"
+#include "native_words_tabs.h"
 #include <functional>
 #include <limits>
 namespace DomeOffice {
@@ -671,6 +672,343 @@ WordsTableEdit finish(OdfPackage p, XmlElement source, size_t row,
   (void)read_text_flow(p);
   return focused(std::move(p), offset);
 }
+
+WordsTableEdit unchanged_cell(const OdfPackage &p,
+                              const TextCellAddress &address,
+                              const std::vector<TextCellAddress> &path) {
+  auto flow = read_text_flow(p);
+  auto source = flow.tables[address.table].source;
+  for (const auto &cell : flow.tables[address.table].cells)
+    if (cell.row == address.row && cell.column == address.column)
+      source = cell.source;
+  size_t cursor = 0, total = 0;
+  bool found = false;
+  std::function<void(XmlElement)> scan = [&](XmlElement e) {
+    if (found)
+      return;
+    if (e == source) {
+      found = true;
+      return;
+    }
+    if (is_paragraph(e)) {
+      cursor += plain_text(e).size() + 1;
+      return;
+    }
+    for (auto child = e.firstChild(); !child.isNull();
+         child = child.nextSibling())
+      if (child.isElement())
+        scan(child);
+  };
+  scan(p.body());
+  for (auto para : paragraphs(p.body()))
+    total += plain_text(para).size() + 1;
+  return {p, std::min(cursor, total ? total - 1 : 0), address, path};
+}
+std::vector<TextCellAddress> checked_path(const TextFlow &flow,
+                                          const TextCellAddress &address,
+                                          std::vector<TextCellAddress> path) {
+  if (path.empty())
+    path.push_back(address);
+  if (path.back() != address)
+    fail("Table context does not end at the selected cell");
+  XmlElement parent;
+  for (const auto &a : path) {
+    if (a.table >= flow.tables.size())
+      fail("Invalid table context");
+    const auto &t = flow.tables[a.table];
+    if (ancestor(t.source, "table-cell") != parent)
+      fail("The complete enclosing table context is required");
+    parent = validate_address(t, a).source;
+  }
+  return path;
+}
+void editable_cell_values(XmlElement node) {
+  // Numeric values, formulas and matrix metadata need a separate value/ref
+  // transaction; combining their display strings would silently invalidate it.
+  for (auto a : node.attributes()) {
+    auto name = a.name.mid(a.name.indexOf(':') + 1);
+    if ((a.uri == TABLE && TextList{"formula", "number-matrix-columns-spanned",
+                                    "number-matrix-rows-spanned"}
+                               .contains(name)) ||
+        (a.uri == OFFICE && (name != "string-value" &&
+                             (name != "value-type" || a.value != "string"))))
+      fail("These cells contain values or formulas requiring a value merge");
+  }
+}
+void rectangle(const Grid &grid, const TextCellAddress &a, size_t rows,
+               size_t columns) {
+  if (!rows || !columns || a.row >= grid.rows || a.column >= grid.columns ||
+      rows > grid.rows - a.row || columns > grid.columns - a.column)
+    fail("The merge rectangle is outside the table");
+  for (size_t r = a.row; r < a.row + rows; ++r) {
+    if (grid.model.rows[r].header != grid.model.rows[a.row].header)
+      fail("A merge cannot cross the repeating header boundary yet");
+    for (size_t c = a.column; c < a.column + columns; ++c) {
+      const auto *cell = grid.cell(r, c);
+      if (cell && (cell->row < a.row || cell->column < a.column ||
+                   cell->row + cell->rows > a.row + rows ||
+                   cell->column + cell->columns > a.column + columns))
+        fail("The merge rectangle cuts through an existing span");
+      auto source = slot(grid.model.rows[r].source, c).node;
+      if (!source.isNull())
+        editable_cell_values(source);
+    }
+  }
+}
+std::vector<XmlElement> materialize_rectangle(OdfPackage &p, const Grid &g,
+                                              size_t r, size_t c, size_t rows,
+                                              size_t columns, Names &names) {
+  std::vector<XmlElement> result(rows);
+  // Descending instances keep the original source prefix and its indices valid.
+  for (size_t i = rows; i-- > 0;) {
+    const auto &row = g.model.rows[r + i];
+    result[i] =
+        isolate(row.source, "number-rows-repeated", row.source_instance, names);
+    for (size_t j = columns; j-- > 0;) {
+      auto entry = slot(result[i], c + j);
+      if (entry.node.isNull())
+        insert_slot(p, result[i], c + j, blank(p), names);
+      else
+        isolate(entry.node, "number-columns-repeated", entry.instance, names);
+    }
+  }
+  return result;
+}
+XmlElement converted(OdfPackage &p, XmlElement source, bool covered) {
+  auto result = p.xml.createElementNS(
+      TABLE, covered ? "table:covered-table-cell" : "table:table-cell");
+  for (auto a : source.attributes()) {
+    auto name = a.name.mid(a.name.indexOf(':') + 1);
+    if (a.uri == TABLE &&
+        TextList{"number-columns-repeated", "number-columns-spanned",
+                 "number-rows-spanned"}
+            .contains(name))
+      continue;
+    result.setAttributeNS(a.uri, a.name, a.value);
+  }
+  while (!source.firstChild().isNull())
+    result.appendChild(source.firstChild());
+  source.parentNode().insertBefore(result, source);
+  source.parentNode().removeChild(source);
+  return result;
+}
+void expand_nested(XmlElement node, Names &names, size_t &budget) {
+  if (++budget > 100000)
+    fail("Cell materialization exceeds the native source limit");
+  for (auto child = node.firstChild(); !child.isNull();) {
+    auto next = child.nextSibling();
+    if (child.isElement()) {
+      auto attribute =
+          child.namespaceURI() == TABLE && child.localName() == "table-row"
+              ? Text("number-rows-repeated")
+          : cell_node(child) ? Text("number-columns-repeated")
+                             : Text();
+      auto copies = attribute.empty() ? 1 : count(child, attribute);
+      if (copies > 100000 - budget)
+        fail("Cell materialization exceeds the native source limit");
+      if (!attribute.empty())
+        set_count(child, attribute, 1);
+      auto previous = child;
+      for (size_t i = 1; i < copies; ++i) {
+        auto copy = names.clone(child);
+        node.insertAfter(copy, previous);
+        previous = copy;
+        expand_nested(copy, names, budget);
+      }
+      expand_nested(child, names, budget);
+    }
+    child = next;
+  }
+}
+const TextTable &formatted_table(const TextFlow &flow, XmlElement source) {
+  const TextTable *result = nullptr;
+  std::function<void(const std::vector<TextBlock> &)> walk =
+      [&](const auto &blocks) {
+        for (const auto &b : blocks)
+          if (b.kind == TextBlock::Table) {
+            const auto &t = b.table ? *b.table : flow.tables.at(b.index);
+            if (t.source == source)
+              result = &t;
+            else
+              for (const auto &cell : t.cells)
+                walk(cell.blocks);
+          }
+      };
+  walk(flow.blocks);
+  if (!result)
+    fail("Formatted table context is missing");
+  return *result;
+}
+Text rgb(TextColor c) {
+  const char *hex = "0123456789abcdef";
+  std::string result = "#";
+  for (int v : {c.red, c.green, c.blue}) {
+    result += hex[(v >> 4) & 15];
+    result += hex[v & 15];
+  }
+  return Text(result);
+}
+// Freeze the old inherited appearance only when moving between different cell
+// styles. Inline runs, named parents and opaque properties stay on their
+// source.
+void freeze_paragraph(OdfPackage &p, XmlElement node,
+                      const TextParagraph &value, size_t &next) {
+  const Text FO = "urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0";
+  auto root = p.xml.documentElement(),
+       group = child(root, OFFICE, "automatic-styles");
+  if (group.isNull()) {
+    group = p.xml.createElementNS(OFFICE, "office:automatic-styles");
+    root.insertBefore(group, child(root, OFFICE, "body"));
+  }
+  auto old = node.attributeNS(TEXT, "style-name");
+  XmlElement style;
+  for (auto candidate : children(group, STYLE, "style"))
+    if (candidate.attributeNS(STYLE, "family") == "paragraph" &&
+        candidate.attributeNS(STYLE, "name") == old)
+      style = candidate.cloneNode(true);
+  if (style.isNull()) {
+    style = p.xml.createElementNS(STYLE, "style:style");
+    style.setAttributeNS(STYLE, "style:family", "paragraph");
+    if (!old.empty())
+      style.setAttributeNS(STYLE, "style:parent-style-name", old);
+  }
+  walk(style, [&](XmlElement e) { e.removeAttributeNS(XML, "id"); });
+  std::set<Text> used;
+  for (auto s : p.xml.elementsByTagNameNS(STYLE, "style"))
+    used.insert(s.attributeNS(STYLE, "name"));
+  if (!p.entry("styles.xml").empty())
+    for (auto s : read_document_xml(p.entry("styles.xml"))
+                      .elementsByTagNameNS(STYLE, "style"))
+      used.insert(s.attributeNS(STYLE, "name"));
+  Text name;
+  do {
+    name = "WordsMerge" + Text::number(next++);
+  } while (used.contains(name));
+  style.setAttributeNS(STYLE, "style:name", name);
+  auto props = [&](const Text &kind) {
+    auto e = child(style, STYLE, kind);
+    if (e.isNull()) {
+      e = p.xml.createElementNS(STYLE, "style:" + kind);
+      if (kind == "paragraph-properties")
+        style.insertBefore(e, child(style, STYLE, "text-properties"));
+      else
+        style.appendChild(e);
+    }
+    return e;
+  };
+  auto text = props("text-properties");
+  auto set = [&](XmlElement e, const Text &uri, const Text &key,
+                 const Text &v) { e.setAttributeNS(uri, key, v); };
+  set(text, FO, "fo:font-family", value.font.family);
+  for (const auto &suffix : {Text(), Text("-asian"), Text("-complex")}) {
+    const auto ns = suffix.empty() ? FO : STYLE,
+               prefix = suffix.empty() ? Text("fo:") : Text("style:");
+    set(text, ns, prefix + "font-size" + suffix,
+        Text::number(value.font.size, 'g', 17) + "pt");
+    set(text, ns, prefix + "font-weight" + suffix,
+        Text::number(value.font.weight));
+    set(text, ns, prefix + "font-style" + suffix,
+        value.font.italic ? "italic" : "normal");
+    text.removeAttributeNS(STYLE, "font-name" + suffix);
+  }
+  set(text, FO, "fo:language",
+      value.font.language.empty() ? Text("none") : value.font.language);
+  text.removeAttributeNS(FO, "country");
+  set(text, FO, "fo:color", rgb(value.color.value_or(TextColor{})));
+  set(text, STYLE, "style:use-window-font-color", "false");
+  set(text, FO, "fo:background-color",
+      value.background ? rgb(*value.background) : Text("transparent"));
+  auto line = [&](const Text &prefix, const TextDecoration &d) {
+    const char *styles[] = {"none",      "solid",    "dotted",       "dash",
+                            "long-dash", "dot-dash", "dot-dot-dash", "wave"};
+    set(text, STYLE, "style:" + prefix + "-style", styles[d.style]);
+    set(text, STYLE, "style:" + prefix + "-type",
+        d.double_line ? "double" : "single");
+    set(text, STYLE, "style:" + prefix + "-mode",
+        d.skip_space ? "skip-white-space" : "continuous");
+    auto width = d.width_unit == TextDecoration::Points
+                     ? Text::number(d.width, 'g', 17) + "pt"
+                 : d.width_unit == TextDecoration::FontSize
+                     ? Text::number(d.width * 100, 'g', 17) + "%"
+                     : Text(d.width == 1.5  ? "bold"
+                            : d.width == .7 ? "thin"
+                            : d.width == 2  ? "thick"
+                                            : "auto");
+    set(text, STYLE, "style:" + prefix + "-width", width);
+    set(text, STYLE, "style:" + prefix + "-color",
+        d.color ? rgb(*d.color) : Text("font-color"));
+  };
+  line("text-underline", value.decorations.underline);
+  line("text-line-through", value.decorations.strike);
+  auto para = props("paragraph-properties");
+  const char *align[] = {"left", "center", "right", "justify", "start", "end"};
+  set(para, FO, "fo:text-align", align[value.alignment]);
+  for (auto [key, v] : std::initializer_list<std::pair<const char *, double>>{
+           {"margin-left", value.left},
+           {"margin-right", value.right},
+           {"text-indent", value.indent},
+           {"margin-top", value.before},
+           {"margin-bottom", value.after}})
+    set(para, FO, Text("fo:") + key, Text::number(v, 'g', 17) + "pt");
+  set(para, FO, "fo:line-height",
+      value.line_height > 0
+          ? Text::number(value.line_height, 'g', 17) + "pt"
+          : Text::number(value.line_factor * 100, 'g', 17) + "%");
+  set(para, FO, "fo:keep-together", value.keep_together ? "always" : "auto");
+  set(para, FO, "fo:keep-with-next", value.keep_next ? "always" : "auto");
+  set(para, FO, "fo:break-before", value.break_before ? "page" : "auto");
+  set(para, FO, "fo:break-after", value.break_after ? "page" : "auto");
+  set(para, FO, "fo:orphans", Text::number(value.orphans));
+  set(para, FO, "fo:widows", Text::number(value.widows));
+  set(para, STYLE, "style:writing-mode",
+      value.direction == TextParagraph::RTL   ? "rl-tb"
+      : value.direction == TextParagraph::LTR ? "lr-tb"
+                                              : "page");
+  if (value.list && !value.list->style.empty())
+    set(style, STYLE, "style:list-style-name", value.list->style);
+  group.appendChild(style);
+  node.setAttributeNS(TEXT, "text:style-name", name);
+}
+void freeze_cell(OdfPackage &p, XmlElement table, XmlElement cell, Names &names,
+                 size_t &next,
+                 std::vector<std::pair<XmlElement, WordsTabSet>> &saved_tabs) {
+  size_t budget = 0;
+  expand_nested(cell, names, budget);
+  auto flow = read_text_flow(p);
+  const auto &t = formatted_table(flow, table);
+  auto sources = paragraphs(p.body());
+  std::vector<size_t> offsets;
+  size_t at = 0;
+  for (auto s : sources) {
+    offsets.push_back(at);
+    at += plain_text(s).size() + 1;
+  }
+  std::vector<std::pair<size_t, TextParagraph>> values;
+  std::function<void(const std::vector<TextBlock> &)> collect =
+      [&](const auto &blocks) {
+        for (const auto &b : blocks)
+          if (b.kind == TextBlock::Paragraph)
+            values.emplace_back(b.index, b.formatted
+                                             ? *b.formatted
+                                             : flow.paragraphs.at(b.index));
+          else {
+            const auto &nested = b.table ? *b.table : flow.tables.at(b.index);
+            for (const auto &c : nested.cells)
+              collect(c.blocks);
+          }
+      };
+  for (const auto &c : t.cells)
+    if (c.source == cell)
+      collect(c.blocks);
+  for (const auto &[index, value] : values) {
+    if (index >= sources.size() || plain_text(sources[index]) != value.text)
+      fail("Moved paragraph source is inconsistent");
+    auto tabs = read_words_tabs(p, offsets[index], offsets[index]);
+    if (tabs.stops)
+      saved_tabs.emplace_back(sources[index], *tabs.stops);
+    freeze_paragraph(p, sources[index], value, next);
+  }
+}
 } // namespace
 std::optional<WordsTableRangeEdit>
 materialize_words_table_range(const OdfPackage &original,
@@ -821,5 +1159,113 @@ WordsTableEdit edit_words_table_grid(
                                    ? address.columns
                                    : 0);
   return finish(std::move(p), grid.model.source, next_row, next_column, names);
+}
+
+WordsTableEdit merge_words_table_cells(
+    const OdfPackage &original, const TextCellAddress &address, size_t rows,
+    size_t columns, const std::vector<TextCellAddress> &context) {
+  if (original.kind() != Kind::Words || original.read_only())
+    fail("This document cannot be edited");
+  auto original_flow = read_text_flow(original);
+  auto path = checked_path(original_flow, address, context);
+  Grid original_grid(original_flow.tables[address.table]);
+  rectangle(original_grid, address, rows, columns);
+  if (rows == address.rows && columns == address.columns)
+    return unchanged_cell(original, address, path);
+  auto p = original;
+  p.xml = read_document_xml(original.xml.toByteArray());
+  Names names(p);
+  auto flow = read_text_flow(p);
+  auto source = prepare_target(p, flow, path, names);
+  flow = read_text_flow(p);
+  Grid grid(flow.tables[table_index(flow, source)]);
+  auto row_nodes = materialize_rectangle(p, grid, address.row, address.column,
+                                         rows, columns, names);
+  flow = read_text_flow(p);
+  Grid local(flow.tables[table_index(flow, source)]);
+  auto anchor = slot(row_nodes[0], address.column).node;
+  const auto anchor_style = local.cell(address.row, address.column)->style_name;
+  size_t next_style = 1;
+  std::vector<std::pair<XmlElement, WordsTabSet>> saved_tabs;
+  for (const auto &c : local.model.cells)
+    if (c.source != anchor && c.row >= address.row &&
+        c.row < address.row + rows && c.column >= address.column &&
+        c.column < address.column + columns && c.style_name != anchor_style)
+      freeze_cell(p, source, c.source, names, next_style, saved_tabs);
+  for (size_t r = 0; r < rows; ++r)
+    for (size_t c = 0; c < columns; ++c) {
+      if (!r && !c)
+        continue;
+      auto entry = slot(row_nodes[r], address.column + c).node;
+      // Covered data is retained and made visible rather than silently
+      // discarded.
+      while (!entry.firstChild().isNull())
+        anchor.appendChild(entry.firstChild());
+      entry.removeAttributeNS(OFFICE, "value-type");
+      entry.removeAttributeNS(OFFICE, "string-value");
+      converted(p, entry, true);
+    }
+  anchor.removeAttributeNS(OFFICE, "string-value");
+  set_count(anchor, "number-rows-spanned", rows);
+  set_count(anchor, "number-columns-spanned", columns);
+  // Apply captured tabs after moving: effective-equal tabs before moving still
+  // need an explicit override in the new cell. The public formatter also
+  // rebinds leader-style references and may replace the candidate XML document.
+  auto table_path = relative_path(p.xml.documentElement(), source);
+  std::vector<size_t> tab_offsets;
+  for (const auto &saved : saved_tabs)
+    tab_offsets.push_back(offset_of(p, saved.first));
+  for (size_t i = 0; i < saved_tabs.size(); ++i) {
+    WordsTabsFormat format;
+    format.stops = saved_tabs[i].second;
+    format_words_tabs(p, tab_offsets[i], tab_offsets[i], format);
+  }
+  source = follow_path(p.xml.documentElement(), table_path);
+  return finish(std::move(p), source, address.row, address.column, names);
+}
+WordsTableEdit
+split_words_table_cell(const OdfPackage &original,
+                       const TextCellAddress &address,
+                       const std::vector<TextCellAddress> &context) {
+  if (original.kind() != Kind::Words || original.read_only())
+    fail("This document cannot be edited");
+  auto original_flow = read_text_flow(original);
+  auto path = checked_path(original_flow, address, context);
+  const auto &old =
+      validate_address(original_flow.tables[address.table], address);
+  if (address.rows == 1 && address.columns == 1)
+    return unchanged_cell(original, address, path);
+  auto p = original;
+  p.xml = read_document_xml(original.xml.toByteArray());
+  Names names(p);
+  auto flow = read_text_flow(p);
+  auto source = prepare_target(p, flow, path, names);
+  flow = read_text_flow(p);
+  Grid grid(flow.tables[table_index(flow, source)]);
+  const auto anchor_style = validate_address(grid.model, address).style_name;
+  auto row_nodes = materialize_rectangle(p, grid, address.row, address.column,
+                                         address.rows, address.columns, names);
+  for (size_t r = 0; r < address.rows; ++r)
+    for (size_t c = 0; c < address.columns; ++c) {
+      auto entry = slot(row_nodes[r], address.column + c).node;
+      if (r || c) {
+        entry = converted(p, entry, false);
+        // Explicit covered-cell styles survive; empty covered slots inherit the
+        // merged anchor's cell/paragraph style while keeping their grid
+        // position.
+        if (entry.attributeNS(TABLE, "style-name").empty())
+          entry.setAttributeNS(TABLE, "table:style-name",
+                               anchor_style.empty() ? neutral_cell_style(p)
+                                                    : anchor_style);
+        if (paragraphs(entry).empty()) {
+          auto empty = blank(p, &old);
+          while (!empty.firstChild().isNull())
+            entry.appendChild(empty.firstChild());
+        }
+      }
+      entry.removeAttributeNS(TABLE, "number-rows-spanned");
+      entry.removeAttributeNS(TABLE, "number-columns-spanned");
+    }
+  return finish(std::move(p), source, address.row, address.column, names);
 }
 } // namespace DomeOffice

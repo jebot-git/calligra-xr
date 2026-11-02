@@ -1266,4 +1266,49 @@ insert_table_dialog(Fl_Window &window, OdfPackage original, size_t position) {
   }
   return {};
 }
+
+std::optional<WordsTableEdit>
+merge_cells_dialog(Fl_Window &window, OdfPackage original,
+                   const TextCellAddress &address,
+                   const std::vector<TextCellAddress> &path) {
+  const int width = 520, height = 260,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Merge cells");
+  background.hint.copy_label(
+      "Merge a rectangle starting at this cell; keep all contents");
+  background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Fl_Input rows(x + 100, y + 70, 100, 30, "Rows:");
+  rows.value(Text::number(address.rows).toUtf8().constData());
+  Fl_Input columns(x + 350, y + 70, 100, 30, "Columns:");
+  columns.value(
+      Text::number(std::max<size_t>(2, address.columns)).toUtf8().constData());
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  buttons.apply.label("Merge");
+  Fl_Group::current(previous);
+  while (panel.run(rows))
+    try {
+      bool rok = false, cok = false;
+      auto r = Text(rows.value()).trimmed().toInt(&rok),
+           c = Text(columns.value()).trimmed().toInt(&cok);
+      if (!rok || !cok || r <= 0 || c <= 0)
+        throw std::runtime_error(
+            "Enter positive whole numbers for rows and columns");
+      auto result = merge_words_table_cells(original, address, size_t(r),
+                                            size_t(c), path);
+      NativeTextShaper shaper(
+          Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+      (void)paginate_text(read_text_flow(result.document), shaper);
+      return result;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  return {};
+}
 } // namespace DomeOffice

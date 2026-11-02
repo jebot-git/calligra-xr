@@ -26,4 +26,7 @@ tab_stops_dialog(Fl_Window &, OdfPackage, size_t begin, size_t end,
                  const std::vector<TextCellAddress> &cells = {});
 std::optional<WordsTableEdit> insert_table_dialog(Fl_Window &, OdfPackage,
                                                   size_t position);
+std::optional<WordsTableEdit>
+merge_cells_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
+                   const std::vector<TextCellAddress> &);
 } // namespace DomeOffice

@@ -48,5 +48,15 @@ WordsTableEdit
 edit_words_table_grid(const OdfPackage &, const TextCellAddress &,
                       WordsTableGridAction,
                       const std::vector<TextCellAddress> &path = {});
+// Rectangle dimensions count logical grid slots from the addressed anchor.
+// Existing spans must be contained completely; split restores the existing
+// grid.
+WordsTableEdit
+merge_words_table_cells(const OdfPackage &, const TextCellAddress &,
+                        size_t rows, size_t columns,
+                        const std::vector<TextCellAddress> &path = {});
+WordsTableEdit
+split_words_table_cell(const OdfPackage &, const TextCellAddress &,
+                       const std::vector<TextCellAddress> &path = {});
 bool words_in_table(const OdfPackage &, size_t position);
 } // namespace DomeOffice

@@ -1948,3 +1948,62 @@ Remaining Words work includes merge/split controls, richer repeated cross-cell
 ranges, formula reference adjustment, list controls, sections/columns,
 headers/footers, notes and image anchors. Sheets functions remain next and
 Stage remains last; this increment does not complete that broader goal.
+
+
+## Native Words rectangular cell merge/split — 2026-11-02
+
+The universal Table → Cells menu now merges a logical rectangle from the caret
+cell and splits an existing merge into its underlying grid. The native engine
+preflights bounds, complete contained spans, header boundaries, value metadata
+and the full outer-to-inner context. It then isolates repeated rows/cells and
+ancestors in a candidate, retains covered-cell IDs and rich source blocks, and
+commits one structural command after native pagination. All selected visible
+and covered contents are appended in row order when merging. Splitting keeps
+combined text in the first cell and restores covered content to its own cells.
+No-op commands retain the original XML, including independent cells without a
+source paragraph, and the frontend preserves the user's selection.
+
+Moving across different cell styles materializes the inherited paragraph
+appearance, preserving explicit inline runs and named parents. Nested repeated
+sources with differing contexts become independent before this snapshot.
+The first styled regression exposed tabs being lost when an effective-equal
+collection was applied before moving. Capturing tabs before the move and
+applying them afterward fixes this and preserves common/automatic leader style
+scope through the existing native tab formatter. A regression with a common
+cell style, a shadowing automatic character style, 150% paragraph font sizing,
+wave underline and nested blue content confirms the retained appearance.
+The native language resolver now treats `fo:language="none"` as a reset, even
+with an inherited country, so this preservation does not invent a language.
+
+All 46 applicable Release core suites and the same 46 ASan/UBSan suites pass;
+core sanitizer checks enable leak detection. The three previously documented
+outline-font-assumption suites remain excluded, not counted as passing. Native
+core cases cover existing merges, header groups, ordinary/repeated/nested tables,
+rich/list content and unique IDs, hidden covered paragraphs, exact structural
+history, typing after merging, source/opaque-part preservation, stale revisions,
+invalid bounds/partial spans and numeric/formula rejection. The empty independent
+cell no-op regression passes without adding an invented paragraph.
+
+Native Wayland Release GUI tests pass for flat and nested fixtures, as do nested
+Wayland ASan/UBSan (GUI leak checks disabled) and X11 tests. They exercise Cancel,
+invalid dimensions and correction, merge/split, real keyboard typing, no-op
+caret preservation, and exact archive-part undo/redo back to the clicked cell.
+The existing nested character/paragraph/tab/named-format regression also passes
+with the shared cell-selection helper.
+
+The focused print/export gate completes 17 actual private CUPS capture jobs:
+14 flat/core cases and 3 nested UI cases. They include styled/common-styled
+merges and splits, hidden covered content, repeated/nested scope and typed
+merged cells. Every original ZIP entry except the generated manifest remains
+exact; PDF/reopen and CUPS rasters match. Every page contains visible ink and
+the styled cases retain their blue pixels. All 17 pages were visually reviewed.
+The combined gate validates 109 ODF packages against their version-matched
+content/styles schemas. Artifacts are retained under
+`/home/blux/de-xr/artifacts/calligra-words-table-merge-20261102`.
+
+This implements rectangular text-cell merging and restoration of existing
+merged grids. Arbitrary subdivision of independent cells, numeric/formula value
+and reference merging, repeating-header/body-boundary spans, and the remaining
+Words section/column/header/footer/note/image-anchor requirements remain open.
+Sheets functions remain next and Stage remains last. No active desktop session
+or system printer queue is restarted by this work.

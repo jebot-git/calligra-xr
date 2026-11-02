@@ -92,6 +92,8 @@ enum Command {
     ColumnBefore,
     ColumnAfter,
     DeleteColumn,
+    MergeCells,
+    SplitCell,
     Bold,
     Italic,
     Underline,
@@ -398,6 +400,8 @@ public:
             add("&Table/Columns/Insert &left", 0, ColumnBefore);
             add("&Table/Columns/Insert &right", 0, ColumnAfter);
             add("&Table/Columns/&Delete column", 0, DeleteColumn);
+            add("&Table/Cells/&Merge cells…", 0, MergeCells);
+            add("&Table/Cells/&Split cell", 0, SplitCell);
             add("&Format/Paragraph &styles…", 0, ParagraphStyles);
             add("&Format/Character &styles…", 0, CharacterStyles);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
@@ -923,7 +927,7 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn)
+                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell)
                     office->word_grid(action);
                 else if (action == InsertTable || action == DeleteTable)
                     office->word_table(action == InsertTable);
@@ -958,7 +962,7 @@ public:
         auto address = path.back();
         previous.cell = address;
         previous.cells = path;
-        WordsTableGridAction action;
+        WordsTableGridAction action = WordsTableGridAction::RowBefore;
         switch (command) {
         case RowBefore:
             action = WordsTableGridAction::RowBefore;
@@ -978,13 +982,25 @@ public:
         case DeleteColumn:
             action = WordsTableGridAction::DeleteColumn;
             break;
+        case MergeCells:
+        case SplitCell:
+            break;
         default:
             throw std::runtime_error("Invalid table action");
         }
         formatting_dialog = true;
         std::optional<WordsTableEdit> result;
         try {
-            result = edit_words_table_grid(snapshot, address, action, path);
+            if (command == MergeCells)
+                result = merge_cells_dialog(window, snapshot, address, path);
+            else if (command == SplitCell)
+                result = split_words_table_cell(snapshot, address, path);
+            else
+                result = edit_words_table_grid(snapshot, address, action, path);
+            if (!result) {
+                formatting_dialog = false;
+                return;
+            }
             NativeTextShaper shaper(Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
             (void)paginate_text(read_text_flow(result->document), shaper);
         } catch (...) {
@@ -993,7 +1009,11 @@ public:
         }
         formatting_dialog = false;
         TextSelection next { result->cursor, result->cursor, result->cell, result->cells };
-        words->commit_structure(std::move(result->document), previous, next, revision);
+        if (!words->commit_structure(std::move(result->document), previous, next, revision)) {
+            restore_word_selection(previous);
+            message("Cells already have this layout");
+            return;
+        }
         words_edit_previous.reset();
         fill_buffer(words->text());
         restore_word_selection(next);
@@ -1610,7 +1630,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);
