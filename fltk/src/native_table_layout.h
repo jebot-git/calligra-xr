@@ -19,6 +19,7 @@ struct NativeCellLayout {
   TextRect content_clip;
   std::shared_ptr<const TextBoxLayout> text;
   double text_x = 0, text_y = 0;
+  std::array<double, 4> insets{};
 };
 struct NativeTableLayout {
   double x = 0, width = 0, height = 0;

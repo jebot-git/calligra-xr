@@ -996,9 +996,18 @@ public:
         try {
             if (command == MergeCells)
                 result = merge_cells_dialog(window, snapshot, address, path);
-            else if (command == SubdivideCell)
-                result = subdivide_cell_dialog(window, snapshot, address, path);
-            else if (command == SplitCell)
+            else if (command == SubdivideCell) {
+                if (!page_view)
+                    refresh_pages();
+                auto flow = read_text_flow(snapshot);
+                auto paper = flow.masters.at(flow.first_master);
+                if (!text_pages->pagination.pages.empty()) {
+                    auto page = text_pages->caret_page().value_or(text_pages->current_page());
+                    if (page < text_pages->pagination.pages.size())
+                        paper = text_pages->pagination.pages[page].style;
+                }
+                result = subdivide_cell_dialog(window, snapshot, address, path, paper.width - paper.left - paper.right);
+            } else if (command == SplitCell)
                 result = split_words_table_cell(snapshot, address, path);
             else
                 result = edit_words_table_grid(snapshot, address, action, path);

@@ -196,10 +196,14 @@ CUPS test queues.
   boundaries and extends neighboring cells across the new slots; original text
   and values stay in the first part. Fixed measures and flexible-column ratios
   are retained, and the whole change has one-step exact undo. Existing merged
-  cells follow their underlying grid proportions when subdivided. Equal physical
-  parts across unequal merged columns and over-constrained fixed-width shrink
-  geometry still need further work. Direct placement in lists still needs an
-  anchored table or list splitting.
+  cells follow their underlying grid proportions by default. Equal measured sizes
+  instead creates equal physical row/column parts across those measures, retaining
+  old boundaries for neighboring cells. The measured sizes become explicit ODF
+  dimensions; later page-size changes keep them fixed. Row parts grow uniformly
+  if narrower cells need more text height. Subdivision under implicit fixed-column
+  shrink also preserves the current resolved widths. The selected page and nested
+  cell padding/borders determine the measurement context. Direct placement in
+  lists still needs an anchored table or list splitting.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

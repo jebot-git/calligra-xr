@@ -2063,3 +2063,49 @@ cross-cell selection, formula/reference operations and broader Words
 section/column/header/footer/note/image-anchor editing open. Sheets functions
 remain next and Stage remains last. No active desktop session or system printer
 queue is restarted by this increment.
+
+
+## Native Words measured cell geometry — 2026-11-02
+
+Subdivision now measures the selected page and complete nested-cell path through
+native text/table layout. Fixed-width columns under implicit shrink retain their
+resolved widths after refinement: the original regression changed a neighboring
+column from 50pt to 70pt; the corrected result preserves both neighbors at 50pt
+and 70pt. The optional Equal measured sizes control inserts equal physical cuts
+while retaining original grid boundaries and neighboring spans. New row parts
+grow uniformly when narrowed content needs more height. Resolved point measures
+are written explicitly, so later page-size changes keep these measures fixed.
+
+Collapsed and naturally zero-height source slots remain present with standard
+ODF collapse visibility. Equal cuts at a coincident boundary start after its
+zero-size slots; original merged text remains visible. A 0.0000002pt interval
+beside an existing boundary is retained as a decimal length rather than invalid
+ODF scientific notation. Repeated/nested targets stay localized, RTL neighbors
+retain geometry, and typing plus structural undo/redo preserve exact archive
+parts. Cancellation retains the original document and history.
+
+All 48 applicable Release core suites and all 48 ASan/UBSan core suites pass
+with core leak detection enabled. Three legacy outline-font-assumption suites
+remain excluded and are not counted as passing. Native Wayland GUI tests pass
+for fixed-width shrink and flat/nested measured subdivision; nested sanitizer
+GUI (leak checks disabled), X11 and the existing nested merge regression pass.
+Nineteen final core fixtures per build cover actual-page width detection,
+unequal fixed measures, automatic row growth, nested repeated scope, collapsed
+and naturally empty row slots, tiny intervals, RTL and exact history.
+
+Sixteen actual private CUPS jobs pass across flat/nested measured GUI exports,
+the shrink GUI exports and ten core geometry exports. Every original ZIP entry
+except the generated manifest is retained exactly. Native/reopened PDF rasters
+and captured CUPS rasters match, and all sixteen rendered pages were visually
+reviewed, including text spanning zero-height leading slots. The combined schema
+gate validates 111 ODF packages against version-matched content/styles schemas.
+Release/sanitizer logs, schemas, UI records and rendered pages are retained in
+`/home/blux/de-xr/artifacts/calligra-words-cell-geometry-20261102`.
+
+Words meets the requested rudimentary editing, OpenDocument export and CUPS
+printing baseline. Cross-cell range formatting, formula/reference adjustment,
+remaining list controls and broader section/column/header/footer/note/image-anchor
+editing remain unfinished. This is not full Words parity or completion of the
+broader goal. Sheets functions follow Words, with Stage last. The user requested
+a pause at rudimentary Words compliance; further implementation waits for resume.
+No active desktop session or system printer queue is restarted by this increment.

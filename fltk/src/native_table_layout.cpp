@@ -578,6 +578,7 @@ struct NativeBlockLayouter::Impl {
                    false,
                    {}};
       value.text = content[i];
+      value.insets = insets[i];
       value.content_clip = {x + insets[i][3], y + insets[i][0],
                             std::max(0., w - insets[i][1] - insets[i][3]),
                             std::max(0., h - insets[i][0] - insets[i][2])};

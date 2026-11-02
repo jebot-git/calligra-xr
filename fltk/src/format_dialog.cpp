@@ -1267,9 +1267,11 @@ insert_table_dialog(Fl_Window &window, OdfPackage original, size_t position) {
   return {};
 }
 
-static std::optional<WordsTableEdit> cell_dimensions_dialog(
-    Fl_Window &window, OdfPackage original, const TextCellAddress &address,
-    const std::vector<TextCellAddress> &path, bool subdivide) {
+static std::optional<WordsTableEdit>
+cell_dimensions_dialog(Fl_Window &window, OdfPackage original,
+                       const TextCellAddress &address,
+                       const std::vector<TextCellAddress> &path, bool subdivide,
+                       std::optional<double> body_width = {}) {
   const int width = 520, height = 260,
             x = std::max(0, (window.w() - width) / 2),
             y = std::max(0, (window.h() - height) / 2);
@@ -1291,6 +1293,10 @@ static std::optional<WordsTableEdit> cell_dimensions_dialog(
       Text::number(subdivide ? 2 : std::max<size_t>(2, address.columns))
           .toUtf8()
           .constData());
+  Fl_Check_Button equal(x + 20, y + 115, width - 40, 30,
+                        "Equal measured sizes");
+  if (!subdivide)
+    equal.hide();
   Buttons buttons(panel, x + width - 225, y + height - 50);
   buttons.apply.label(subdivide ? "Subdivide" : "Merge");
   Fl_Group::current(previous);
@@ -1302,13 +1308,14 @@ static std::optional<WordsTableEdit> cell_dimensions_dialog(
       if (!rok || !cok || r <= 0 || c <= 0)
         throw std::runtime_error(
             "Enter positive whole numbers for rows and columns");
-      auto result = subdivide
-                        ? subdivide_words_table_cell(original, address,
-                                                     size_t(r), size_t(c), path)
-                        : merge_words_table_cells(original, address, size_t(r),
-                                                  size_t(c), path);
       NativeTextShaper shaper(
           Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+      auto result =
+          subdivide ? subdivide_words_table_cell(original, address, size_t(r),
+                                                 size_t(c), path, body_width,
+                                                 bool(equal.value()), &shaper)
+                    : merge_words_table_cells(original, address, size_t(r),
+                                              size_t(c), path);
       (void)paginate_text(read_text_flow(result.document), shaper);
       return result;
     } catch (const std::exception &error) {
@@ -1325,11 +1332,10 @@ merge_cells_dialog(Fl_Window &window, OdfPackage original,
   return cell_dimensions_dialog(window, std::move(original), address, path,
                                 false);
 }
-std::optional<WordsTableEdit>
-subdivide_cell_dialog(Fl_Window &window, OdfPackage original,
-                      const TextCellAddress &address,
-                      const std::vector<TextCellAddress> &path) {
+std::optional<WordsTableEdit> subdivide_cell_dialog(
+    Fl_Window &window, OdfPackage original, const TextCellAddress &address,
+    const std::vector<TextCellAddress> &path, double body_width) {
   return cell_dimensions_dialog(window, std::move(original), address, path,
-                                true);
+                                true, body_width);
 }
 } // namespace DomeOffice

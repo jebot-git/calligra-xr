@@ -175,6 +175,7 @@ parser.add_argument('--repeated-format-only', action='store_true', help='Run loc
 parser.add_argument('--repeated-lists-only', action='store_true', help='Run local list indent/outdent and empty exit in repeated cells')
 parser.add_argument('--merge-only', action='store_true', help='Run rectangular merge/split and history checks with a flat/nested fixture')
 parser.add_argument('--subdivide-only', action='store_true', help='Run cell subdivision, geometry, editing and history checks')
+parser.add_argument('--geometry-only', action='store_true', help='Run equal measured subdivision and geometry/history checks')
 parser.add_argument('--nested-fixture', type=Path, help='Nested text fixture, or flat/nested source fixture for format/list/merge modes')
 parser.add_argument('--grid-only', action='store_true', help='Run focused table row/column UI checks')
 parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
@@ -185,14 +186,14 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
-if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only):
+if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only):
     parser.error('--nested-fixture requires an edit/format/list/merge mode')
-if (args.repeated_lists_only or args.merge_only or args.subdivide_only) and not args.nested_fixture:
+if (args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only) and not args.nested_fixture:
     parser.error('List/merge modes require a flat or nested fixture via --nested-fixture')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only))>1:
+if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.geometry_only))>1:
         parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
@@ -317,10 +318,10 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only) and args.nested_fixture:
+        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
         else:
-            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only)
+            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -492,7 +493,7 @@ try:
             assert process.wait(timeout=15) == 0
         else:
             original = data()['text']
-            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only):
+            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only):
                 assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
             _, original_xml = save('original')
 
@@ -1108,7 +1109,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only:
+            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.geometry_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1151,7 +1152,7 @@ try:
                     ids={c['table'] for c in boxes}
                     if len(ids)==1:
                         cell=next(c for c in boxes if c['row']==1 and c['column']==column)
-                        path=[[cell['table'],1,column,1,1]]
+                        path=[[cell['table'],1,column,cell['rows'],cell['columns']]]
                     else:
                         outer_id=max(ids,key=lambda id:max(c['width'] for c in boxes if c['table']==id))
                         outer=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==2)
@@ -1167,6 +1168,46 @@ try:
                     if ranged:key('Right',('Shift_L',),count=len(prefix))
                     check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
                     return path
+                if args.geometry_only:
+                    nested='I00' in original;prefix='I00' if nested else 'A1'
+                    path=pick_repeated(prefix,False,0,0,0);position=original.index(prefix)
+                    baseline=data()['page_layout']['table_cells']
+                    def geometry_dialog():
+                        menu_action('Subdivide cell…');wait(lambda:data()['format_dialog'])
+                        return panel_origin(520,260)
+                    x,y=geometry_dialog();click(x+30,y+130);key('Escape');wait(lambda:not data()['format_dialog'])
+                    assert save('geometry-cancelled')[1]==original_xml and parts('geometry-cancelled')==original_parts
+                    x,y=geometry_dialog();field(x+150,y+85,'2' if nested else '1');field(x+400,y+85,'3');click(x+30,y+130);click(x+445,y+225)
+                    wait(lambda:not data()['format_dialog'] and data()['editing']['revision']>0)
+                    root,equal_xml=save('geometry-equal');equal_parts=parts('geometry-equal')
+                    snapshot=settled_page();page=snapshot['page_layout'];table_id=data()['editing']['cell'][0]
+                    boxes=[c for c in page['table_cells'] if c['table']==table_id and c['row'] in ((0,1) if nested else (1,)) and c['column']<(3 if nested else 4)]
+                    assert len(boxes)==(6 if nested else 3),boxes
+                    assert max(c['width'] for c in boxes)-min(c['width'] for c in boxes)<.00001
+                    assert max(c['height'] for c in boxes)-min(c['height'] for c in boxes)<.00001
+                    if not nested:
+                        now=page['table_cells']
+                        for before_coord,after_coord in [((0,0),(0,0)),((0,1),(0,2)),((1,2),(1,4)),((2,0),(2,0))]:
+                            old=next(c for c in baseline if (c['row'],c['column'])==before_coord)
+                            new=next(c for c in now if (c['row'],c['column'])==after_coord)
+                            for prop in ('x','y','width','height'):assert abs(old[prop]-new[prop])<.00001,(prop,old,new)
+                    cell=sorted(boxes,key=lambda c:(c['row'],c['column']))[1]
+                    vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                    left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']
+                    click(round(left+(cell['x']+cell['width']/2)*zoom),round(top+(cell['y']+cell['height']/2)*zoom))
+                    wait(lambda:data()['editing']['cell']==[table_id,cell['row'],cell['column'],cell['rows'],cell['columns']])
+                    type_text('Y');root,_=save('geometry-typed')
+                    assert sum(plain(p)=='Y' for p in root.iter(TEXT+'p'))==1
+                    key('z',('Control_L',));assert save('geometry-typing-undone')[1]==equal_xml
+                    key('z',('Control_L',));check_text(original,position);wait(lambda:data()['editing']['cells']==path)
+                    assert save('geometry-all-undone')[1]==original_xml and parts('geometry-all-undone')==original_parts
+                    key('y',('Control_L',));assert save('geometry-redone')[1]==equal_xml and parts('geometry-redone')==equal_parts
+                    key('z',('Control_L',));check_text(original,position);save('geometry-final-undone')
+                    key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,
+                        'equal_measured_parts':True,'new_part_typing':True,'neighbor_geometry':not nested,'cancel_and_exact_history':True},indent=2)+'\n')
+                    print('PASS equal measured subdivision, new-part typing, neighbor geometry and exact history',flush=True)
+                    raise FormatComplete
                 if args.subdivide_only:
                     nested='I00' in original;prefix='I00' if nested else 'A2'
                     path=pick_repeated(prefix,False,1,0,0);position=original.index(prefix)

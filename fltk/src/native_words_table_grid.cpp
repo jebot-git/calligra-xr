@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_tables.h"
 #include "native_words_tabs.h"
+#include "native_words_geometry.h"
 #include <functional>
 #include <limits>
 #include <numeric>
@@ -19,6 +20,31 @@ size_t count(XmlElement node, const Text &attribute) {
   if (!ok || value < 1 || value > 1000000)
     fail("Invalid table repetition or span");
   return size_t(value);
+}
+// ODF lengths do not accept scientific notation. Expand the round-trippable
+// decimal rather than rounding tiny intervals created beside existing edges.
+Text point_length(double value) {
+  if (!std::isfinite(value) || value < 0)
+    fail("Invalid physical measure");
+  auto raw = Text::number(value, 'g', 17).toUtf8().toStdString();
+  auto exponent = raw.find_first_of("eE");
+  if (exponent != std::string::npos) {
+    int shift = std::stoi(raw.substr(exponent + 1));
+    auto digits = raw.substr(0, exponent);
+    auto dot = digits.find('.');
+    int decimal = dot == std::string::npos ? int(digits.size()) : int(dot);
+    if (dot != std::string::npos)
+      digits.erase(dot, 1);
+    decimal += shift;
+    if (decimal <= 0)
+      raw = "0." + std::string(size_t(-decimal), '0') + digits;
+    else if (size_t(decimal) >= digits.size())
+      raw = digits + std::string(size_t(decimal) - digits.size(), '0');
+    else
+      raw = digits.substr(0, size_t(decimal)) + "." +
+            digits.substr(size_t(decimal));
+  }
+  return Text(raw) + "pt";
 }
 void set_count(XmlElement node, const Text &attribute, size_t value) {
   if (!value)
@@ -1012,19 +1038,6 @@ void freeze_cell(OdfPackage &p, XmlElement table, XmlElement cell, Names &names,
   }
 }
 
-struct RefinedAxis {
-  std::vector<size_t> edges;
-  size_t factor, group;
-  RefinedAxis(size_t count, size_t begin, size_t span, size_t parts) {
-    auto common = std::gcd(span, parts);
-    factor = parts / common;
-    group = span / common;
-    edges.push_back(0);
-    for (size_t i = 0; i < count; ++i)
-      edges.push_back(edges.back() +
-                      (i >= begin && i < begin + span ? factor : 1));
-  }
-};
 Text fraction_style(OdfPackage &p, XmlElement source, const Text &family,
                     const std::vector<std::pair<Text, Text>> &overrides,
                     size_t &serial) {
@@ -1330,7 +1343,9 @@ split_words_table_cell(const OdfPackage &original,
 
 WordsTableEdit subdivide_words_table_cell(
     const OdfPackage &original, const TextCellAddress &address, size_t rows,
-    size_t columns, const std::vector<TextCellAddress> &context) {
+    size_t columns, const std::vector<TextCellAddress> &context,
+    std::optional<double> body_width, bool equal_physical,
+    NativeTextShaper *provided_shaper) {
   if (original.kind() != Kind::Words || original.read_only())
     fail("This document cannot be edited");
   if (!rows || !columns || rows > 100000 || columns > 1024)
@@ -1340,10 +1355,36 @@ WordsTableEdit subdivide_words_table_cell(
   const auto &old_table = original_flow.tables[address.table];
   if (rows == 1 && columns == 1)
     return unchanged_cell(original, address, path);
-  if (rows == address.rows && columns == address.columns)
+  if (!equal_physical && rows == address.rows && columns == address.columns)
     return split_words_table_cell(original, address, path);
-  RefinedAxis rr(old_table.rows.size(), address.row, address.rows, rows),
-      cc(old_table.columns.size(), address.column, address.columns, columns);
+  std::optional<NativeTextShaper> owned_shaper;
+  if (!provided_shaper) {
+    owned_shaper.emplace();
+    provided_shaper = &*owned_shaper;
+  }
+  auto &shaper = *provided_shaper;
+  auto measured =
+      measure_words_table_geometry(original_flow, path, body_width, shaper);
+  bool fixed_shrunk = false;
+  for (size_t c = 0; c < old_table.columns.size(); ++c) {
+    const auto &col = old_table.columns[c];
+    if (col.visible && col.width && col.relative <= 0 &&
+        measured.columns[c] < *col.width - 1e-7)
+      fixed_shrunk = true;
+  }
+  RefinedAxis rr =
+      equal_physical && rows > 1
+          ? RefinedAxis(measured.rows, address.row, address.rows, rows)
+          : RefinedAxis(old_table.rows.size(), address.row, address.rows, rows);
+  RefinedAxis cc = equal_physical && columns > 1
+                       ? RefinedAxis(measured.columns, address.column,
+                                     address.columns, columns)
+                       : RefinedAxis(old_table.columns.size(), address.column,
+                                     address.columns, columns);
+  bool point_columns =
+      (equal_physical && columns > 1) ||
+      (fixed_shrunk && cc.edges.back() != old_table.columns.size());
+  bool point_rows = equal_physical && rows > 1;
   auto nr = rr.edges.back(), nc = cc.edges.back();
   if (nr > 100000 || nc > 1024 || nr > 1000000 / nc)
     fail("The subdivided table exceeds the native grid limit");
@@ -1377,77 +1418,116 @@ WordsTableEdit subdivide_words_table_cell(
         isolate(s.node, "number-columns-repeated", s.instance, names);
   }
   size_t serial = 1;
-  // ODF relativeLength is an integer followed by '*'. Normalize all flexible
-  // columns together so fractional sub-columns retain exact weight ratios.
+  OdfPackage *style_package = &p;
+  using StyleKey = std::tuple<Text, Text, std::vector<std::pair<Text, Text>>>;
+  std::map<StyleKey, Text> style_cache;
+  auto style_for = [&](XmlElement node, const Text &family,
+                       const std::vector<std::pair<Text, Text>> &props) {
+    StyleKey key{family, node.attributeNS(TABLE, "style-name"), props};
+    auto found = style_cache.find(key);
+    if (found != style_cache.end())
+      return found->second;
+    auto name = fraction_style(*style_package, node, family, props, serial);
+    style_cache.emplace(std::move(key), name);
+    return name;
+  };
+  if (point_columns)
+    source.setAttributeNS(
+        TABLE, "table:style-name",
+        style_for(source, "table",
+                  {{"width", point_length(std::accumulate(
+                                 measured.columns.begin(),
+                                 measured.columns.end(), 0.))}}));
   std::vector<long long> weights(grid.columns);
   long long divisor = 0;
-  for (size_t c = 0; c < grid.columns; ++c) {
-    const auto &model = grid.model.columns[c];
-    if (model.relative > 0 || !model.width) {
-      auto weight = model.relative > 0 ? model.relative : 1;
-      if (std::abs(weight - std::round(weight)) > 1e-6)
-        fail("Relative column weights need integer normalization before "
-             "subdivision");
-      weights[c] =
-          std::llround(weight) *
-          static_cast<long long>(cc.factor / (cc.edges[c + 1] - cc.edges[c]));
-      divisor = std::gcd(divisor, weights[c]);
+  if (!point_columns) {
+    for (size_t c = 0; c < grid.columns; ++c) {
+      const auto &m = grid.model.columns[c];
+      if (m.relative > 0 || !m.width) {
+        double w = m.relative > 0 ? m.relative : 1;
+        if (std::abs(w - std::round(w)) > 1e-6)
+          fail("Relative column weights need integer normalization before "
+               "subdivision");
+        weights[c] =
+            std::llround(w) *
+            static_cast<long long>(cc.factor / (cc.edges[c + 1] - cc.edges[c]));
+        divisor = std::gcd(divisor, weights[c]);
+      }
     }
+    if (divisor)
+      for (auto &w : weights)
+        w /= divisor;
   }
-  if (divisor)
-    for (auto &weight : weights)
-      weight /= divisor;
   for (size_t c = 0; c < grid.columns; ++c) {
     auto count = cc.edges[c + 1] - cc.edges[c];
-    const auto &model = grid.model.columns[c];
-    bool flexible = model.relative > 0 || !model.width;
-    if (count == 1 &&
-        (!flexible || weights[c] == (model.relative > 0 ? model.relative : 1)))
-      continue;
-    std::vector<std::pair<Text, Text>> props;
-    if (model.width && count > 1)
-      props.emplace_back("column-width",
-                         Text::number(*model.width / count, 'g', 17) + "pt");
-    if (flexible)
-      props.emplace_back("rel-column-width", Text::number(weights[c]) + "*");
-    auto style =
-        fraction_style(p, old_columns[c], "table-column", props, serial);
-    old_columns[c].setAttributeNS(TABLE, "table:style-name", style);
+    const auto &m = grid.model.columns[c];
+    auto prototype = old_columns[c].cloneNode(false);
     auto previous = old_columns[c];
-    for (size_t i = 1; i < count; ++i) {
-      auto added = names.clone(old_columns[c]);
-      previous.parentNode().insertAfter(added, previous);
-      previous = added;
+    for (size_t i = 0; i < count; ++i) {
+      auto node = i ? names.clone(prototype) : old_columns[c];
+      if (i) {
+        previous.parentNode().insertAfter(node, previous);
+        previous = node;
+      }
+      std::vector<std::pair<Text, Text>> props;
+      if (point_columns) {
+        double width = cc.lengths.empty() ? measured.columns[c] / count
+                                          : cc.lengths[cc.edges[c] + i];
+        if (width == 0)
+          node.setAttributeNS(TABLE, "table:visibility", "collapse");
+        else
+          props = {{"column-width", point_length(width)},
+                   {"rel-column-width", "0*"},
+                   {"use-optimal-column-width", "false"}};
+      } else {
+        if (m.width && count > 1)
+          props.emplace_back("column-width", point_length(*m.width / count));
+        if ((m.relative > 0 || !m.width) &&
+            (count > 1 || weights[c] != (m.relative > 0 ? m.relative : 1)))
+          props.emplace_back("rel-column-width",
+                             Text::number(weights[c]) + "*");
+      }
+      if (!props.empty())
+        node.setAttributeNS(TABLE, "table:style-name",
+                            style_for(prototype, "table-column", props));
     }
   }
   std::vector<XmlElement> new_rows(nr);
   for (size_t r = 0; r < grid.rows; ++r) {
     auto count = rr.edges[r + 1] - rr.edges[r];
-    new_rows[rr.edges[r]] = old_rows[r];
-    if (count == 1)
-      continue;
-    const auto &model = grid.model.rows[r];
-    std::vector<std::pair<Text, Text>> props;
-    props.emplace_back("min-row-height",
-                       Text::number(model.minimum / count, 'g', 17) + "pt");
-    props.emplace_back("use-optimal-row-height",
-                       model.height ? "false" : "true");
-    if (model.height)
-      props.emplace_back("row-height",
-                         Text::number(*model.height / count, 'g', 17) + "pt");
-    auto style = fraction_style(p, old_rows[r], "table-row", props, serial);
-    old_rows[r].setAttributeNS(TABLE, "table:style-name", style);
+    const auto &m = grid.model.rows[r];
+    auto prototype = old_rows[r].cloneNode(false);
     auto previous = old_rows[r];
-    for (size_t i = 1; i < count; ++i) {
-      auto added = p.xml.createElementNS(TABLE, "table:table-row");
-      for (auto a : old_rows[r].attributes())
-        if (a.uri == TABLE &&
-            TextList{"style-name", "default-cell-style-name", "visibility"}
-                .contains(a.name.mid(a.name.indexOf(':') + 1)))
-          added.setAttributeNS(a.uri, a.name, a.value);
-      previous.parentNode().insertAfter(added, previous);
-      previous = added;
-      new_rows[rr.edges[r] + i] = added;
+    for (size_t i = 0; i < count; ++i) {
+      auto node = old_rows[r];
+      if (i) {
+        node = p.xml.createElementNS(TABLE, "table:table-row");
+        for (auto a : prototype.attributes())
+          if (a.uri == TABLE &&
+              TextList{"style-name", "default-cell-style-name", "visibility"}
+                  .contains(a.name.mid(a.name.indexOf(':') + 1)))
+            node.setAttributeNS(a.uri, a.name, a.value);
+        previous.parentNode().insertAfter(node, previous);
+        previous = node;
+      }
+      new_rows[rr.edges[r] + i] = node;
+      std::vector<std::pair<Text, Text>> props;
+      if (point_rows) {
+        if (rr.lengths[rr.edges[r] + i] == 0)
+          node.setAttributeNS(TABLE, "table:visibility", "collapse");
+        else
+          props = {{"row-height", point_length(rr.lengths[rr.edges[r] + i])},
+                   {"min-row-height", "0pt"},
+                   {"use-optimal-row-height", "false"}};
+      } else if (count > 1) {
+        props = {{"min-row-height", point_length(m.minimum / count)},
+                 {"use-optimal-row-height", m.height ? "false" : "true"}};
+        if (m.height)
+          props.emplace_back("row-height", point_length(*m.height / count));
+      }
+      if (!props.empty())
+        node.setAttributeNS(TABLE, "table:style-name",
+                            style_for(prototype, "table-row", props));
     }
   }
   std::vector<std::vector<XmlElement>> slots(nr, std::vector<XmlElement>(nc));
@@ -1483,7 +1563,7 @@ WordsTableEdit subdivide_words_table_cell(
   auto start_r = rr.edges[address.row], start_c = cc.edges[address.column];
   for (size_t r = 0; r < rows; ++r)
     for (size_t c = 0; c < columns; ++c) {
-      auto ir = start_r + r * rr.group, ic = start_c + c * cc.group;
+      auto ir = rr.parts[r], ic = cc.parts[c];
       auto cell = slots[ir][ic];
       if (r || c) {
         cell = converted(p, cell, false);
@@ -1499,9 +1579,48 @@ WordsTableEdit subdivide_words_table_cell(
             cell.appendChild(empty.firstChild());
         }
       }
-      set_count(cell, "number-rows-spanned", rr.group);
-      set_count(cell, "number-columns-spanned", cc.group);
+      set_count(cell, "number-rows-spanned", rr.parts[r + 1] - rr.parts[r]);
+      set_count(cell, "number-columns-spanned", cc.parts[c + 1] - cc.parts[c]);
     }
-  return finish(std::move(p), source, start_r, start_c, names);
+  auto result = finish(std::move(p), source, start_r, start_c, names);
+  style_package = &result.document;
+  if (point_rows) {
+    auto candidate = read_text_flow(result.document);
+    double scale = 1;
+    inspect_words_table_geometry(
+        candidate, result.cells, measured.body_width, shaper,
+        [&](auto &, const auto &layout, const auto &) {
+          for (size_t r = 0; r < rows; ++r)
+            for (size_t c = 0; c < columns; ++c) {
+              auto cell = std::find_if(layout.cells.begin(), layout.cells.end(),
+                                       [&](const auto &v) {
+                                         return v.box.row == rr.parts[r] &&
+                                                v.box.column == cc.parts[c];
+                                       });
+              if (cell == layout.cells.end() || cell->box.rect.height <= 0)
+                fail("Cannot measure the new physical part");
+              scale = std::max(scale, (cell->text->height + cell->insets[0] +
+                                       cell->insets[2]) /
+                                          cell->box.rect.height);
+            }
+        });
+    // Narrowing can need more text height. Grow the selected band uniformly
+    // so physical row parts stay equal and the source content remains visible.
+    if (scale > 1 + 1e-8)
+      for (size_t r = rr.edges[address.row];
+           r < rr.edges[address.row + address.rows]; ++r) {
+        if (rr.lengths[r] == 0)
+          continue;
+        double height = rr.lengths[r] * scale;
+        if (!std::isfinite(height) || height > 10000000)
+          fail("The physical row subdivision exceeds the native height limit");
+        new_rows[r].setAttributeNS(
+            TABLE, "table:style-name",
+            style_for(new_rows[r], "table-row",
+                      {{"row-height", point_length(height)}}));
+      }
+    (void)read_text_flow(result.document);
+  }
+  return result;
 }
 } // namespace DomeOffice

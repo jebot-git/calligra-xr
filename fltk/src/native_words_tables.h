@@ -60,9 +60,10 @@ split_words_table_cell(const OdfPackage &, const TextCellAddress &,
                        const std::vector<TextCellAddress> &path = {});
 // Split one displayed cell into an explicit count of logical row/column parts.
 // Existing grid boundaries remain; neighboring cells span the refined slots.
-WordsTableEdit
-subdivide_words_table_cell(const OdfPackage &, const TextCellAddress &,
-                           size_t rows, size_t columns,
-                           const std::vector<TextCellAddress> &path = {});
+WordsTableEdit subdivide_words_table_cell(
+    const OdfPackage &, const TextCellAddress &, size_t rows, size_t columns,
+    const std::vector<TextCellAddress> &path = {},
+    std::optional<double> body_width = {}, bool equal_physical = false,
+    NativeTextShaper *shaper = nullptr);
 bool words_in_table(const OdfPackage &, size_t position);
 } // namespace DomeOffice
