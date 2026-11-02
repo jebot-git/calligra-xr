@@ -184,6 +184,8 @@ struct TextCellStyle {
   enum Vertical { Top, Middle, Bottom } vertical = Top;
 };
 struct TextTableCell {
+  XmlElement source;
+  size_t source_instance = 0;
   Text style_name;
   size_t row = 0, column = 0, rows = 1, columns = 1;
   TextCellStyle style;
@@ -191,12 +193,16 @@ struct TextTableCell {
   std::shared_ptr<const TextParagraph> empty_format;
 };
 struct TextTableRow {
+  XmlElement source;
+  size_t source_instance = 0;
   std::optional<double> height;
   double minimum = 0;
   bool keep_together = false, header = false, visible = true;
   std::optional<TextColor> background;
 };
 struct TextTableColumn {
+  XmlElement source;
+  size_t source_instance = 0;
   std::optional<double> width;
   double relative = 0;
   bool optimal = false, visible = true, header = false;

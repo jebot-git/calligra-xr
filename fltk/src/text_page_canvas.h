@@ -25,6 +25,10 @@ public:
   double scroll_position() const { return scroll_; }
   std::optional<TextRect> caret_rect() const;
   std::optional<size_t> caret_page() const;
+  std::optional<TextCellAddress> caret_cell(size_t position) const;
+  std::vector<TextCellAddress> caret_cells(size_t position) const;
+  bool prefer_cells(const std::vector<TextCellAddress> &);
+  bool prefer_cell(const TextCellAddress &);
   size_t current_page() const;
   uint64_t rasterizations() const;
   GpuImageCache images;
@@ -62,6 +66,7 @@ private:
   TextCaret::Affinity affinity_ = TextCaret::Following;
   std::optional<double> preferred_x_;
   std::optional<Stop> cursor() const;
+  std::optional<Stop> cursor_at(size_t position) const;
   std::optional<Stop> hit(double x, double y, bool closest = false) const;
   TextRect screen_rect(const Stop &) const;
   void choose(Stop, bool extend);

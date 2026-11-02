@@ -47,7 +47,7 @@ def color_count(picture, color):
                for x in range(picture.width))
 
 
-def produce(path, conditional=False):
+def produce(path, conditional=False, repeated=False):
     doc = OpenDocumentText()
     layout = PageLayout(name='Page')
     layout.addElement(PageLayoutProperties(pagewidth='18cm', pageheight='24cm', margin='1cm'))
@@ -77,8 +77,12 @@ def produce(path, conditional=False):
     table = Table(name='Cells')
     table.addElement(TableColumn(numbercolumnsrepeated=2))
     row = TableRow()
+    if repeated:
+        row.setAttribute('numberrowsrepeated',3)
+        row.setAttrNS(XML[1:-1],'id','repeated-row')
     table.addElement(row)
     cell = TableCell(valuetype='string')
+    if repeated: cell.setAttrNS(XML[1:-1],'id','repeated-cell')
     p = P(stylename=body, text='Cell ')
     link = A(href='https://example.invalid/document', text='link')
     p.addElement(link)
@@ -165,6 +169,8 @@ parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
 parser.add_argument('--rudimentary-only', action='store_true', help='Verify basic native editing, save/reopen and history with the current system font')
+parser.add_argument('--grid-repeat-only', action='store_true', help='Run repeated-row caret/undo UI checks')
+parser.add_argument('--grid-only', action='store_true', help='Run focused table row/column UI checks')
 parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
 parser.add_argument('--tabs-only', action='store_true', help='Run focused native tab stop UI checks')
 parser.add_argument('--page-setup-only', action='store_true', help='Run focused native page setup UI checks')
@@ -175,6 +181,13 @@ parser.add_argument('--text-view', action='store_true', help='Run the full editi
 args = parser.parse_args()
 if args.rudimentary_only:
     args.page_only = True
+if args.grid_repeat_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view:
+        parser.error('--grid-repeat-only requires native page editing without other focused modes')
+    args.grid_only=True
+
+if args.grid_only and (args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
+    parser.error('--grid-only is incompatible with other focused modes or --ime')
 if args.tables_only and (args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
     parser.error('--tables-only is incompatible with other focused modes or --ime')
 if args.tabs_only and (args.page_only or args.page_setup_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
@@ -294,7 +307,7 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        produce(source)
+        produce(source,repeated=args.grid_repeat_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -303,7 +316,12 @@ try:
         def data():
             return json.loads(report.read_text())
 
-        wait(lambda: report.exists())
+        def first_report():
+            if process.poll() is not None:
+                raise RuntimeError('Words exited before its first report: '+str(process.returncode)+
+                                   '; inspect '+str(art/'words.log'))
+            return report.exists()
+        wait(first_report)
         if args.wayland:
             window = wait(lambda: next((w for w in scene()['windows']
                                        if 'calligra-words' in w.get('app_id', '').lower() and w.get('client_pid') == process.pid), None))
@@ -483,7 +501,7 @@ try:
                 return {e.get(STYLE+'name'): e.find(STYLE+'text-properties')
                         for e in root.iter(STYLE+'style')}
 
-            if not (args.styles_only or args.character_styles_only or args.page_setup_only or args.tabs_only or args.tables_only):
+            if not (args.styles_only or args.character_styles_only or args.page_setup_only or args.tabs_only or args.tables_only or args.grid_only):
                 # Invalid fields stay in the panel and cannot consume redo or saved
                 # state. Correcting a quoted fallback list must render and round-trip.
                 go(2); key('x'); check_text(original[:2]+'x'+original[2:], 3)
@@ -729,7 +747,7 @@ try:
                 delta=index-current
                 key('Down' if delta>=0 else 'Up', count=abs(delta))
                 key('Return'); time.sleep(.15)
-            if not (args.character_styles_only or args.page_setup_only or args.tabs_only or args.tables_only):
+            if not (args.character_styles_only or args.page_setup_only or args.tabs_only or args.tables_only or args.grid_only):
                 style_id = []
                 def definition_check(label, size):
                     def check(raw):
@@ -859,7 +877,7 @@ try:
                         'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named paragraph style native UI, staging, heading roles, ZIP/source undo and next styles',flush=True)
                     raise FormatComplete
-            if not (args.page_setup_only or args.tabs_only or args.tables_only):
+            if not (args.page_setup_only or args.tabs_only or args.tables_only or args.grid_only):
                 # Named character styles replace selected inline overrides and can
                 # remain as a named reference for future typing at a caret.
                 char_ids = []
@@ -974,7 +992,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS named character style UI, range/default handling, named typing, source/archive undo and links',flush=True)
                     raise FormatComplete
-            if not (args.tabs_only or args.page_setup_only):
+            if not (args.tabs_only or args.page_setup_only or args.grid_only):
                 def open_table():
                     menu_action('Insert table…'); wait(lambda:data()['format_dialog']); time.sleep(.2)
                     return panel_origin(520,300)
@@ -1076,7 +1094,149 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if not (args.page_setup_only or args.tables_only):
+            if args.grid_repeat_only:
+                click_records=[]
+                def settled_page():
+                    previous=None;since=0;reports=set()
+                    def ready():
+                        nonlocal previous,since,reports
+                        snapshot=data();page=snapshot['page_layout']
+                        geometry=tuple(snapshot['window_size']+page['viewport'])
+                        if geometry!=previous:
+                            previous=geometry;since=time.monotonic();reports=set()
+                        reports.add(report.stat().st_mtime_ns)
+                        if time.monotonic()-since>.5 and len(reports)>=3:
+                            return snapshot
+                    return wait(ready)
+                def repeated_click(row,column):
+                    snapshot=settled_page();page=snapshot['page_layout']
+                    cell=next(c for c in page['table_cells'] if c['table']==0 and c['row']==row and c['column']==column)
+                    vx,vy,vw,vh=page['viewport']
+                    zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                    left=vx+(vw-cell['page_width']*zoom)/2
+                    top=vy+12-page['scroll']
+                    point=[round(left+(cell['x']+12)*zoom),round(top+(cell['y']+cell['height']/2)*zoom)]
+                    click_records.append({'window_size':snapshot['window_size'],'viewport':page['viewport'],
+                        'row':row,'column':column,'point':point})
+                    (art/'grid-clicks.json').write_text(json.dumps(click_records,indent=2)+'\n')
+                    click(*point)
+                    wait(lambda:data()['editing']['cell']==[0,row,column,1,1])
+                def repeat_action(label,cell):
+                    revision=data()['editing']['revision'];menu_action(label)
+                    wait(lambda:data()['editing']['revision']!=revision and data()['editing']['cell']==cell)
+                def repeat_undo(name,cursor):
+                    revision=data()['editing']['revision'];key('z',('Control_L',))
+                    wait(lambda:data()['editing']['revision']!=revision)
+                    check_text(original,cursor)
+                    wait(lambda:data()['editing']['cell']==[0,1,0,1,1])
+                    assert save(name)[1]==original_xml
+                    assert parts(name)==original_parts
+                repeated_click(1,0); clicked=data()['editing']['cursor']
+                repeat_action('Insert below',[0,2,0,1,1])
+                root,repeat_xml=save('grid-repeat-row-added')
+                cells=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells')
+                assert len(cells.findall('.//'+TABLE+'table-row'))==4
+                repeat_undo('grid-repeat-row-undone',clicked)
+                key('y',('Control_L',));wait(lambda:data()['editing']['cell']==[0,2,0,1,1])
+                assert save('grid-repeat-row-redone')[1]==repeat_xml
+                repeat_undo('grid-repeat-row-restored',clicked)
+                repeated_click(1,0); clicked=data()['editing']['cursor']
+                repeat_action('Insert right',[0,1,1,1,1])
+                root,column_xml=save('grid-repeat-column-added')
+                row=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells').find(TABLE+'table-row')
+                assert len(row.findall(TABLE+'table-cell'))==3
+                before_typing=data()['text'];cursor=data()['editing']['cursor']
+                key('x');check_text(before_typing[:cursor]+'x'+before_typing[cursor:],cursor+1)
+                root,_=save('grid-repeat-column-typed')
+                table=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells')
+                visible_x=0
+                for r in table.findall(TABLE+'table-row'):
+                    for c in r.findall(TABLE+'table-cell'):
+                        if any(plain(p)=='x' for p in c.iter(TEXT+'p')):
+                            visible_x+=int(r.get(TABLE+'number-rows-repeated','1'))*int(c.get(TABLE+'number-columns-repeated','1'))
+                assert visible_x==1,visible_x
+                key('z',('Control_L',));check_text(before_typing)
+                assert save('grid-repeat-typing-undone')[1]==column_xml
+                repeat_undo('grid-repeat-column-undone',clicked)
+                repeated_click(1,0);clicked=data()['editing']['cursor']
+                repeat_action('Delete row',[0,1,0,1,1])
+                root,_=save('grid-repeat-row-deleted')
+                row=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells').find(TABLE+'table-row')
+                rows=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells').findall(TABLE+'table-row')
+                assert sum(int(r.get(TABLE+'number-rows-repeated','1')) for r in rows)==2
+                repeat_undo('grid-repeat-delete-undone',clicked)
+                capture_window('grid-repeat-restored-layout')
+                key('q',('Control_L',));assert process.wait(timeout=15)==0
+                (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_repeated_grid':True,
+                    'clicked_instance_and_undo':True,'source_archive_exact':True},indent=2)+'\n')
+                print('PASS repeated table row targeting, insertion/deletion, source/archive undo and visual cell restoration',flush=True)
+                raise FormatComplete
+            if not (args.tables_only or args.tabs_only or args.page_setup_only):
+                def grid_table(root):
+                    return next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells')
+                def grid_rows(root):
+                    table=grid_table(root)
+                    return table.findall('.//'+TABLE+'table-row')
+                def grid_cell_text(root,row,column):
+                    cells=grid_rows(root)[row].findall(TABLE+'table-cell')
+                    return '\n'.join(plain(p) for p in cells[column].iter(TEXT+'p'))
+                def grid_action(label,cell):
+                    revision=data()['editing']['revision']; menu_action(label)
+                    wait(lambda:data()['editing']['revision']!=revision)
+                    if not args.text_view:
+                        wait(lambda:data()['editing']['cell']==cell)
+                def grid_undo(expected,cell):
+                    revision=data()['editing']['revision']; key('z',('Control_L',))
+                    wait(lambda:data()['editing']['revision']!=revision)
+                    check_text(expected)
+                    if not args.text_view:wait(lambda:data()['editing']['cell']==cell)
+                # Insert and delete on the existing rich table, keeping its
+                # hyperlink, tabs/soft breaks and all surrounding document text.
+                go(original.index('Cell ')+1)
+                grid_action('Insert below',[0,1,0,1,1])
+                root,_=save('grid-row-below'); assert len(grid_rows(root))==2
+                grid_action('Insert above',[0,1,0,1,1])
+                root,_=save('grid-row-above'); assert len(grid_rows(root))==3
+                grid_action('Insert right',[0,1,1,1,1])
+                root,_=save('grid-column-right')
+                assert all(len(r.findall(TABLE+'table-cell'))==3 for r in grid_rows(root))
+                before_typing=data()['text']; cursor=data()['editing']['cursor']
+                key('x'); expanded=before_typing[:cursor]+'x'+before_typing[cursor:]
+                check_text(expanded,cursor+1)
+                root,expanded_xml=save('grid-expanded'); expanded_parts=parts('grid-expanded')
+                assert grid_cell_text(root,1,1)=='x'
+                assert grid_cell_text(root,0,0)=='Cell link   \tend\nsoft'
+                assert grid_cell_text(root,0,2)=='Other cell'
+                assert len(root.findall('.//'+TEXT+'a'))==1
+                view_labels('grid-expanded-layout')
+                grid_action('Delete column',[0,1,1,1,1])
+                root,_=save('grid-column-deleted'); assert all(len(r.findall(TABLE+'table-cell'))==2 for r in grid_rows(root))
+                grid_undo(expanded,[0,1,1,1,1]); assert save('grid-column-delete-undone')[1]==expanded_xml
+                assert parts('grid-column-delete-undone')==expanded_parts
+                grid_action('Delete row',[0,1,1,1,1])
+                root,_=save('grid-row-deleted'); assert len(grid_rows(root))==2
+                grid_undo(expanded,[0,1,1,1,1]); assert save('grid-row-delete-undone')[1]==expanded_xml
+                assert parts('grid-row-delete-undone')==expanded_parts
+                grid_action('Insert left',[0,1,1,1,1])
+                root,_=save('grid-column-left'); assert all(len(r.findall(TABLE+'table-cell'))==4 for r in grid_rows(root))
+                assert grid_cell_text(root,1,1)=='' and grid_cell_text(root,1,2)=='x'
+                grid_undo(expanded,[0,1,1,1,1]); assert save('grid-column-left-undone')[1]==expanded_xml
+                # One character, column insert, and two row inserts are four
+                # independent history steps; the original ZIP parts are exact.
+                key('z',('Control_L',)); check_text(before_typing)
+                key('z',('Control_L',)); key('z',('Control_L',)); key('z',('Control_L',))
+                check_text(original)
+                assert save('grid-all-restored')[1]==original_xml
+                assert parts('grid-all-restored')==original_parts
+                layout_report['table_grid']={'six_menu_actions':True,'rich_cell_retention':True,
+                    'source_archive_history':True,'caret_cell_after_action_undo':True}
+                if args.grid_only:
+                    key('q',('Control_L',)); assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'native_table_grid':True,
+                        'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
+                    print('PASS native Words row/column menu actions, rich cells, source/archive undo and cell focus',flush=True)
+                    raise FormatComplete
+            if not (args.page_setup_only or args.tables_only or args.grid_only):
                 # Direct tab stops stage one transaction, including document defaults.
                 def open_tabs():
                     menu_action('Tabs…'); wait(lambda:data()['format_dialog']); time.sleep(.2)

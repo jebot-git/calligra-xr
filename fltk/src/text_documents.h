@@ -9,6 +9,8 @@
 namespace DomeOffice {
 struct TextSelection {
     size_t anchor = 0, cursor = 0;
+    std::optional<TextCellAddress> cell{}; // Display instance for repeated table content.
+    std::vector<TextCellAddress> cells{}; // Outer-to-inner instance path.
     bool operator==(const TextSelection&) const = default;
 };
 class TextDocument {

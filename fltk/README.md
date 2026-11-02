@@ -163,8 +163,16 @@ CUPS test queues.
   insertion. Table → Delete table removes the nearest enclosing table; nested
   deletion retains its outer cell. Root page transitions remain on a caret
   paragraph. Insertion/deletion, selected ranges and changed package parts use
-  one structural undo transaction. Direct placement in lists needs an anchored
-  table or list splitting; row/column operations and merge/split remain pending.
+  one structural undo transaction. Table → Rows/Columns inserts above/below or
+  left/right and deletes the current row/column. Spans adjust across the edited
+  boundary; a surviving merge retains its anchor content and formatting, including hidden
+  paragraphs and IDs from the surviving covered cell.
+  Header groups and repeated cells keep their source semantics. The selected
+  repeated cell, including enclosing repeated cells around nested tables, becomes
+  independently editable after the command. Undo restores its cell instance and
+  exact archive parts. Tables containing formulas reject these structural edits
+  until reference adjustment is implemented. Direct placement in lists needs an
+  anchored table or list splitting; merge/split controls remain pending.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

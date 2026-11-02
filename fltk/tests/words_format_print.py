@@ -169,6 +169,9 @@ def main():
                         help='Optional named character style UI snapshots (defaults to --ui-artifacts)')
     parser.add_argument('--page-setup-artifacts', type=Path,
                         help='Optional native page setup UI snapshots (defaults to --ui-artifacts)')
+    parser.add_argument('--grid-artifacts', type=Path, help='Optional row/column UI snapshots')
+    parser.add_argument('--grid-repeat-artifacts', type=Path, help='Optional repeated-row UI snapshots')
+    parser.add_argument('--grid-core-artifacts', type=Path, help='Optional merged-cell inheritance fixtures')
     parser.add_argument('--tables-artifacts', type=Path, help='Optional native structural table UI snapshots')
     parser.add_argument('--tabs-artifacts', type=Path, help='Optional native tab control UI snapshots')
     parser.add_argument('--test-bin-dir', type=Path,
@@ -222,6 +225,23 @@ def main():
                 source=args.tables_artifacts.resolve()/('table-'+name+'.odt')
                 assert source.is_file(),source
                 cases.append(('table-'+name,source))
+        if args.grid_artifacts:
+            for name in ('expanded','row-deleted','column-deleted'):
+                source=args.grid_artifacts.resolve()/('grid-'+name+'.odt')
+                assert source.is_file(),source
+                cases.append(('grid-'+name,source))
+        if args.grid_repeat_artifacts:
+            for name in ('row-added','column-typed'):
+                source=args.grid_repeat_artifacts.resolve()/('grid-repeat-'+name+'.odt')
+                assert source.is_file(),source
+                cases.append(('grid-repeat-'+name,source))
+        if args.grid_core_artifacts:
+            for name,file in [('grid-style-row','promoted-row-style-retained.odt'),
+                              ('grid-style-neutral','promoted-neutral-style-retained.odt'),
+                              ('grid-style-column','deleted-anchor-column-style-retained.odt')]:
+                source=args.grid_core_artifacts.resolve()/file
+                assert source.is_file(),source
+                cases.append((name,source))
         for name, source in cases:
             if name == 'unicode-source':
                 unicode_source(source)
@@ -245,7 +265,9 @@ def main():
             assert hashlib.sha256(source.read_bytes()).hexdigest() == before
             with zipfile.ZipFile(source) as old, zipfile.ZipFile(exported) as new:
                 for entry in ('styles.xml', 'Extras/opaque.bin'):
-                    assert old.read(entry) == new.read(entry), (name, entry)
+                    assert (entry in old.namelist())==(entry in new.namelist()),(name,entry)
+                    if entry in old.namelist():
+                        assert old.read(entry) == new.read(entry), (name, entry)
             reader = PdfReader(output)
             native_page = name in ('page-edit', 'page-ime')
             assert len(reader.pages) == (5 if native_page else 3 if name == 'table-navigation' else 1)
@@ -280,16 +302,36 @@ def main():
                 (art / 'unicode-extracted.txt').write_text(extracted)
                 (art / 'unicode-pypdf-extracted.txt').write_text(text)
                 (art / 'unicode-actual-text.json').write_text(json.dumps(actual, ensure_ascii=False) + '\n')
+            elif name.startswith('grid-style-'):
+                assert 'Styled anchor' in text or 'Styled merge' in text,text
             elif name.startswith('table-'):
                 assert 'Section alpha' in text and 'Cell link' in text
                 if name != 'table-deleted':
                     assert 'A1' in text and 'B1' in text and 'A2' in text
             else:
                 assert ('Česxký' if native_page else 'A' if name == 'soft-lines' else 'Český') in text
+            if name=='grid-repeat-column-typed':
+                extracted=subprocess.check_output(['pdftotext',str(output),'-'],text=True)
+                assert extracted.split().count('x')==1,repr(extracted)
             if name == 'page-ime':
                 assert '日本語' in text
             pages = render(output, art / ('formatted-' + name + '-page'))
             assert len(pages) == len(reader.pages)
+            if name.startswith('grid-style-'):
+                picture=Image.open(pages[0]).convert('RGB')
+                if name=='grid-style-neutral':
+                    bounds=art/'grid-neutral-bounds.html'
+                    subprocess.run(['pdftotext','-bbox',str(output),str(bounds)],check=True)
+                    tree=ET.fromstring(bounds.read_text());ns='{http://www.w3.org/1999/xhtml}'
+                    word=next(w for w in tree.iter(ns+'word') if w.text=='Styled')
+                    scale=100/72
+                    crop=picture.crop((int(float(word.get('xMin'))*scale),int(float(word.get('yMin'))*scale),
+                                       int(float(word.get('xMax'))*scale)+1,int(float(word.get('yMax'))*scale)+1))
+                    assert color_count(crop,(0,0,0))>10
+                    assert color_count(crop,(0,255,0))==0
+                else:
+                    assert color_count(picture,(255,0,0))>20
+                    if name=='grid-style-column':assert color_count(picture,(0,255,0))==0
             if name.startswith('tabs-'):
                 picture=Image.open(pages[0]).convert('RGB')
                 # The first UI-created stop has an explicit blue double leader.

@@ -332,6 +332,7 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
   struct RawRow {
     XmlElement node;
     bool header = false;
+    size_t instance = 0;
   };
   std::vector<RawRow> rows;
   std::function<void(const XmlElement &, bool, bool, size_t)> collect =
@@ -343,6 +344,7 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
           auto name = e.localName();
           if (name == "table-column") {
             TextTableColumn column;
+            column.source = e;
             column.header = column_header;
             auto visibility = e.attributeNS(TABLE, "visibility", "visible");
             column.visible = visibility == "visible";
@@ -375,12 +377,16 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
             auto n = count(e, "number-columns-repeated");
             if (n > 1024 - table.columns.size())
               fail("Too many native table columns");
-            table.columns.insert(table.columns.end(), n, column);
+            for (size_t i = 0; i < n; ++i) {
+              column.source_instance = i;
+              table.columns.push_back(column);
+            }
           } else if (name == "table-row") {
             auto n = count(e, "number-rows-repeated");
             if (n > 100000 - rows.size())
               fail("Too many native table rows");
-            rows.insert(rows.end(), n, {e, header});
+            for (size_t i = 0; i < n; ++i)
+              rows.push_back({e, header, i});
           } else if (name == "table-header-rows" || name == "table-rows" ||
                      name == "table-row-group" ||
                      name == "table-header-columns" ||
@@ -418,6 +424,8 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
   for (size_t row = 0; row < rows.size(); ++row) {
     auto e = rows[row].node;
     TextTableRow properties;
+    properties.source = e;
+    properties.source_instance = rows[row].instance;
     properties.header = rows[row].header;
     auto visibility = e.attributeNS(TABLE, "visibility", "visible");
     properties.visible = visibility == "visible";
@@ -477,6 +485,8 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
           }
         }
         TextTableCell result;
+        result.source = cell;
+        result.source_instance = instance;
         result.row = row;
         result.column = column;
         result.rows = row_span;

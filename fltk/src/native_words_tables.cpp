@@ -211,12 +211,8 @@ WordsTableEdit insert_words_table(const OdfPackage &original, size_t position,
   auto cursor = offset_of(p, first);
   return {std::move(p), cursor};
 }
-WordsTableEdit delete_words_table(const OdfPackage &original, size_t position) {
-  editable(original);
-  auto p = copy(original);
-  auto table = ancestor_table(locate(p, position).node);
-  if (table.isNull())
-    fail("Place the caret inside a table to delete it");
+namespace {
+WordsTableEdit erase_table(OdfPackage p, XmlElement table, size_t position) {
   size_t beginning = position;
   for (const auto &entry : paragraphs(table)) {
     beginning = offset_of(p, entry.node);
@@ -259,5 +255,43 @@ WordsTableEdit delete_words_table(const OdfPackage &original, size_t position) {
   auto list = paragraphs(p.body());
   auto length = list.empty() ? 0 : list.back().start + list.back().size;
   return {std::move(p), std::min(beginning, length)};
+}
+} // namespace
+WordsTableEdit delete_words_table(const OdfPackage &original, size_t position) {
+  editable(original);
+  auto p = copy(original);
+  auto table = ancestor_table(locate(p, position).node);
+  if (table.isNull())
+    fail("Place the caret inside a table to delete it");
+  return erase_table(std::move(p), table, position);
+}
+WordsTableEdit delete_words_table_index(const OdfPackage &original,
+                                        size_t index) {
+  editable(original);
+  auto p = copy(original);
+  auto flow = read_text_flow(p);
+  if (index >= flow.tables.size())
+    fail("Invalid table source");
+  auto table = flow.tables[index].source;
+  size_t position = 0;
+  bool reached = false;
+  std::function<void(XmlElement)> walk = [&](XmlElement n) {
+    if (reached)
+      return;
+    if (n == table) {
+      reached = true;
+      return;
+    }
+    if (n.namespaceURI() == TEXT &&
+        (n.localName() == "p" || n.localName() == "h"))
+      position += plain_text(n).size() + 1;
+    else
+      for (auto c = n.firstChild(); !c.isNull() && !reached;
+           c = c.nextSibling())
+        if (c.isElement())
+          walk(c);
+  };
+  walk(p.body());
+  return erase_table(std::move(p), table, position);
 }
 } // namespace DomeOffice

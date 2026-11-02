@@ -113,6 +113,78 @@ std::optional<size_t> TextPageCanvas::caret_page() const {
       return stop->page;
   return {};
 }
+std::vector<TextCellAddress>
+TextPageCanvas::caret_cells(size_t position) const {
+  std::vector<TextCellAddress> result;
+  if (auto stop = cursor_at(position))
+    for (auto context =
+             pagination.pages.at(stop->page).lines.at(stop->line).cell_context;
+         context; context = context->nested)
+      result.push_back(context->address);
+  return result;
+}
+std::optional<TextCellAddress>
+TextPageCanvas::caret_cell(size_t position) const {
+  auto cells = caret_cells(position);
+  return cells.empty() ? std::optional<TextCellAddress>{}
+                       : std::optional(cells.back());
+}
+bool TextPageCanvas::prefer_cells(const std::vector<TextCellAddress> &path) {
+  if (!selection || path.empty())
+    return false;
+  auto position = selection().cursor;
+  std::optional<Stop> best;
+  auto rank = [&](const Stop &s) {
+    return std::tuple(std::abs(double(s.page) - preferred_page_),
+                      s.caret.affinity != affinity_,
+                      std::abs(double(s.line) - preferred_line_));
+  };
+  for (const auto &line : lines_) {
+    std::vector<TextCellAddress> actual;
+    for (auto c =
+             pagination.pages.at(line.page).lines.at(line.index).cell_context;
+         c; c = c->nested)
+      actual.push_back(c->address);
+    if (actual != path)
+      continue;
+    for (const auto &stop : line.stops)
+      if (stop.global == position && (!best || rank(stop) < rank(*best)))
+        best = stop;
+  }
+  if (!best)
+    return false;
+  preferred_page_ = best->page;
+  preferred_line_ = best->line;
+  affinity_ = best->caret.affinity;
+  reveal_caret();
+  redraw();
+  return true;
+}
+bool TextPageCanvas::prefer_cell(const TextCellAddress &address) {
+  if (!selection)
+    return false;
+  auto position = selection().cursor;
+  for (const auto &line : lines_) {
+    auto context =
+        pagination.pages.at(line.page).lines.at(line.index).cell_context;
+    bool matches = false;
+    for (auto c = context; c; c = c->nested)
+      if (c->address == address)
+        matches = true;
+    if (!matches)
+      continue;
+    for (const auto &stop : line.stops)
+      if (stop.global == position) {
+        preferred_page_ = stop.page;
+        preferred_line_ = stop.line;
+        affinity_ = stop.caret.affinity;
+        reveal_caret();
+        redraw();
+        return true;
+      }
+  }
+  return false;
+}
 void TextPageCanvas::reset_editing() {
   stop_drag();
   edit_map_ = {};
@@ -290,7 +362,9 @@ TextRect TextPageCanvas::screen_rect(const Stop &stop) const {
 std::optional<TextPageCanvas::Stop> TextPageCanvas::cursor() const {
   if (!selection)
     return {};
-  size_t at = selection().cursor;
+  return cursor_at(selection().cursor);
+}
+std::optional<TextPageCanvas::Stop> TextPageCanvas::cursor_at(size_t at) const {
   std::optional<Stop> best;
   auto rank = [&](const Stop &s) {
     return std::tuple(std::abs(double(s.page) - preferred_page_),

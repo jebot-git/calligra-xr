@@ -86,6 +86,12 @@ enum Command {
     TabStops,
     InsertTable,
     DeleteTable,
+    RowBefore,
+    RowAfter,
+    DeleteRow,
+    ColumnBefore,
+    ColumnAfter,
+    DeleteColumn,
     Bold,
     Italic,
     Underline,
@@ -321,6 +327,8 @@ public:
     std::vector<Fl_Widget*> presentation_hidden;
     int canvas_x = 0, canvas_y = 0, canvas_w = 0, canvas_h = 0;
     std::optional<TextSelection> words_edit_previous;
+    std::optional<TextCellAddress> pending_word_cell;
+    std::vector<TextCellAddress> pending_word_cells;
     bool soft_break = false;
     bool formatting_dialog = false;
     int queued_format = 0;
@@ -375,6 +383,12 @@ public:
             add("&Format/&Tabs…", 0, TabStops);
             add("&Table/&Insert table…", 0, InsertTable);
             add("&Table/&Delete table", 0, DeleteTable);
+            add("&Table/Rows/Insert &above", 0, RowBefore);
+            add("&Table/Rows/Insert &below", 0, RowAfter);
+            add("&Table/Rows/&Delete row", 0, DeleteRow);
+            add("&Table/Columns/Insert &left", 0, ColumnBefore);
+            add("&Table/Columns/Insert &right", 0, ColumnAfter);
+            add("&Table/Columns/&Delete column", 0, DeleteColumn);
             add("&Format/Paragraph &styles…", 0, ParagraphStyles);
             add("&Format/Character &styles…", 0, CharacterStyles);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
@@ -456,7 +470,7 @@ public:
             editor->wrap_mode(Fl_Text_Display::WRAP_AT_BOUNDS, 0);
             text_pages = new TextPageCanvas(28, 66, 1044, 668);
             text_pages->hide();
-            text_pages->selection = [this] { return word_selection(); };
+            text_pages->selection = [this] { return word_selection(false); };
             text_pages->select = [this](TextSelection range) {
                 words->clear_typing_format();
                 restore_word_selection(range);
@@ -868,7 +882,9 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == InsertTable || action == DeleteTable)
+                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn)
+                    office->word_grid(action);
+                else if (action == InsertTable || action == DeleteTable)
                     office->word_table(action == InsertTable);
                 else if (action == TabStops)
                     office->word_tabs();
@@ -879,6 +895,71 @@ public:
                 else
                     office->word_format(action);
             });
+    }
+    void word_grid(Command command)
+    {
+        if (kind != Kind::Words || !words)
+            return;
+        if (words->read_only())
+            throw std::runtime_error("This document is read-only");
+        cancel_word_composition();
+        finish_word_edit();
+        if (page_view && (page_revision != words->revision() || text_font_revision != dx::font_revision))
+            refresh_pages();
+        auto previous = word_selection();
+        auto revision = words->revision();
+        auto snapshot = words->style_snapshot();
+        auto path = previous.cells;
+        if (path.empty())
+            path = words_table_cells_at(snapshot, previous.cursor);
+        if (path.empty())
+            throw std::runtime_error("Place the caret inside a table cell");
+        auto address = path.back();
+        previous.cell = address;
+        previous.cells = path;
+        WordsTableGridAction action;
+        switch (command) {
+        case RowBefore:
+            action = WordsTableGridAction::RowBefore;
+            break;
+        case RowAfter:
+            action = WordsTableGridAction::RowAfter;
+            break;
+        case DeleteRow:
+            action = WordsTableGridAction::DeleteRow;
+            break;
+        case ColumnBefore:
+            action = WordsTableGridAction::ColumnBefore;
+            break;
+        case ColumnAfter:
+            action = WordsTableGridAction::ColumnAfter;
+            break;
+        case DeleteColumn:
+            action = WordsTableGridAction::DeleteColumn;
+            break;
+        default:
+            throw std::runtime_error("Invalid table action");
+        }
+        formatting_dialog = true;
+        std::optional<WordsTableEdit> result;
+        try {
+            result = edit_words_table_grid(snapshot, address, action, path);
+            NativeTextShaper shaper(Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+            (void)paginate_text(read_text_flow(result->document), shaper);
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        TextSelection next { result->cursor, result->cursor, result->cell, result->cells };
+        words->commit_structure(std::move(result->document), previous, next, revision);
+        words_edit_previous.reset();
+        fill_buffer(words->text());
+        restore_word_selection(next);
+        modified = words->modified();
+        title();
+        sync_pages();
+        message("Table grid updated");
     }
     void word_table(bool insert)
     {
@@ -1096,7 +1177,7 @@ public:
         }
         return true;
     }
-    TextSelection word_selection()
+    TextSelection word_selection(bool instances = true)
     {
         auto bytes = buffer_text();
         int cursor = editor ? std::clamp(editor->insert_position(), 0, int(bytes.size())) : 0;
@@ -1110,10 +1191,18 @@ public:
                 cursor = last;
             anchor = cursor == first ? last : first;
         }
-        return { Text(bytes.substr(0, std::clamp(anchor, 0, int(bytes.size())))).size(), Text(bytes.substr(0, cursor)).size() };
+        TextSelection selection { Text(bytes.substr(0, std::clamp(anchor, 0, int(bytes.size())))).size(), Text(bytes.substr(0, cursor)).size() };
+        if (instances && page_view && words && page_revision == words->revision()) {
+            selection.cells = text_pages->caret_cells(selection.cursor);
+            if (!selection.cells.empty())
+                selection.cell = selection.cells.back();
+        }
+        return selection;
     }
     void restore_word_selection(TextSelection selection)
     {
+        pending_word_cell = selection.cell;
+        pending_word_cells = selection.cells;
         auto text = words->text();
         int anchor = text.left(std::min(selection.anchor, text.size())).toUtf8().size();
         int cursor = text.left(std::min(selection.cursor, text.size())).toUtf8().size();
@@ -1252,6 +1341,12 @@ public:
         text_pages->set_flow(words->flow());
         text_font_revision = dx::font_revision;
         page_revision = words->revision();
+        if (!pending_word_cells.empty())
+            text_pages->prefer_cells(pending_word_cells);
+        else if (pending_word_cell)
+            text_pages->prefer_cell(*pending_word_cell);
+        pending_word_cells.clear();
+        pending_word_cell.reset();
     }
     void sync_pages()
     {
@@ -1259,6 +1354,12 @@ public:
             return;
         if (page_revision != words->revision() || text_font_revision != dx::font_revision)
             refresh_pages();
+        if (!pending_word_cells.empty())
+            text_pages->prefer_cells(pending_word_cells);
+        else if (pending_word_cell)
+            text_pages->prefer_cell(*pending_word_cell);
+        pending_word_cells.clear();
+        pending_word_cell.reset();
         text_pages->selection_changed();
     }
     void refresh_stage(int selected_shape = -1)
@@ -1458,7 +1559,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);
@@ -1645,6 +1746,12 @@ public:
             auto selection = word_selection();
             data["editing"] = { { "anchor", selection.anchor }, { "cursor", selection.cursor },
                 { "can_undo", words->can_undo() }, { "can_redo", words->can_redo() }, { "revision", words->revision() }, { "typing_format", words->has_typing_format() } };
+            data["editing"]["cell"] = selection.cell
+                ? Json::array({ selection.cell->table, selection.cell->row, selection.cell->column, selection.cell->rows, selection.cell->columns })
+                : Json(nullptr);
+            data["editing"]["cells"] = Json::array();
+            for (const auto& cell : selection.cells)
+                data["editing"]["cells"].push_back({ cell.table, cell.row, cell.column, cell.rows, cell.columns });
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
             Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array(), papers = Json::array();
             size_t table_paints = 0;

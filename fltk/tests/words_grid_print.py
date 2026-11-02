@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Verify native Words grid snapshots through ODF export and real private CUPS.
+
+Uses native geometry and rendered pixels with the current system font. Bitmap
+mask output deliberately does not require searchable PDF text.
+"""
+import argparse
+import hashlib
+import json
+import os
+import re
+from pathlib import Path
+import subprocess
+import zipfile
+
+from PIL import Image
+from pypdf import PdfReader
+from cups_runtime import PrivateCups
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def render(pdf, prefix):
+    subprocess.run(['pdftoppm', '-r', '100', '-png', str(pdf), str(prefix)],
+                   check=True, capture_output=True)
+    return sorted(prefix.parent.glob(prefix.name+'-*.png'))
+
+
+def color_count(image, color):
+    counts = image.convert('RGB').getcolors(image.width*image.height)
+    return sum(count for count, pixel in counts if pixel == color)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--bin-dir', type=Path, required=True)
+    parser.add_argument('--test-bin-dir', type=Path)
+    parser.add_argument('--grid-artifacts', type=Path, required=True)
+    parser.add_argument('--repeat-artifacts', type=Path, required=True)
+    parser.add_argument('--core-artifacts', type=Path, required=True)
+    parser.add_argument('--artifacts', type=Path, required=True)
+    args = parser.parse_args()
+    art = args.artifacts.resolve()
+    art.mkdir(parents=True, exist_ok=False)
+    cases = [(name, args.grid_artifacts/('grid-'+name+'.odt'))
+             for name in ('expanded', 'row-deleted', 'column-deleted')]
+    cases += [('repeat-'+name, args.repeat_artifacts/('grid-repeat-'+name+'.odt'))
+              for name in ('row-added', 'column-typed')]
+    cases += [(name, args.core_artifacts/(file+'.odt')) for name, file in (
+        ('style-row', 'promoted-row-style-retained'),
+        ('style-neutral', 'promoted-neutral-style-retained'),
+        ('style-column', 'deleted-anchor-column-style-retained'),
+        ('hidden-horizontal', 'horizontal-covered-retained'))]
+    binary = args.bin_dir.resolve()/'calligra-words-fltk'
+    helper = (args.test_bin_dir or args.bin_dir).resolve()/'calligra-native-text-shaper-test'
+    env = dict(os.environ, LD_LIBRARY_PATH='/usr/local/lib/domed/bitmap',
+               FLTK_BACKEND='wayland', LC_ALL='C')
+    env.pop('DISPLAY', None)
+    env.pop('WAYLAND_DISPLAY', None)
+    results = {}
+    with PrivateCups(art/'cups') as cups:
+        env['CUPS_SERVER'] = cups.server
+        known_jobs = set()
+        for number, (name, source) in enumerate(cases, 1):
+            source = source.resolve()
+            before = digest(source)
+            output, exported = art/(name+'.pdf'), art/(name+'.odt')
+            run = subprocess.run([str(binary), str(source), '--export-odf', str(exported),
+                                  '--print-pdf', str(output), '--print-to', cups.name],
+                                 env=env, capture_output=True, text=True)
+            (art/(name+'.log')).write_text(run.stdout+run.stderr)
+            run.check_returncode()
+            assert all(int(n) == 0 for n in re.findall(r'(\d+) missing glyphs', run.stderr)), run.stderr
+            assert digest(source) == before, (name, 'source changed')
+            with zipfile.ZipFile(source) as old, zipfile.ZipFile(exported) as new:
+                for entry in old.namelist():
+                    if entry != 'META-INF/manifest.xml':
+                        assert old.read(entry) == new.read(entry), (name, entry)
+                assert ('styles.xml' in old.namelist()) == ('styles.xml' in new.namelist())
+            layout = json.loads(subprocess.check_output(
+                [str(helper), '--layout', str(source)], env=env, text=True))
+            (art/(name+'-layout.json')).write_text(json.dumps(layout)+'\n')
+            assert len(PdfReader(output).pages) == len(layout) > 0
+            pages = render(output, art/(name+'-page'))
+            for page in pages:
+                picture = Image.open(page).convert('L')
+                assert sum(picture.histogram()[:80]) > 50, (name, 'blank page')
+            if name in ('style-row', 'style-column'):
+                picture = Image.open(pages[0]).convert('RGB')
+                assert color_count(picture, (255, 0, 0)) > 20, name
+                if name == 'style-column':
+                    assert color_count(picture, (0, 255, 0)) == 0, name
+            if name == 'style-neutral':
+                # Paragraph 0 is Before; paragraph 1 is the promoted anchor.
+                line = next(line for page in layout for line in page[2] if line[0] == 1)
+                x, y, width, height = line[3:7]
+                scale = 100/72
+                box = (int(x*scale), int(y*scale), int((x+width)*scale)+1,
+                       int((y+height)*scale)+1)
+                crop = Image.open(pages[0]).crop(box)
+                assert color_count(crop, (0, 0, 0)) > 10
+                assert color_count(crop, (0, 255, 0)) == 0
+            reopened = art/(name+'-reopened.pdf')
+            subprocess.run([str(binary), str(exported), '--print-pdf', str(reopened)],
+                           env=env, check=True, capture_output=True)
+            again = render(reopened, art/(name+'-reopened-page'))
+            assert [digest(p) for p in pages] == [digest(p) for p in again], name
+            jobs = cups.completed(number)
+            assert len(jobs) == number
+            new_jobs = set(jobs)-known_jobs
+            assert len(new_jobs) == 1
+            captured = next(iter(new_jobs))
+            known_jobs.update(jobs)
+            assert digest(captured) == digest(output), name
+            printed = render(captured, art/(name+'-cups-page'))
+            assert [digest(p) for p in pages] == [digest(p) for p in printed], name
+            results[name] = dict(source_unchanged=True, package_entries_preserved=True,
+                                 pages=len(pages), native_geometry_pages=True,
+                                 reopen_pixels_identical=True, cups_pixels_identical=True)
+            print('PASS', name, 'ODF retention, native print, reopen and CUPS pixels', flush=True)
+    results['completed_cups_jobs'] = len(cases)
+    results['system_printers_changed'] = False
+    (art/'results.json').write_text(json.dumps(results, indent=2)+'\n')
+
+
+if __name__ == '__main__':
+    main()

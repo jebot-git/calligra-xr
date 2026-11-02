@@ -1758,3 +1758,50 @@ it is excluded from this update. Words layout beyond the rudimentary floor,
 Sheets functions and Stage remain unfinished when the goal is paused.
 
 Artifacts: `/home/blux/de-xr/artifacts/calligra-words-bitmap-baseline-20261102`.
+
+
+## Words table rows and columns — 2026-11-02
+
+The native Table menu now inserts above/below and left/right, and deletes the
+current row or column. Each command validates a cloned package, preflights native
+pagination, and commits source, selection and saved-state history atomically.
+Inherited cell styles, header groups and merged spans survive the change.
+Deleting a merged anchor promotes its surviving source, retaining covered-cell
+paragraphs and XML IDs; cached covered numeric data rejects atomically until a
+value merge is implemented. Formula-bearing target tables likewise reject edits
+until structural reference adjustment is available.
+
+Repeated row/cell runs are split locally, with unique IDs/names and rewritten
+internal links. Full outer-to-inner cell paths isolate a nested target inside
+repeated ancestors. The newly focused cell is independent for immediate typing;
+undo restores both exact package parts and the clicked logical cell instance.
+Deleting the last row/column removes the addressed outer table even when its
+first paragraph belongs to a nested child.
+
+Release and ASan/UBSan runs pass the 42 core suites applicable to the current
+bitmap runtime, plus independent bitmap-strike metric checks. The three legacy
+outline-font assumption suites documented in the previous milestone remain
+excluded and are not claimed as passing. The new grid suite saves 30 fixtures
+per configuration; all 60 pass version-matched ODF content/styles schemas.
+
+Real X11 and native Wayland tests pass all six menu actions, rich cell/source
+retention and exact undo. Native Wayland repeated-row tests pass in Release and
+ASan/UBSan, including typing into just the selected instance after column
+insertion. The test waits for multiple fresh stable geometry reports before
+clicking; initial Wayland resize reports can otherwise target the wrong row.
+Two sanitizer startup attempts exceeded the 25-second first-report limit; the
+completed run reported no sanitizer fault. GUI leak checking remains disabled
+for external runtime libraries; core leak checking is enabled.
+
+The current-font `words_grid_print.py` gate passes nine actual private CUPS jobs
+from normal/repeated UI snapshots and merged/style core fixtures. It checks
+package entry retention, native page counts, visible ink, retained red/neutral
+styles, and exact raster equality after export/reopen and CUPS capture. All nine
+rendered cases and the repeated-cell GUI were visually reviewed. A combined 106
+ODF packages pass the schema gate. The rudimentary native Wayland editor still
+passes typing, caret clicks, selection, undo/redo and save/reopen.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-table-grid-20261030`.
+Merge/split controls, general typing into preexisting repeated cells, formula
+reference rewrites, anchored tables in lists and the broader Words layout work
+remain. Sheets functions follow Words; Stage remains last.
