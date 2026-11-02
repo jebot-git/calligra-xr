@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--merge-only', action='store_true', help='Run merge/split UI and optional core snapshots')
     parser.add_argument('--subdivide-artifacts', type=Path, help='Words cell subdivision UI snapshots')
     parser.add_argument('--subdivide-only', action='store_true', help='Run subdivision UI and optional core snapshots')
+    parser.add_argument('--range-list-artifacts', type=Path, help='Displayed list range UI snapshots')
+    parser.add_argument('--range-list-only', action='store_true', help='Run displayed list range UI and core snapshots')
     parser.add_argument('--empty-cell-artifacts', type=Path, help='Empty source-cell editing UI snapshots')
     parser.add_argument('--empty-cell-only', action='store_true', help='Run empty source-cell UI and core snapshots')
     parser.add_argument('--range-edit-artifacts', type=Path, help='Cross-cell text editing UI snapshots')
@@ -75,12 +77,18 @@ def main():
         parser.error('--format-only requires --format-artifacts and excludes --edit-only')
     if args.edit_only and not args.edit_artifacts:
         parser.error('--edit-only requires --edit-artifacts')
-    if not (args.empty_cell_only or args.edit_only or args.format_only or args.list_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
+    if not (args.range_list_only or args.empty_cell_only or args.edit_only or args.format_only or args.list_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
         parser.error('Grid mode requires --grid-artifacts, --repeat-artifacts and --core-artifacts')
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
     cases = []
-    if args.empty_cell_only:
+    if args.range_list_only:
+        if not args.range_list_artifacts:
+            parser.error('--range-list-only requires --range-list-artifacts')
+        cases=[(name,args.range_list_artifacts/(name+'.odt')) for name in ('range-list-key-indent','range-list-key-outdent','range-list-reverse-indent')]
+        if args.core_artifacts:
+            cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in ('flat-indent','flat-outdent','nested-indent','nested-outdent','sparse-indent')]
+    elif args.empty_cell_only:
         if not args.empty_cell_artifacts:
             parser.error('--empty-cell-only requires --empty-cell-artifacts')
         cases=[(name,args.empty_cell_artifacts/(name+'.odt')) for name in ('empty-typed','empty-paragraph','empty-soft-break','empty-pasted')]

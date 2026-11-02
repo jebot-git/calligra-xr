@@ -19,4 +19,10 @@ WordsRangeClear clear_words_selection(const OdfPackage &,
                                       const WordsTextPoint &);
 bool change_words_list(OdfPackage &, size_t begin, size_t end, WordsListAction,
                        bool at_start_only = false);
+// Apply one level change to selected displayed source ranges. Collect items
+// once before moving any node; descendants travel with a selected ancestor.
+// Call on a candidate package so a rejected group discards the whole operation.
+bool change_words_lists(OdfPackage &,
+                        const std::vector<std::pair<size_t, size_t>> &,
+                        WordsListAction);
 } // namespace DomeOffice

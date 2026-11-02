@@ -2303,3 +2303,58 @@ section/column/header/footer/note/image-anchor behavior remain unfinished. Words
 stays first, Sheets functions next, Stage last; the full goal remains active.
 
 Artifacts: `/home/blux/de-xr/artifacts/calligra-words-empty-cell-20261102`.
+
+## Displayed Words multi-list level ranges — 2026-11-02
+
+The native list-level operation now accepts the displayed range set in one
+candidate. It collects source paragraphs once, deduplicates multi-paragraph
+items, lets selected ancestors carry their descendants and partitions actual
+contiguous sibling groups by source list. Reverse-order moves reuse native
+style/numbering/continuation rules. Source paragraph identities, order and text
+are checked before commit; both displayed endpoints are rebased after repeated
+and nested source localization. All groups form one exact undo operation.
+
+Native page Tab/Shift+Tab attempt cross-cell list-level operations before text
+replacement. An entirely non-list selection declines the operation, retaining
+ordinary Tab input. Mixed list/plain selections and unsupported reparenting
+reject atomically. Root-level outdent discards all localization and leaves
+selection, revision, saved state and history untouched. A failing earlier group
+also discards moves already applied to later groups in the candidate.
+
+`native-words-range-lists` covers independent list styles, repeated/nested cells,
+continuation paragraphs, selected ancestor/descendant items, partial/reverse
+endpoints, sparse/duplicate source ranges, Roman restart numbering, source/ID/
+cache retention, no-op outdent, unsupported nested reparenting after another
+group has moved, invalid endpoints, non-list fallback and exact undo/redo.
+The older displayed-range test now checks the non-list decline result together
+with exact source, revision, selection, saved-state and undo/redo preservation.
+
+All 53 applicable optimized Release suites and all 53 ASan/UBSan suites pass.
+Core leak detection is enabled. Three legacy outline-font-assumption suites
+(native-text-shaping, native-text-hit and native-text-editing) remain excluded,
+and are not counted as passing. Flat/nested private Wayland and flat X11 GUI
+checks pass for menu and Tab/Shift+Tab level changes, reverse selection, exact
+archive/selection history, no-op outdent and actual save/reopen. The nested
+sanitizer GUI also passes with third-party leak checking disabled. Its dense
+fixture uses a 90-second observation ceiling after an initial parallel run
+exceeded the default 25-second startup ceiling; the observed retry's first
+report arrived in 19.8 seconds. The Release checks retain the default ceiling.
+Prior repeated/nested list and empty-exit, cross-cell text editing (including
+ordinary Tab replacement) and rudimentary editing regressions pass.
+
+Version-matched content/styles schemas validate 167 generated OpenDocument
+packages. Eleven private CUPS jobs cover flat/nested UI and native core list
+fixtures; three more jobs cover the Words/Sheets/Stage suite baseline. Source
+archive entries other than the regenerated manifest are retained. Native,
+reopened and captured CUPS rasters agree on all 16 new Words pages, which were
+visually reviewed. The nine accepted suite-baseline pages remain pixel-identical
+to the prior bitmap baseline. No system printer queue or active desktop/display-
+manager session was changed or restarted.
+
+Displayed range list-level editing is complete for the supported source model.
+Complex paragraph-level reparenting after nested lists, remaining list/numbering
+controls, table sizing, value/reference adjustment, large-document performance
+and broader section/column/header/footer/note/image-anchor work remain. Words
+stays first, Sheets functions next, Stage last; the full goal remains active.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-range-lists-20261102`.

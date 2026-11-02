@@ -219,7 +219,12 @@ CUPS test queues.
   repeated and nested instances remain independent. Cancelled or empty input
   and boundary deletion preserve the original empty source. Undo restores its
   virtual caret. Cell text formatting is inherited by the first input.
-  Cross-cell list-structure commands remain guarded.
+  List Indent/Outdent act on displayed ranges across cells and independent lists.
+  Multi-paragraph items move once; selected descendants travel with their parent.
+  Sibling groups retain numbering/styles, source order and exact selection/history.
+  Root-level outdent discards structural preparation as a no-op. Native page
+  Tab/Shift+Tab use these list operations before text replacement. Unsupported
+  paragraph-level moves with source content after a nested list remain guarded.
   Table → Cells → Cell format edits each side's padding and border, background
   color (including transparent) and vertical alignment. It retains effective
   inherited styles and changes only the chosen displayed instance, including

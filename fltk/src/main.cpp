@@ -882,10 +882,12 @@ public:
             command(Cut);
             return 1;
         }
-        if (event == FL_KEYDOWN && (Fl::event_state() & FL_SHIFT) && Fl::event_key() == FL_Tab
+        if (event == FL_KEYDOWN && Fl::event_key() == FL_Tab
+            && !(Fl::event_state() & (FL_CTRL | FL_ALT | FL_META))
             && words->selection_crosses_cells(word_selection())) {
-            word_list_action(WordsListAction::Outdent, true);
-            return 1;
+            const bool reverse = Fl::event_state() & FL_SHIFT;
+            if (word_list_action(reverse ? WordsListAction::Outdent : WordsListAction::Indent, true) || reverse)
+                return 1;
         }
         if (event == FL_KEYDOWN && (Fl::event_state() & FL_CTRL) && Fl::event_key() == 'a') {
             command(SelectAll);

@@ -506,20 +506,32 @@ try {
     if (resolved)
         *resolved = selection;
     const auto previous = selection;
-    if (selection.anchor_cells) {
+    std::optional<ScopedMutation> result;
+    bool handled = false;
+    if (selection.anchor_cells && !selection.collapsed()) {
         WordsDisplayMap display(read_text_flow(package_));
         auto span = display.span({ selection.anchor, *selection.anchor_cells }, { selection.cursor, selection.cells });
-        for (const auto& slice : display.slices(span))
-            if (slice.active && slice.cells != selection.cells)
-                fail("List structure editing across table cells is not supported yet");
+        if (action == WordsListAction::ExitEmpty || (at_start_only && span.first == span.last))
+            return false;
+        auto prepared = selection_snapshot(selection);
+        const auto baseline = prepared.document.xml.toByteArray();
+        handled = change_words_lists(prepared.document, prepared.ranges, action);
+        if (prepared.document.xml.toByteArray() != baseline) {
+            selection.anchor = prepared.anchor.position;
+            selection.cursor = prepared.cursor.position;
+            selection.anchor_cells = words_table_cells_at(prepared.document, selection.anchor);
+            selection.cells = words_table_cells_at(prepared.document, selection.cursor);
+            selection.cell = selection.cells.empty() ? std::optional<TextCellAddress> { } : selection.cells.back();
+            result = ScopedMutation { std::move(prepared.document), selection, true };
+        }
+    } else {
+        // Collapsed carets retain Tab's start-of-item and Enter's empty-exit rules.
+        selection.anchor_cells.reset();
+        result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) {
+            handled = change_words_list(candidate, std::min(scope.anchor, scope.cursor),
+                std::max(scope.anchor, scope.cursor), action, at_start_only);
+        });
     }
-    // One native list operation covers all paragraphs/items in this cell.
-    selection.anchor_cells.reset();
-    bool handled = false;
-    auto result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) {
-        handled = change_words_list(candidate, std::min(scope.anchor, scope.cursor),
-            std::max(scope.anchor, scope.cursor), action, at_start_only);
-    });
     if (!result)
         return handled; // Consume valid no-op keys without expanding repetitions.
     selection = result->selection;

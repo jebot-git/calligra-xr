@@ -703,6 +703,79 @@ bool change_words_list(OdfPackage &package, size_t begin, size_t end,
     outdent_items(package, items);
   return true;
 }
+bool change_words_lists(OdfPackage &package,
+                        const std::vector<std::pair<size_t, size_t>> &ranges,
+                        WordsListAction action) {
+  if (action == WordsListAction::ExitEmpty)
+    fail("Empty-item exit requires one collapsed caret");
+  auto all = blocks(package.body());
+  if (all.empty() || ranges.empty())
+    return false;
+  const auto size = all.back().start + all.back().text.size();
+  std::set<size_t> selected_paragraphs;
+  for (const auto &[begin, end] : ranges) {
+    if (begin > end || end > size)
+      fail("List selection is outside the document");
+    auto first = std::lower_bound(
+        all.begin(), all.end(), begin,
+        [](const auto &b, size_t at) { return b.start + b.text.size() < at; });
+    for (auto it = first; it != all.end() && it->start <= end; ++it) {
+      if (it != first && it->start == end)
+        break;
+      selected_paragraphs.insert(size_t(it - all.begin()));
+    }
+  }
+  std::set<const void *> selected;
+  std::vector<XmlElement> candidates;
+  bool outside = false;
+  for (auto index : selected_paragraphs) {
+    auto item = all[index].node.parentNode();
+    if (!text_element(item, "list-item") ||
+        !text_element(item.parentNode(), "list")) {
+      outside = true;
+      continue;
+    }
+    if (selected.insert(item.identity()).second)
+      candidates.push_back(item);
+  }
+  if (candidates.empty())
+    return false;
+  if (outside)
+    fail("List level selection includes paragraphs outside list items");
+  // Partition actual sibling runs, rather than taking the scalar envelope of
+  // ranges (which can include covered metadata or other unselected content).
+  std::vector<std::vector<XmlElement>> groups;
+  for (auto item : candidates) {
+    bool contained = false;
+    for (auto parent = item.parentNode(); parent.isElement();
+         parent = parent.parentNode())
+      contained = contained || selected.contains(parent.identity());
+    if (contained)
+      continue;
+    if (groups.empty() ||
+        groups.back().back().parentNode() != item.parentNode() ||
+        previous_element(item) != groups.back().back())
+      groups.emplace_back();
+    groups.back().push_back(item);
+  }
+  if (groups.empty())
+    return false;
+  // Later groups first: outdenting can split a nested tail, and must not move
+  // an earlier group's nodes before their turn.
+  for (auto it = groups.rbegin(); it != groups.rend(); ++it)
+    if (action == WordsListAction::Indent)
+      indent_items(package, *it);
+    else
+      outdent_items(package, *it);
+  auto after = blocks(package.body());
+  if (after.size() != all.size())
+    fail("List level editing changed source paragraphs");
+  for (size_t i = 0; i < all.size(); ++i)
+    if (all[i].node != after[i].node || all[i].text != after[i].text)
+      fail("List level editing changed source text or paragraph order");
+  (void)read_text_flow(package);
+  return true;
+}
 void replace_words_text(OdfPackage &package, size_t begin, size_t count,
                         const Text &inserted, bool paragraph_breaks,
                         bool retain_empty_format) {

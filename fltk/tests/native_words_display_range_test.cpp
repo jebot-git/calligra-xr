@@ -234,8 +234,14 @@ int main(int argc, char **argv) {
   TextSelection whole{0, doc.text().size()};
   whole.anchor_cells = std::vector<TextCellAddress>{};
   auto before_list = doc.revision();
-  rejects([&] { doc.list_action(whole, WordsListAction::Indent); });
-  assert(doc.revision() == before_list);
+  auto before_list_xml = doc.style_snapshot().xml.toByteArray();
+  auto undo_before = doc.can_undo(), redo_before = doc.can_redo(), modified_before = doc.modified();
+  TextSelection no_list;
+  assert(!doc.list_action(whole, WordsListAction::Indent, false, &no_list));
+  assert(doc.revision() == before_list && no_list == whole);
+  assert(doc.style_snapshot().xml.toByteArray() == before_list_xml &&
+         doc.can_undo() == undo_before && doc.can_redo() == redo_before &&
+         doc.modified() == modified_before);
   std::cout
       << "PASS displayed range order, repeated scope, partial "
          "character/paragraph formatting, copy, no-op and exact history\n";
