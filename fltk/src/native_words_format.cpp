@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_format.h"
+#include "native_words_edit.h"
 #include "native_words_tabs.h"
 #include "native_font_family.h"
 #include <functional>
@@ -1607,6 +1608,20 @@ WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
                                   size_t end) {
   auto all = blocks(package);
   check_range(all, begin, end);
+  // An empty insertion span/link still determines the next character's format.
+  // Resolve it with the same insertion path used by real typing, on a copy.
+  if (begin == end)
+    for (const auto &block : all)
+      if (touches(block, begin, end) && block.text.empty()) {
+        auto first = block.node.firstChild();
+        if (first.namespaceURI() == TEXT &&
+            TextList{"span", "a"}.contains(first.localName())) {
+          auto copy = package;
+          copy.xml = read_document_xml(package.xml.toByteArray());
+          replace_words_text(copy, begin, 0, "X", false);
+          return read_words_format(copy, begin, begin + 1);
+        }
+      }
   // The layout reader supplies a virtual default paragraph for empty text.
   if (all.empty())
     all.push_back({{}, {}, 0});

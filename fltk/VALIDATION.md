@@ -2202,3 +2202,51 @@ performance, table size/style controls, formula/reference adjustment and broader
 Words section/column/header/footer/note/image-anchor work remain unfinished.
 The goal remains active with Words first, Sheets functions next and Stage last.
 No active desktop/display-manager session or system printer queue is restarted.
+
+
+## Native Words cross-cell text editing — 2026-11-02
+
+Displayed selections now prepare a compound event that localizes selected
+instances, clears text in reverse source order and returns the logical starting
+caret. Adjacent compatible paragraphs/list items join within their cell; nested
+and other intervening structures prevent a join. Typing/paste then uses the
+existing rich insertion and IME event path. Explicit erase/Cut accepts prepared
+removal without delivering another insertion. Empty/cancelled input and failures
+restore exact source, package parts, caches, selection and history. Boundary-only
+deletion leaves no structural materialization or undo entry. Body-ended ranges
+spanning tables keep the grid and container boundaries.
+
+The first insertion span/link chain is retained even when its text becomes empty.
+Caret-format queries resolve that context through the native insertion path on
+a discarded copy, so the displayed format agrees with subsequent typing. Actual
+text edits invalidate optional string-value caches on affected/enclosing cells.
+Value/formula/matrix metadata and unsupported objects reject without partial
+changes; unmodified cells retain their caches and opaque package entries.
+
+All 51 applicable optimized Release suites and all 51 ASan/UBSan suites pass;
+core leak detection is enabled. Three legacy outline-font-assumption suites
+remain excluded and are not counted as passing. Thirteen final core ODF fixtures
+per build cover rich insertion, paragraph merging, nested-table preservation,
+sibling-list joining, single-cell caches, reversed and body-ended selections,
+no-input/preedit rollback, boundary no-ops, numeric/object rejection and exact
+history. The prior displayed-range test now also checks prepared-edit rollback.
+
+Native Wayland flat/nested GUI checks pass for typing, Backspace/Delete,
+keyboard/menu Cut, Shift+Delete, paste over the selection, paragraph/soft breaks,
+reverse selection and exact source/ZIP undo/redo. Nested ASan/UBSan GUI (GUI leak
+detection disabled) and X11 pass the same checks. The prior nested range
+format/copy regression, ordinary rudimentary editing and repeated-cell
+single-cell editing regression pass as well.
+
+Twenty-eight actual private CUPS jobs pass across flat/nested UI edits and eight
+core editing exports. Every original ZIP entry except the generated manifest
+remains exact; native/reopened and captured CUPS pixels match. All twenty-eight
+rendered pages were visually reviewed. The combined schema gate validates 192
+ODF packages against version-matched content/styles schemas. Artifacts:
+`/home/blux/de-xr/artifacts/calligra-words-range-edit-20261102`.
+
+This completes the basic cell-preserving text-event path, while cross-cell list
+structure commands, empty-source-cell text editing, large-range performance,
+table sizing, value/reference adjustment and broader Words layout/editing remain
+unfinished. The full goal remains active: Words first, Sheets functions next,
+Stage last. No desktop/display-manager session or system printer queue restarts.

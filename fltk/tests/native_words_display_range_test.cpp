@@ -96,7 +96,12 @@ int main(int argc, char **argv) {
   assert(back.format_characters(reverse, bold, &reverse));
   assert(reverse.anchor > reverse.cursor);
   back.save(Text((directory / "reverse.odt").string()));
-  rejects([&] { back.prepare_cell_edit(reverse); });
+  auto before_prepare = back.style_snapshot().xml.toByteArray();
+  auto prepared_edit = back.prepare_cell_edit(reverse);
+  assert(prepared_edit && prepared_edit->collapsed() && back.editing());
+  back.cancel_edit();
+  assert(back.end_edit() == reverse);
+  assert(back.style_snapshot().xml.toByteArray() == before_prepare);
   assert(!back.editing());
   assert(p.xml.toByteArray() == original);
   assert(doc.style_snapshot().entry("Extras/opaque.bin") ==

@@ -2,6 +2,7 @@
 #include "native_words_edit.h"
 #include "native_text_layout.h"
 #include "native_words_format.h"
+#include "native_words_tables.h"
 #include <functional>
 namespace DomeOffice {
 namespace {
@@ -170,8 +171,8 @@ std::vector<XmlElement> insertion_path(XmlElement source, size_t position) {
   return result;
 }
 void insert(XmlElement target, const Text &value,
-            const std::vector<XmlElement> &path) {
-  if (value.empty())
+            const std::vector<XmlElement> &path, bool retain_empty = false) {
+  if (value.empty() && !retain_empty)
     return;
   for (const auto &node : path) {
     auto copy = node.cloneNode(false);
@@ -703,7 +704,8 @@ bool change_words_list(OdfPackage &package, size_t begin, size_t end,
   return true;
 }
 void replace_words_text(OdfPackage &package, size_t begin, size_t count,
-                        const Text &inserted, bool paragraph_breaks) {
+                        const Text &inserted, bool paragraph_breaks,
+                        bool retain_empty_format) {
   auto all = blocks(package.body());
   size_t size = all.empty() ? 0 : all.back().start + all.back().text.size();
   if (begin > size || count > size - begin ||
@@ -728,6 +730,15 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
   size_t first = locate(begin), last = locate(begin + count);
   for (size_t i = first; i <= last; ++i)
     supported(all[i].node);
+  std::vector<XmlElement> string_caches;
+  std::set<const void *> cache_ids;
+  for (size_t i = first; i <= last; ++i)
+    for (auto parent = all[i].node.parentNode(); parent.isElement();
+         parent = parent.parentNode())
+      if (parent.namespaceURI() == TABLE &&
+          parent.localName() == "table-cell" &&
+          cache_ids.insert(parent.identity()).second)
+        string_caches.push_back(parent);
   bool changed_list = join_items(package, all, first, last);
   auto parent = all[first].node.parentNode();
   for (size_t i = first; i <= last; ++i) {
@@ -768,7 +779,7 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     }
     if (i == 0)
       slice(all[first].node, p, 0, begin - all[first].start);
-    insert(p, parts[i], path);
+    insert(p, parts[i], path, retain_empty_format && i == 0);
     if (i + 1 == parts.size())
       slice(all[last].node, p, begin + count - all[last].start,
             all[last].text.size(), true);
@@ -791,6 +802,8 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     parent.insertBefore(p, all[first].node);
   for (size_t i = first; i <= last; ++i)
     parent.removeChild(all[i].node);
+  for (auto cell : string_caches)
+    cell.removeAttributeNS(OFFICE, "string-value");
   if (text_element(parent, "list-item") ||
       text_element(parent, "list-header")) {
     split_items(parent, replacements);
@@ -800,4 +813,95 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
       (void)read_text_flow(package);
   }
 }
+WordsRangeClear clear_words_selection(const OdfPackage &original,
+                                      const WordsTextPoint &anchor,
+                                      const WordsTextPoint &cursor) {
+  auto prepared = materialize_words_selection(original, anchor, cursor);
+  auto baseline = prepared.document.xml.toByteArray();
+  auto all = blocks(prepared.document.body());
+  auto cell = [](XmlElement node) {
+    for (auto parent = node.parentNode(); parent.isElement();
+         parent = parent.parentNode())
+      if (parent.namespaceURI() == TABLE && parent.localName() == "table-cell")
+        return parent;
+    return XmlElement{};
+  };
+  auto element_after = [](XmlElement node) {
+    do {
+      node = node.nextSibling();
+    } while (!node.isNull() && !node.isElement());
+    return node;
+  };
+  auto joinable = [&](const Block &a, const Block &b) {
+    if (cell(a.node) != cell(b.node))
+      return false;
+    auto pa = a.node.parentNode(), pb = b.node.parentNode();
+    if (pa == pb)
+      return element_after(a.node) == b.node;
+    if (!text_element(pa, "list-item") || !text_element(pb, "list-item") ||
+        pa.parentNode() != pb.parentNode() || element_after(pa) != pb)
+      return false;
+    // Do not cross a nested list, frame, section or unknown tail/header.
+    for (auto node = a.node.nextSibling(); !node.isNull();
+         node = node.nextSibling())
+      if (node.isElement() && !text_element(node, "number"))
+        return false;
+    for (auto node = pb.firstChild(); node != b.node; node = node.nextSibling())
+      if (node.isNull() || (node.isElement() && !text_element(node, "number")))
+        return false;
+    return true;
+  };
+  struct Group {
+    size_t begin, end, last;
+  };
+  std::vector<Group> groups;
+  std::set<const void *> checked;
+  for (const auto &[begin, end] : prepared.ranges) {
+    auto at = std::find_if(all.begin(), all.end(), [&](const auto &b) {
+      return begin >= b.start && end <= b.start + b.text.size();
+    });
+    if (at == all.end())
+      fail("The displayed edit range is not a source paragraph");
+    for (auto parent = at->node.parentNode(); parent.isElement();
+         parent = parent.parentNode())
+      if (parent.namespaceURI() == TABLE &&
+          parent.localName() == "table-cell" &&
+          checked.insert(parent.identity()).second) {
+        for (auto attribute : parent.attributes()) {
+          auto name = attribute.name.mid(attribute.name.indexOf(':') + 1);
+          if ((attribute.uri == TABLE &&
+               TextList{"formula", "number-matrix-rows-spanned",
+                        "number-matrix-columns-spanned"}
+                   .contains(name)) ||
+              (attribute.uri == OFFICE && name != "string-value" &&
+               (name != "value-type" || attribute.value != "string")))
+            fail("These cells require value/formula editing before text "
+                 "replacement");
+        }
+      }
+    auto index = size_t(at - all.begin());
+    if (!groups.empty() && index == groups.back().last + 1 &&
+        groups.back().end == all[groups.back().last].start +
+                                 all[groups.back().last].text.size() &&
+        begin == at->start && joinable(all[groups.back().last], *at)) {
+      groups.back().end = end;
+      groups.back().last = index;
+    } else
+      groups.push_back({begin, end, index});
+  }
+  if (groups.empty())
+    fail("The displayed edit range has no editable paragraphs");
+  // Reverse source order keeps every earlier source offset valid.
+  for (size_t i = groups.size(); i-- > 0;) {
+    const auto &group = groups[i];
+    replace_words_text(prepared.document, group.begin, group.end - group.begin,
+                       {}, true, i == 0);
+  }
+  (void)read_text_flow(prepared.document);
+  auto position = groups.front().begin;
+  bool changed = prepared.document.xml.toByteArray() != baseline;
+  auto path = words_table_cells_at(prepared.document, position);
+  return {std::move(prepared.document), {position, std::move(path)}, changed};
+}
+
 } // namespace DomeOffice

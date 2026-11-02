@@ -27,10 +27,16 @@ public:
     // One frontend event can contain several buffer replacements. Defer history
     // changes until it succeeds; any failed mutation cancels the entire event.
     void begin_edit(TextSelection);
-    // Before frontend mutation, isolate a repeated displayed cell and start one
-    // compound event. Refill the frontend with text() and the returned selection.
-    // end_edit/cancel_edit includes materialization in the same undo operation.
+    // Prepare one frontend event: isolate a repeated cell, or clear selected
+    // text across displayed cells and return its logical starting caret. Refill
+    // the frontend with text() and the returned selection before delivering input.
+    // Empty/cancelled input restores the original source and selection.
+    // end_edit groups preparation and input in one exact undo operation.
     std::optional<TextSelection> prepare_cell_edit(TextSelection);
+    bool selection_crosses_cells(TextSelection) const;
+    bool prepared_range_edit() const { return edit_ && edit_->range_prepared; }
+    // Cut/Delete explicitly consume a prepared deletion without further input.
+    void accept_prepared_selection();
     std::optional<TextSelection> end_edit(std::optional<TextSelection> next = { });
     void cancel_edit();
     bool editing() const { return bool(edit_); }
@@ -103,6 +109,7 @@ private:
         std::optional<TypingFormat> typing;
         Bytes prepared_xml;
         bool prepared = false;
+        bool range_prepared = false, range_changed = false;
         bool changed = false, cancelled = false;
     };
     std::optional<EditGroup> edit_;

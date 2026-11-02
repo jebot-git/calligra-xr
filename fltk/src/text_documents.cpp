@@ -288,10 +288,42 @@ void TextDocument::cancel_edit()
     edit_->changed = false;
     edit_->cancelled = true;
 }
+bool TextDocument::selection_crosses_cells(TextSelection selection) const
+{
+    if (!selection.anchor_cells || selection.collapsed())
+        return false;
+    WordsDisplayMap display(read_text_flow(package_));
+    auto span = display.span({ selection.anchor, *selection.anchor_cells }, { selection.cursor, selection.cells });
+    for (const auto& slice : display.slices(span))
+        if (slice.active && slice.cells != selection.cells)
+            return true;
+    return false;
+}
+void TextDocument::accept_prepared_selection()
+{
+    if (edit_ && edit_->range_prepared && edit_->range_changed)
+        edit_->prepared = false;
+}
 std::optional<TextSelection> TextDocument::prepare_cell_edit(TextSelection selection)
 try {
-    if (selection.anchor_cells && *selection.anchor_cells != selection.cells)
-        fail("Text replacement across table cells is not supported yet");
+    if (!edit_ && selection_crosses_cells(selection)) {
+        if (read_only())
+            fail("This document is read-only");
+        auto cleared = clear_words_selection(package_, { selection.anchor, *selection.anchor_cells }, { selection.cursor, selection.cells });
+        TextSelection next { cleared.caret.position, cleared.caret.position };
+        next.cells = std::move(cleared.caret.cells);
+        next.anchor_cells = next.cells;
+        if (!next.cells.empty())
+            next.cell = next.cells.back();
+        begin_edit(selection);
+        apply(std::move(cleared.document), selection, next);
+        typing_format_.reset();
+        edit_->prepared = true;
+        edit_->range_prepared = true;
+        edit_->range_changed = cleared.changed;
+        edit_->prepared_xml = package_.xml.toByteArray();
+        return next;
+    }
     if (edit_ || selection.cells.empty())
         return { };
     const auto begin = std::min(selection.anchor, selection.cursor),

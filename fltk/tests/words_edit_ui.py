@@ -175,6 +175,7 @@ parser.add_argument('--repeated-format-only', action='store_true', help='Run loc
 parser.add_argument('--repeated-lists-only', action='store_true', help='Run local list indent/outdent and empty exit in repeated cells')
 parser.add_argument('--merge-only', action='store_true', help='Run rectangular merge/split and history checks with a flat/nested fixture')
 parser.add_argument('--subdivide-only', action='store_true', help='Run cell subdivision, geometry, editing and history checks')
+parser.add_argument('--range-edit-only', action='store_true', help='Run cell-preserving range typing, deletion, Cut/paste and history checks')
 parser.add_argument('--display-range-only', action='store_true', help='Run cross-cell displayed selection, formatting, copy and history checks')
 parser.add_argument('--cell-format-only', action='store_true', help='Run native cell padding, borders, paint and alignment checks')
 parser.add_argument('--geometry-only', action='store_true', help='Run equal measured subdivision and geometry/history checks')
@@ -188,14 +189,14 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
-if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only):
+if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only):
     parser.error('--nested-fixture requires an edit/format/list/merge mode')
-if (args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not args.nested_fixture:
+if (args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not args.nested_fixture:
     parser.error('List/merge modes require a flat or nested fixture via --nested-fixture')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.display_range_only,args.cell_format_only,args.geometry_only))>1:
+if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.range_edit_only,args.display_range_only,args.cell_format_only,args.geometry_only))>1:
         parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
@@ -320,10 +321,10 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
+        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
         else:
-            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only)
+            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -499,7 +500,7 @@ try:
             assert process.wait(timeout=15) == 0
         else:
             original = data()['text']
-            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only):
+            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only):
                 assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
             _, original_xml = save('original')
 
@@ -1115,7 +1116,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only:
+            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1174,7 +1175,7 @@ try:
                     if ranged:key('Right',('Shift_L',),count=len(prefix))
                     check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
                     return path
-                if args.display_range_only:
+                if args.display_range_only or args.range_edit_only:
                     nested='Inner text' in original
                     page=settled_page()['page_layout']
                     if nested:
@@ -1199,7 +1200,54 @@ try:
                     assert initial['anchor_cells']==([[outer_id,1,1,1,1],[inner_id,0,1,1,1]] if nested else [[0,1,1,1,1]])
                     assert initial['cells']==([[outer_id,1,1,1,1],[inner_id,1,0,1,1]] if nested else [[0,2,0,1,1]])
                     capture_window('display-range-selection')
-                    key('x');time.sleep(.2);assert data()['text']==original and data()['editing']['revision']==initial['revision']
+                    def table_rows(table):
+                        rows=[]
+                        def scan(parent):
+                            for node in parent:
+                                if node.tag==TABLE+'table-row':rows.extend([node]*int(node.get(TABLE+'number-rows-repeated','1')))
+                                elif node.tag in (TABLE+'table-rows',TABLE+'table-header-rows',TABLE+'table-row-group'):scan(node)
+                        scan(table);result=[]
+                        for row in rows:
+                            result.append([c for node in row if node.tag in (TABLE+'table-cell',TABLE+'covered-table-cell') for c in [node]*int(node.get(TABLE+'number-columns-repeated','1'))])
+                        return result
+                    def checked_cells(root,inserted='',soft=False):
+                        outer=table_rows(next(root.iter(TABLE+'table')));assert len(outer)==3 and all(len(r)==3 for r in outer)
+                        matrix=table_rows(outer[1][1].find(TABLE+'table')) if nested else outer
+                        first_coord=(0,1) if nested else (1,1);last_coord=(1,0) if nested else (2,0)
+                        prefix='I' if nested else 'Č';suffix='nner text' if nested else 'eský text';full='Inner text' if nested else 'Český text'
+                        for r,row in enumerate(matrix):
+                            for c,node in enumerate(row):
+                                values=[plain(p) for p in node if p.tag in (TEXT+'p',TEXT+'h')]
+                                wanted=([prefix+inserted] if soft else (prefix+inserted).split('\n')) if (r,c)==first_coord else [suffix] if (r,c)==last_coord else [''] if not nested and (r,c)==(1,2) else [full]
+                                assert values==wanted,(r,c,values,wanted)
+                        if nested:
+                            for r,row in enumerate(outer):
+                                for c,node in enumerate(row):
+                                    assert plain(node.find(TEXT+'p'))=='Český text'
+                                    if (r,c)!=(1,1):
+                                        assert all(plain(p)=='Inner text' for inner_row in table_rows(node.find(TABLE+'table')) for inner_cell in inner_row for p in inner_cell if p.tag==TEXT+'p')
+                    def edit_undo(name,reverse=False):
+                        key('z',('Control_L',));wait(lambda:data()['text']==original and data()['editing']['selected_text']==expected)
+                        assert save(name)[1]==original_xml and parts(name)==original_parts
+                        assert data()['editing']['anchor_cells']==initial['cells' if reverse else 'anchor_cells']
+                        assert data()['editing']['cells']==initial['anchor_cells' if reverse else 'cells']
+                    key('x');wait(lambda:data()['editing']['revision']>initial['revision'] and data()['editing']['collapsed'])
+                    root,typed_xml=save('range-typed');checked_cells(root,'x');edit_undo('range-typed-undone')
+                    key('y',('Control_L',));assert save('range-typed-redone')[1]==typed_xml;edit_undo('range-typed-restored')
+                    if args.range_edit_only:
+                        for label,action in [('backspace',lambda:key('BackSpace')),('delete',lambda:key('Delete')),('cut',lambda:key('x',('Control_L',))),('menu-cut',lambda:menu_action('Cut')),('shift-cut',lambda:key('Delete',('Shift_L',)))]:
+                            revision=data()['editing']['revision'];action();wait(lambda:data()['editing']['revision']>revision and data()['editing']['collapsed'])
+                            root,_=save('edit-'+label);checked_cells(root);edit_undo('edit-'+label+'-undone')
+                        key('v',('Control_L',));wait(lambda:data()['editing']['collapsed']);root,_=save('edit-pasted');checked_cells(root,expected);edit_undo('edit-pasted-undone')
+                        key('Return');wait(lambda:data()['editing']['collapsed']);root,_=save('edit-paragraph');checked_cells(root,'\n');edit_undo('edit-paragraph-undone')
+                        key('Return',('Shift_L',));wait(lambda:data()['editing']['collapsed']);root,_=save('edit-soft-break');checked_cells(root,'\n',True);edit_undo('edit-soft-break-undone')
+                        click(*cell_point(target));key('Home');key('Right');click(*cell_point(first),modifiers=('Shift_L',));key('Right',('Shift_L',))
+                        wait(lambda:data()['editing']['selected_text']==expected and data()['editing']['anchor_cells']==initial['cells'])
+                        key('x');wait(lambda:data()['editing']['collapsed']);root,_=save('edit-reverse');checked_cells(root,'x');edit_undo('edit-reverse-undone',True)
+                        key('Right');wait(lambda:data()['editing']['collapsed']);key('q',('Control_L',));assert process.wait(timeout=15)==0
+                        (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'cell_preserving_typing_delete_cut_paste':True,'paragraph_and_soft_break':True,'reverse_and_exact_history':True},indent=2)+'\n')
+                        print('PASS cell-preserving cross-cell typing, deletion, Cut/paste, breaks and exact history',flush=True)
+                        raise FormatComplete
                     key('c',('Control_L',));key('b',('Control_L',))
                     wait(lambda:data()['editing']['revision']>initial['revision'])
                     assert data()['editing']['selected_text']==expected
@@ -1217,7 +1265,7 @@ try:
                     assert data()['editing']['selected_text']==expected
                     key('Right');wait(lambda:data()['editing']['collapsed'])
                     key('q',('Control_L',));assert process.wait(timeout=15)==0
-                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'coincident_source_endpoints':True,'display_order_and_instance_scope':True,'character_paragraph_formatting':True,'copy_paste':True,'text_replacement_rejected_atomically':True,'exact_history_and_noop':True},indent=2)+'\n')
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'coincident_source_endpoints':True,'display_order_and_instance_scope':True,'character_paragraph_formatting':True,'copy_paste':True,'range_typing_exact_undo':True,'exact_history_and_noop':True},indent=2)+'\n')
                     print('PASS displayed cross-cell selection, formatting, copy/paste and exact history',flush=True)
                     raise FormatComplete
                 if args.cell_format_only:

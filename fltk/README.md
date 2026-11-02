@@ -208,8 +208,13 @@ CUPS test queues.
   selection can cross repeated/nested cells even when their source offsets match.
   Highlighting, copying, character/paragraph formatting, named styles and tabs
   use that displayed range and retain exact structural undo/redo. Covered-cell
-  metadata is excluded. Cross-cell typing/replacement, Cut and list-structure
-  operations remain guarded until cell-preserving editing is implemented.
+  metadata is excluded. Typing, paste, Cut and deletion across cells retain
+  tables and other container boundaries, clear selected text, and insert at the
+  logical range start. Paragraphs and supported sibling list items join within
+  each cell; paragraph and soft breaks stay in the starting cell. Preparation and
+  input share one undo command, with exact rollback on cancelled/empty input.
+  Numeric/formula and unsupported embedded-object edits reject atomically.
+  Cross-cell list-structure commands remain guarded.
   Table → Cells → Cell format edits each side's padding and border, background
   color (including transparent) and vertical alignment. It retains effective
   inherited styles and changes only the chosen displayed instance, including

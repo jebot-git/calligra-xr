@@ -607,13 +607,15 @@ public:
                 for (int key : { FL_Enter, FL_KP_Enter })
                     editor->add_key_binding(key, 0, [](int key, Fl_Text_Editor* widget) -> int {
                         auto* office = static_cast<Office*>(widget->user_data());
-                        if (office->word_list_action(WordsListAction::ExitEmpty, true))
+                        if (!office->words->prepared_range_edit() && office->word_list_action(WordsListAction::ExitEmpty, true))
                             return 1;
                         return Fl_Text_Editor::kf_enter(key, widget);
                     });
                 auto list_tab = [](int, Fl_Text_Editor* widget) -> int {
                     auto* office = static_cast<Office*>(widget->user_data());
                     bool reverse = Fl::event_state() & FL_SHIFT;
+                    if (office->words->prepared_range_edit())
+                        return reverse ? 0 : Fl_Text_Editor::kf_default('\t', widget);
                     if (office->word_list_action(reverse ? WordsListAction::Outdent : WordsListAction::Indent, true))
                         return 1;
                     return reverse ? 0 : Fl_Text_Editor::kf_default('\t', widget);
@@ -876,6 +878,15 @@ public:
                 command(int(reinterpret_cast<intptr_t>(item->user_data())));
             return 1;
         }
+        if (event == FL_KEYDOWN && (((Fl::event_state() & FL_CTRL) && Fl::event_key() == 'x') || ((Fl::event_state() & FL_SHIFT) && Fl::event_key() == FL_Delete))) {
+            command(Cut);
+            return 1;
+        }
+        if (event == FL_KEYDOWN && (Fl::event_state() & FL_SHIFT) && Fl::event_key() == FL_Tab
+            && words->selection_crosses_cells(word_selection())) {
+            word_list_action(WordsListAction::Outdent, true);
+            return 1;
+        }
         if (event == FL_KEYDOWN && (Fl::event_state() & FL_CTRL) && Fl::event_key() == 'a') {
             command(SelectAll);
             return 1;
@@ -902,9 +913,18 @@ public:
     }
     void erase_words(size_t begin, size_t end)
     {
-        if (readonly() || begin == end)
+        if (readonly())
             return;
         auto previous = word_selection();
+        if (words->selection_crosses_cells(previous)) {
+            if (prepare_word_edit()) {
+                words->accept_prepared_selection();
+                finish_word_edit();
+            }
+            return;
+        }
+        if (begin == end)
+            return;
         const auto original_selection = previous;
         try {
             if (auto selection = words->prepare_cell_edit(previous)) {
@@ -1738,6 +1758,15 @@ public:
                     Fl::paste(*grid, 1);
             } else if (c == Cut) {
                 if (editor && editor->active_r()) {
+                    if (kind == Kind::Words && page_view && words->selection_crosses_cells(word_selection())) {
+                        auto copied = words->selected_text(word_selection()).toUtf8();
+                        if (!prepare_word_edit())
+                            return;
+                        Fl::copy(copied.constData(), int(copied.size()), 1);
+                        words->accept_prepared_selection();
+                        finish_word_edit();
+                        return;
+                    }
                     if (kind == Kind::Words && !prepare_word_edit())
                         return;
                     Fl_Text_Editor::kf_cut(0, editor);

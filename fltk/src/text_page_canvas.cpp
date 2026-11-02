@@ -952,7 +952,7 @@ int TextPageCanvas::handle(int event) {
         auto range = selection();
         auto begin = std::min(range.anchor, range.cursor),
              end = std::max(range.anchor, range.cursor);
-        if (begin == end) {
+        if (range.collapsed()) {
           if (key == FL_BackSpace)
             begin = control ? edit_map_.previous_word(begin)
                             : edit_map_.previous_grapheme(begin);
