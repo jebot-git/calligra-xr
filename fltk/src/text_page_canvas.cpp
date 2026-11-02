@@ -23,6 +23,7 @@ void TextPageCanvas::set_flow(const TextFlow &flow) {
   map.reset(flow);
   auto pages = paginate_text(flow, *shaper_);
   edit_map_ = std::move(map);
+  display_map_ = WordsDisplayMap(flow);
   set_pagination(std::move(pages));
 }
 void TextPageCanvas::set_pagination(TextPagination value) {
@@ -185,6 +186,24 @@ bool TextPageCanvas::prefer_cell(const TextCellAddress &address) {
   }
   return false;
 }
+void TextPageCanvas::select_document() {
+  const auto &paragraphs = display_map_.paragraphs();
+  if (paragraphs.empty() || !select)
+    return;
+  const auto &a = paragraphs.front(), &b = paragraphs.back();
+  TextSelection range{a.begin, b.begin + b.length};
+  range.cells = b.cells;
+  range.anchor_cells = a.cells;
+  if (!b.cells.empty())
+    range.cell = b.cells.back();
+  if (auto stop = point_stop({range.cursor, range.cells})) {
+    preferred_page_ = stop->page;
+    preferred_line_ = stop->line;
+    affinity_ = stop->caret.affinity;
+  }
+  select(range);
+  selection_changed();
+}
 void TextPageCanvas::reset_editing() {
   stop_drag();
   edit_map_ = {};
@@ -228,6 +247,21 @@ void TextPageCanvas::draw() {
   if (image_host)
     images.begin_frame(*image_host);
   double top = y() + 12 - scroll_, zoom = scale();
+  std::optional<TextSelection> active_selection;
+  std::optional<WordsDisplaySpan> display_span;
+  if (editing() && selection) {
+    active_selection = selection();
+    if (active_selection->anchor_cells && !active_selection->collapsed()) {
+      try {
+        display_span = display_map_.span(
+            {active_selection->anchor, *active_selection->anchor_cells},
+            {active_selection->cursor, active_selection->cells});
+      } catch (const std::exception &error) {
+        render_error_ = error.what();
+        active_selection.reset();
+      }
+    }
+  }
   for (size_t i = 0; i < pagination.pages.size(); ++i) {
     const auto &page = pagination.pages[i];
     double left = x() + (w() - page.style.width * zoom) / 2;
@@ -269,10 +303,22 @@ void TextPageCanvas::draw() {
                   *line.shaped,
                   relative_text_clip(line.clip, line.x, line.baseline)),
               transform, *host);
-          if (editing() && selection) {
-            auto range = selection();
+          if (active_selection) {
+            const auto &range = *active_selection;
             auto begin = std::min(range.anchor, range.cursor),
                  end = std::max(range.anchor, range.cursor);
+            if (range.anchor_cells && display_span) {
+              std::vector<TextCellAddress> path;
+              for (auto c = line.cell_context; c; c = c->nested)
+                path.push_back(c->address);
+              auto portion =
+                  display_map_.portion(line.paragraph, path, *display_span);
+              if (portion) {
+                begin = portion->first;
+                end = portion->second;
+              } else
+                begin = end = 0;
+            }
             size_t base = edit_map_.global(line.paragraph, 0);
             size_t length = edit_map_.paragraph_size(line.paragraph);
             if (end > base && begin <= base + length) {
@@ -335,7 +381,7 @@ void TextPageCanvas::draw() {
   }
   if (editing() && Fl::focus() == this && selection) {
     auto range = selection();
-    if (range.anchor == range.cursor || Fl::compose_state)
+    if (range.collapsed() || Fl::compose_state)
       if (auto stop = cursor()) {
         auto rect = screen_rect(*stop);
         if (rect.y + rect.height >= y() && rect.y < y() + h()) {
@@ -413,14 +459,42 @@ std::optional<TextPageCanvas::Stop> TextPageCanvas::hit(double sx, double sy,
     }
   return best;
 }
+std::vector<TextCellAddress>
+TextPageCanvas::stop_cells(const Stop &stop) const {
+  std::vector<TextCellAddress> result;
+  for (auto c = pagination.pages.at(stop.page).lines.at(stop.line).cell_context;
+       c; c = c->nested)
+    result.push_back(c->address);
+  return result;
+}
+std::optional<TextPageCanvas::Stop>
+TextPageCanvas::point_stop(const WordsTextPoint &point) const {
+  std::optional<Stop> best;
+  for (const auto &line : lines_)
+    for (const auto &stop : line.stops)
+      if (stop.global == point.position && stop_cells(stop) == point.cells &&
+          (!best || std::abs(double(stop.page) - preferred_page_) <
+                        std::abs(double(best->page) - preferred_page_)))
+        best = stop;
+  return best;
+}
 void TextPageCanvas::choose(Stop stop, bool extend) {
+  auto previous = selection ? selection() : TextSelection{};
+  auto old = cursor();
+  auto path = stop_cells(stop);
+  TextSelection range{extend ? previous.anchor : stop.global, stop.global};
+  range.cells = path;
+  if (!path.empty())
+    range.cell = path.back();
+  range.anchor_cells =
+      extend ? previous.anchor_cells.value_or(old ? stop_cells(*old) : path)
+             : path;
   preferred_page_ = stop.page;
   preferred_line_ = stop.line;
   affinity_ = stop.caret.affinity;
   preferred_x_.reset();
   if (select)
-    select(
-        {extend && selection ? selection().anchor : stop.global, stop.global});
+    select(range);
   selection_changed();
 }
 void TextPageCanvas::reveal_caret() {
@@ -461,27 +535,57 @@ bool TextPageCanvas::navigate(int key, bool control, bool extend) {
       choose(*best, extend);
     return bool(best);
   };
-  if (control && (key == FL_Home || key == FL_End)) {
-    bool moved =
-        choose_global(key == FL_Home ? 0 : edit_map_.text().size(), true);
-    if (moved && key == FL_Home)
-      scroll(-extent());
-    return moved;
-  }
-  if (control && (key == FL_Left || key == FL_Right))
-    return choose_global(key == FL_Left
-                             ? edit_map_.previous_word(current->global)
-                             : edit_map_.next_word(current->global));
-  if (control && (key == FL_Up || key == FL_Down)) {
-    auto paragraph = current->caret.paragraph;
-    if (key == FL_Down)
-      return choose_global(paragraph + 1 < edit_map_.paragraph_count()
-                               ? edit_map_.global(paragraph + 1, 0)
-                               : edit_map_.text().size());
-    size_t start = edit_map_.global(paragraph, 0);
-    return choose_global(current->global == start && paragraph > 0
-                             ? edit_map_.global(paragraph - 1, 0)
-                             : start);
+  if (control) {
+    const auto &paragraphs = display_map_.paragraphs();
+    auto path = stop_cells(*current);
+    auto at =
+        std::find_if(paragraphs.begin(), paragraphs.end(), [&](const auto &p) {
+          return p.paragraph == current->caret.paragraph && p.cells == path;
+        });
+    auto move = [&](const WordsDisplayParagraph &p, size_t position) {
+      if (auto stop = point_stop({position, p.cells})) {
+        choose(*stop, extend);
+        return true;
+      }
+      return false;
+    };
+    if (!paragraphs.empty() && (key == FL_Home || key == FL_End)) {
+      const auto &p = key == FL_Home ? paragraphs.front() : paragraphs.back();
+      bool moved = move(p, key == FL_Home ? p.begin : p.begin + p.length);
+      if (moved && key == FL_Home)
+        scroll(-extent());
+      return moved;
+    }
+    if (at != paragraphs.end() && (key == FL_Left || key == FL_Right)) {
+      size_t position = key == FL_Left
+                            ? edit_map_.previous_word(current->global)
+                            : edit_map_.next_word(current->global);
+      if ((key == FL_Left && current->global == at->begin) ||
+          position < at->begin) {
+        if (at == paragraphs.begin())
+          return true;
+        --at;
+        return move(*at, at->begin + at->length);
+      }
+      if ((key == FL_Right && current->global == at->begin + at->length) ||
+          position > at->begin + at->length) {
+        if (++at == paragraphs.end())
+          return true;
+        return move(*at, at->begin);
+      }
+      return move(*at, position);
+    }
+    if (at != paragraphs.end() && (key == FL_Up || key == FL_Down)) {
+      if (key == FL_Down) {
+        if (++at == paragraphs.end())
+          return true;
+      } else if (current->global == at->begin) {
+        if (at == paragraphs.begin())
+          return true;
+        --at;
+      }
+      return move(*at, at->begin);
+    }
   }
   auto found = std::find_if(lines_.begin(), lines_.end(), [&](const Line &l) {
     return l.page == current->page && l.index == current->line;
@@ -508,8 +612,22 @@ bool TextPageCanvas::navigate(int key, bool control, bool extend) {
     return true;
   }
   if (key == FL_Left || key == FL_Right) {
-    if (selection && selection().anchor != selection().cursor && !extend) {
+    if (selection && !selection().collapsed() && !extend) {
       auto range = selection();
+      if (range.anchor_cells) {
+        auto span = display_map_.span({range.anchor, *range.anchor_cells},
+                                      {range.cursor, range.cells});
+        bool start =
+            (key == FL_Left) !=
+            pagination.pages[current->page].lines[current->line].shaped->rtl;
+        WordsTextPoint point =
+            (start != span.reverse)
+                ? WordsTextPoint{range.anchor, *range.anchor_cells}
+                : WordsTextPoint{range.cursor, range.cells};
+        if (auto target = point_stop(point))
+          choose(*target, false);
+        return true;
+      }
       bool start =
           (key == FL_Left) !=
           pagination.pages[current->page].lines[current->line].shaped->rtl;
@@ -753,17 +871,31 @@ int TextPageCanvas::handle(int event) {
       if (Fl::event_clicks() && Fl::event_button() == FL_LEFT_MOUSE && select) {
         if (Fl::event_clicks() >= 2) {
           size_t begin = edit_map_.global(target->caret.paragraph, 0);
-          select({begin, std::min(edit_map_.text().size(),
-                                  begin +
-                                      edit_map_.paragraph_size(
-                                          target->caret.paragraph) +
-                                      1)});
+          auto path = stop_cells(*target);
+          TextSelection range{begin,
+                              std::min(edit_map_.text().size(),
+                                       begin + edit_map_.paragraph_size(
+                                                   target->caret.paragraph))};
+          range.cells = path;
+          range.anchor_cells = path;
+          if (!path.empty())
+            range.cell = path.back();
+          select(range);
         } else {
           size_t sample = target->global;
           if ((Fl::event_x() < screen_rect(*target).x) != target->caret.rtl)
             sample = edit_map_.previous_grapheme(sample);
           auto word = edit_map_.word_at(sample);
-          select({word.first, word.second});
+          auto path = stop_cells(*target);
+          auto base = edit_map_.global(target->caret.paragraph, 0);
+          auto end = base + edit_map_.paragraph_size(target->caret.paragraph);
+          TextSelection range{std::clamp(word.first, base, end),
+                              std::clamp(word.second, base, end)};
+          range.cells = path;
+          range.anchor_cells = path;
+          if (!path.empty())
+            range.cell = path.back();
+          select(range);
         }
         selection_changed();
       }
@@ -798,8 +930,8 @@ int TextPageCanvas::handle(int event) {
         cancel_composition();
       stop_drag();
       if (selection && select) {
-        auto at = selection().cursor;
-        select({at, at});
+        if (auto stop = cursor())
+          choose(*stop, false);
       }
       redraw();
       return 1;

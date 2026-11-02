@@ -23,7 +23,8 @@ std::optional<OdfPackage> page_setup_dialog(Fl_Window &, OdfPackage,
                                             const Text &page_style);
 std::optional<WordsTabsFormat>
 tab_stops_dialog(Fl_Window &, OdfPackage, size_t begin, size_t end,
-                 const std::vector<TextCellAddress> &cells = {});
+                 const std::vector<TextCellAddress> &cells = {},
+                 const std::vector<std::pair<size_t, size_t>> &ranges = {});
 std::optional<WordsTableEdit> insert_table_dialog(Fl_Window &, OdfPackage,
                                                   size_t position);
 std::optional<WordsTableEdit>

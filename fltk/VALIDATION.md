@@ -2152,3 +2152,53 @@ The full goal remains active: cross-cell range formatting, table size/style
 controls, formula/reference adjustment and broader Words layout/editing remain
 unfinished. Sheets functions follow Words; Stage remains last. This increment
 does not restart active desktop sessions or modify system printer queues.
+
+
+## Native Words displayed ranges — 2026-11-02
+
+Both selection endpoints now retain complete displayed table-cell paths. Native
+logical document traversal separates repeated paragraph instances that share a
+source offset, independently of page fragments and bidi painting. Page selection
+highlighting, copy, Shift mouse/keyboard selection, word/paragraph/document
+navigation and range collapse retain that identity. Formatting prepares selected
+instances and rebases both endpoints before applying character/paragraph, named
+style or tab changes. Semantic no-ops discard the prepared candidate. Real edits
+use one structural history command, retaining source metadata, inherited styles
+and opaque package entries. Covered-cell paragraphs are excluded from both
+formatting and tab queries. A range ending at the next paragraph's start excludes
+that trailing paragraph. Temporary clone-tracking attributes are removed before
+returning any candidate.
+
+All 50 applicable optimized Release core suites and all 50 ASan/UBSan suites
+pass, with core leak detection enabled. Three legacy outline-font-assumption
+suites remain excluded and are not counted as passing. Ten final core ODF
+fixtures per build cover coincident offsets in distinct repeated cells, partial
+and reversed ranges, exact no-op/history behavior, Unicode copy, named styles,
+tabs, nested paths, merged cells and covered metadata with different tab stops.
+A whole-body list operation spanning table cells rejects without changing state.
+
+Native Wayland GUI tests pass for flat and nested cross-cell ranges, including
+coincident numeric endpoints, partial character formatting, paragraph alignment,
+UTF-8 copy/paste into the body, atomic typing rejection, exact archive-part
+undo/redo, no-op alignment and range collapse. Nested Wayland ASan/UBSan GUI
+(leak checks disabled) and X11 checks pass. Selection screenshots were inspected:
+only the intended displayed instances and character portions are highlighted.
+Existing rudimentary editing, nested scoped character/paragraph/tab/named formats,
+list menu/keyboard/empty-exit and cell-format GUI regressions pass. GUI checks
+wait for the reported caret after document-end navigation before constructing
+paste expectations; source offsets alone cannot establish a display range.
+
+Thirteen actual private CUPS jobs pass: flat/nested GUI bold, centered and pasted
+exports plus seven core exports for bold, centered, reversed, named, tabbed,
+nested and merged ranges. Source ZIP entries except the generated manifest remain
+exact. Native/reopened PDF and captured CUPS rasters match; all thirteen rendered
+pages were visually reviewed. The combined gate validates 119 ODF packages
+against version-matched content/styles schemas. Artifacts and logs are retained
+under `/home/blux/de-xr/artifacts/calligra-words-display-range-20261102`.
+
+Cross-cell typing/replacement/Cut and list structure edits remain guarded pending
+cell-preserving semantics. Empty-source-cell text editing, large-selection/reflow
+performance, table size/style controls, formula/reference adjustment and broader
+Words section/column/header/footer/note/image-anchor work remain unfinished.
+The goal remains active with Words first, Sheets functions next and Stage last.
+No active desktop/display-manager session or system printer queue is restarted.

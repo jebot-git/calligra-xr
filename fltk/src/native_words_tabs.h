@@ -32,7 +32,9 @@ struct WordsTabsFormat {
 double words_tab_position(const WordsTabStopSpec &);
 WordsTabStopSpec words_new_tab_stop(double points);
 void validate_words_tabs(const WordsTabsFormat &);
-WordsTabsInfo read_words_tabs(const OdfPackage &, size_t begin, size_t end);
+WordsTabsInfo
+read_words_tabs(const OdfPackage &, size_t begin, size_t end,
+                const std::vector<std::pair<size_t, size_t>> &ranges = {});
 bool format_words_tabs(OdfPackage &, size_t begin, size_t end,
                        const WordsTabsFormat &);
 } // namespace DomeOffice

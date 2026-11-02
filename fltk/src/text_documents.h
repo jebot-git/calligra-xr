@@ -4,6 +4,7 @@
 #include "odf_package.h"
 #include "native_presentation.h"
 #include "native_words_edit.h"
+#include "native_words_selection.h"
 #include "native_words_tables.h"
 #include "native_words_format.h"
 #include "native_words_tabs.h"
@@ -12,6 +13,8 @@ struct TextSelection {
     size_t anchor = 0, cursor = 0;
     std::optional<TextCellAddress> cell{}; // Display instance for repeated table content.
     std::vector<TextCellAddress> cells{}; // Outer-to-inner instance path.
+    std::optional<std::vector<TextCellAddress>> anchor_cells { };
+    bool collapsed() const { return anchor == cursor && (!anchor_cells || *anchor_cells == cells); }
     bool operator==(const TextSelection&) const = default;
 };
 class TextDocument {
@@ -42,6 +45,9 @@ public:
     // resolved receives the localized source offsets and displayed cell path.
     bool list_action(TextSelection, WordsListAction, bool at_start_only = false, TextSelection* resolved = nullptr);
     WordsFormatInfo format_info(TextSelection) const;
+    Text selected_text(TextSelection) const;
+    WordsSelectionEdit selection_snapshot(TextSelection) const;
+    std::optional<Text> current_paragraph_style(TextSelection) const;
     // Receives the rebased selection when formatting localizes a repeated cell.
     bool format_characters(TextSelection, const WordsCharacterFormat&, TextSelection* resolved = nullptr);
     bool format_paragraphs(TextSelection, const WordsParagraphFormat&, TextSelection* resolved = nullptr);

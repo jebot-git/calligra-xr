@@ -1097,14 +1097,17 @@ void validate_words_tabs(const WordsTabsFormat &format) {
       fail("Invalid tab leader style scope");
   }
 }
-WordsTabsInfo read_words_tabs(const OdfPackage &package, size_t begin,
-                              size_t end) {
+WordsTabsInfo
+read_words_tabs(const OdfPackage &package, size_t begin, size_t end,
+                const std::vector<std::pair<size_t, size_t>> &ranges) {
   if (package.kind() != Kind::Words)
     fail("Tab formatting requires a Words document");
   auto copy = package;
   copy.xml = read_document_xml(package.xml.toByteArray());
   auto all = blocks(copy);
   check_range(all, begin, end);
+  for (const auto &range : ranges)
+    check_range(all, range.first, range.second);
   if (all.empty())
     all.push_back({{}, {}, 0});
   auto flow = read_text_flow(copy);
@@ -1116,7 +1119,11 @@ WordsTabsInfo read_words_tabs(const OdfPackage &package, size_t begin,
   result.origin_editable = styles.tab_origin_editable();
   bool first = true;
   for (size_t i = 0; i < all.size(); ++i)
-    if (touches(all[i], begin, end)) {
+    if (ranges.empty()
+            ? touches(all[i], begin, end)
+            : std::any_of(ranges.begin(), ranges.end(), [&](const auto &r) {
+                return touches(all[i], r.first, r.second);
+              })) {
       auto current = styles.tab_set(*paragraphs[i]);
       if (first) {
         result.stops = current;

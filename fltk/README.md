@@ -204,6 +204,12 @@ CUPS test queues.
   shrink also preserves the current resolved widths. The selected page and nested
   cell padding/borders determine the measurement context. Direct placement in
   lists still needs an anchored table or list splitting.
+  Page selections retain both displayed cell paths. Shift navigation and mouse
+  selection can cross repeated/nested cells even when their source offsets match.
+  Highlighting, copying, character/paragraph formatting, named styles and tabs
+  use that displayed range and retain exact structural undo/redo. Covered-cell
+  metadata is excluded. Cross-cell typing/replacement, Cut and list-structure
+  operations remain guarded until cell-preserving editing is implemented.
   Table → Cells → Cell format edits each side's padding and border, background
   color (including transparent) and vertical alignment. It retains effective
   inherited styles and changes only the chosen displayed instance, including

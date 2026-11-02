@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_words_tables.h"
+#include "native_words_selection.h"
 #include "native_words_tabs.h"
 #include "native_words_geometry.h"
 #include <functional>
@@ -1082,6 +1083,119 @@ Text fraction_style(OdfPackage &p, XmlElement source, const Text &family,
   return name;
 }
 } // namespace
+WordsSelectionEdit materialize_words_selection(const OdfPackage &original,
+                                               const WordsTextPoint &anchor,
+                                               const WordsTextPoint &cursor) {
+  if (original.kind() != Kind::Words || original.read_only())
+    fail("This document cannot be edited");
+  auto original_flow = read_text_flow(original);
+  WordsDisplayMap display(original_flow);
+  auto span = display.span(anchor, cursor);
+  auto slices = display.slices(span);
+  auto p = original;
+  p.xml = read_document_xml(original.xml.toByteArray());
+  Text marker = "domed-range-key";
+  for (size_t serial = 0;; ++serial) {
+    bool used = false;
+    walk(p.xml.documentElement(),
+         [&](auto node) { used = used || node.hasAttribute(marker); });
+    if (!used)
+      break;
+    marker = "domed-range-key" + Text::number(serial);
+  }
+  auto flow = read_text_flow(p);
+  auto ps = paragraphs(p.body());
+  if (ps.empty())
+    return {p, anchor, cursor, {{0, 0}}};
+  for (size_t i = 0; i < ps.size(); ++i)
+    ps[i].setAttribute(marker, "p" + Text::number(i));
+  for (size_t i = 0; i < flow.tables.size(); ++i)
+    flow.tables[i].source.setAttribute(marker, "t" + Text::number(i));
+  Names names(p);
+  auto find = [&](XmlElement root, const Text &value) {
+    XmlElement result;
+    walk(root, [&](auto node) {
+      if (node.attribute(marker) == value && result.isNull())
+        result = node;
+    });
+    if (result.isNull())
+      fail("Missing displayed selection source");
+    return result;
+  };
+  std::vector<std::tuple<XmlElement, size_t, size_t, bool>> mapped;
+  std::vector<size_t> starts;
+  size_t total = 0;
+  for (const auto &paragraph : original_flow.paragraphs) {
+    starts.push_back(total);
+    total += paragraph.text.size() + 1;
+  }
+  for (const auto &slice : slices) {
+    XmlElement root = p.body();
+    for (const auto &address : slice.cells) {
+      auto table = find(root, "t" + Text::number(address.table));
+      XmlElement row;
+      size_t base = 0, instance = 0;
+      auto scan = [&](auto &&self, XmlElement parent) -> void {
+        for (auto node : children(parent, TABLE)) {
+          if (!row.isNull())
+            return;
+          if (node.localName() == "table-row") {
+            size_t repeated = count(node, "number-rows-repeated");
+            if (address.row >= base && address.row - base < repeated) {
+              row = node;
+              instance = address.row - base;
+              return;
+            }
+            base += repeated;
+          } else if (TextList{"table-rows", "table-header-rows",
+                              "table-row-group"}
+                         .contains(node.localName()))
+            self(self, node);
+        }
+      };
+      scan(scan, table);
+      if (row.isNull())
+        fail("Missing displayed selection row");
+      row = isolate(row, "number-rows-repeated", instance, names);
+      auto chosen = slot(row, address.column);
+      if (chosen.node.isNull() || chosen.node.localName() != "table-cell")
+        fail("Missing displayed selection cell");
+      root = isolate(chosen.node, "number-columns-repeated", chosen.instance,
+                     names);
+    }
+    auto paragraph = find(root, "p" + Text::number(slice.paragraph));
+    mapped.emplace_back(paragraph, slice.begin - starts.at(slice.paragraph),
+                        slice.end - starts.at(slice.paragraph), slice.active);
+  }
+  walk(p.xml.documentElement(),
+       [&](auto node) { node.removeAttribute(marker); });
+  WordsSelectionEdit result{p, {}, {}, {}};
+  std::map<const void *, size_t> offsets;
+  size_t offset = 0;
+  for (auto paragraph : paragraphs(p.body())) {
+    offsets.emplace(paragraph.identity(), offset);
+    offset += plain_text(paragraph).size() + 1;
+    if (offset > 16000001)
+      fail("Materialized selection text exceeds native limit");
+  }
+  for (const auto &[paragraph, begin, end, active] : mapped) {
+    size_t base = offsets.at(paragraph.identity());
+    if (active)
+      result.ranges.emplace_back(base + begin, base + end);
+  }
+  auto low = offsets.at(std::get<0>(mapped.front()).identity()) +
+             std::get<1>(mapped.front());
+  auto high = offsets.at(std::get<0>(mapped.back()).identity()) +
+              std::get<2>(mapped.back());
+  auto point = [&](size_t position) {
+    return WordsTextPoint{position, words_table_cells_at(p, position)};
+  };
+  result.anchor = point(span.reverse ? high : low);
+  result.cursor = point(span.reverse ? low : high);
+  (void)read_text_flow(p);
+  return result;
+}
+
 std::optional<WordsTableRangeEdit>
 materialize_words_table_range(const OdfPackage &original,
                               const std::vector<TextCellAddress> &context,

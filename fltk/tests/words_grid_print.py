@@ -51,6 +51,8 @@ def main():
     parser.add_argument('--merge-only', action='store_true', help='Run merge/split UI and optional core snapshots')
     parser.add_argument('--subdivide-artifacts', type=Path, help='Words cell subdivision UI snapshots')
     parser.add_argument('--subdivide-only', action='store_true', help='Run subdivision UI and optional core snapshots')
+    parser.add_argument('--display-range-artifacts', type=Path, help='Displayed range UI snapshots')
+    parser.add_argument('--display-range-only', action='store_true', help='Run displayed selection UI/core snapshots')
     parser.add_argument('--cell-format-artifacts', type=Path, help='Cell format UI snapshots')
     parser.add_argument('--cell-format-only', action='store_true', help='Run cell format UI and optional core snapshots')
     parser.add_argument('--geometry-artifacts', type=Path, help='Equal measured subdivision UI snapshots')
@@ -69,12 +71,18 @@ def main():
         parser.error('--format-only requires --format-artifacts and excludes --edit-only')
     if args.edit_only and not args.edit_artifacts:
         parser.error('--edit-only requires --edit-artifacts')
-    if not (args.edit_only or args.format_only or args.list_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
+    if not (args.edit_only or args.format_only or args.list_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
         parser.error('Grid mode requires --grid-artifacts, --repeat-artifacts and --core-artifacts')
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
     cases = []
-    if args.cell_format_only:
+    if args.display_range_only:
+        if not args.display_range_artifacts:
+            parser.error('--display-range-only requires --display-range-artifacts')
+        cases=[(name,args.display_range_artifacts/(name+'.odt')) for name in ('range-bold','range-centered','range-pasted')]
+        if args.core_artifacts:
+            cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in ('bold','center','reverse','named','tabs','nested-bold','merged-bold')]
+    elif args.cell_format_only:
         if not args.cell_format_artifacts:
             parser.error('--cell-format-only requires --cell-format-artifacts')
         for name in ('cell-formatted','cell-format-redone'):

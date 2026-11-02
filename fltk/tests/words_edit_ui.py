@@ -175,6 +175,7 @@ parser.add_argument('--repeated-format-only', action='store_true', help='Run loc
 parser.add_argument('--repeated-lists-only', action='store_true', help='Run local list indent/outdent and empty exit in repeated cells')
 parser.add_argument('--merge-only', action='store_true', help='Run rectangular merge/split and history checks with a flat/nested fixture')
 parser.add_argument('--subdivide-only', action='store_true', help='Run cell subdivision, geometry, editing and history checks')
+parser.add_argument('--display-range-only', action='store_true', help='Run cross-cell displayed selection, formatting, copy and history checks')
 parser.add_argument('--cell-format-only', action='store_true', help='Run native cell padding, borders, paint and alignment checks')
 parser.add_argument('--geometry-only', action='store_true', help='Run equal measured subdivision and geometry/history checks')
 parser.add_argument('--nested-fixture', type=Path, help='Nested text fixture, or flat/nested source fixture for format/list/merge modes')
@@ -187,14 +188,14 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
-if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only):
+if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only):
     parser.error('--nested-fixture requires an edit/format/list/merge mode')
-if (args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only) and not args.nested_fixture:
+if (args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not args.nested_fixture:
     parser.error('List/merge modes require a flat or nested fixture via --nested-fixture')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.cell_format_only,args.geometry_only))>1:
+if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.display_range_only,args.cell_format_only,args.geometry_only))>1:
         parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
@@ -319,10 +320,10 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
+        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
         else:
-            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only)
+            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -357,7 +358,10 @@ try:
             host.set_input_focus(X.RevertToParent, X.CurrentTime)
         xd.sync()
 
-        def click(x, y, count=1):
+        def click(x, y, count=1, modifiers=()):
+            mods=[xd.keysym_to_keycode(XK.string_to_keysym(m)) for m in modifiers]
+            for code in mods:xtest.fake_input(xd,X.KeyPress,code)
+            xd.sync()
             point = xd.screen().root.translate_coords(host, 0, 0)
             if args.wayland:
                 box = next(w for w in scene()['windows'] if w['id'] == window['id'])['desktop']
@@ -374,7 +378,8 @@ try:
                 xd.sync()
                 if index + 1 < count:
                     time.sleep(.06)
-            time.sleep(.2)
+            for code in reversed(mods):xtest.fake_input(xd,X.KeyRelease,code)
+            xd.sync();time.sleep(.2)
 
         assert data()['page_layout']['visible'] == (not args.text_view)
         if args.text_view:
@@ -494,7 +499,7 @@ try:
             assert process.wait(timeout=15) == 0
         else:
             original = data()['text']
-            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only):
+            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only):
                 assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
             _, original_xml = save('original')
 
@@ -1110,7 +1115,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.cell_format_only or args.geometry_only:
+            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.display_range_only or args.cell_format_only or args.geometry_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1169,6 +1174,52 @@ try:
                     if ranged:key('Right',('Shift_L',),count=len(prefix))
                     check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
                     return path
+                if args.display_range_only:
+                    nested='Inner text' in original
+                    page=settled_page()['page_layout']
+                    if nested:
+                        outer_id=max({c['table'] for c in page['table_cells']},key=lambda t:max(c['width'] for c in page['table_cells'] if c['table']==t))
+                        inner_id=next(t for t in {c['table'] for c in page['table_cells']} if t!=outer_id)
+                        outer=next(c for c in page['table_cells'] if c['table']==outer_id and c['row']==1 and c['column']==1)
+                        boxes=[c for c in page['table_cells'] if c['table']==inner_id and outer['x']<=c['x']<outer['x']+outer['width'] and outer['y']<=c['y']<outer['y']+outer['height']]
+                        first=next(c for c in boxes if c['row']==0 and c['column']==1)
+                        target=next(c for c in boxes if c['row']==1 and c['column']==0)
+                    else:
+                        first=next(c for c in page['table_cells'] if c['table']==0 and c['row']==1 and c['column']==1)
+                        target=next(c for c in page['table_cells'] if c['table']==0 and c['row']==2 and c['column']==0)
+                    vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                    def cell_point(cell):
+                        left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']
+                        return round(left+(cell['x']+1)*zoom),round(top+(cell['y']+3)*zoom)
+                    click(*cell_point(first));key('Home');key('Right')
+                    click(*cell_point(target),modifiers=('Shift_L',));key('Right',('Shift_L',))
+                    expected='nner text\nI' if nested else 'eský text\nČeský text\nČ'
+                    wait(lambda:data()['editing']['selected_text']==expected)
+                    initial=dict(data()['editing']);assert initial['anchor']==initial['cursor'] and not initial['collapsed']
+                    assert initial['anchor_cells']==([[outer_id,1,1,1,1],[inner_id,0,1,1,1]] if nested else [[0,1,1,1,1]])
+                    assert initial['cells']==([[outer_id,1,1,1,1],[inner_id,1,0,1,1]] if nested else [[0,2,0,1,1]])
+                    capture_window('display-range-selection')
+                    key('x');time.sleep(.2);assert data()['text']==original and data()['editing']['revision']==initial['revision']
+                    key('c',('Control_L',));key('b',('Control_L',))
+                    wait(lambda:data()['editing']['revision']>initial['revision'])
+                    assert data()['editing']['selected_text']==expected
+                    root,bold_xml=save('range-bold');bold_parts=parts('range-bold')
+                    capture_window('display-range-bold')
+                    key('Escape');key('End',('Control_L',));wait(lambda:data()['editing']['cursor']==len(data()['text']) and data()['editing']['collapsed'] and not data()['editing']['cells']);before=data()['text'];position=data()['editing']['cursor']
+                    key('v',('Control_L',));check_text(before[:position]+expected+before[position:])
+                    save('range-pasted');key('z',('Control_L',));assert save('range-paste-undone')[1]==bold_xml
+                    key('z',('Control_L',));assert save('range-undone')[1]==original_xml and parts('range-undone')==original_parts
+                    assert data()['editing']['anchor_cells']==initial['anchor_cells'] and data()['editing']['cells']==initial['cells']
+                    assert data()['editing']['anchor']==data()['editing']['cursor'] and not data()['editing']['collapsed']
+                    key('y',('Control_L',));assert save('range-redone')[1]==bold_xml and parts('range-redone')==bold_parts
+                    key('e',('Control_L',));root,center_xml=save('range-centered');revision=data()['editing']['revision']
+                    key('e',('Control_L',));time.sleep(.2);assert data()['editing']['revision']==revision
+                    assert data()['editing']['selected_text']==expected
+                    key('Right');wait(lambda:data()['editing']['collapsed'])
+                    key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'coincident_source_endpoints':True,'display_order_and_instance_scope':True,'character_paragraph_formatting':True,'copy_paste':True,'text_replacement_rejected_atomically':True,'exact_history_and_noop':True},indent=2)+'\n')
+                    print('PASS displayed cross-cell selection, formatting, copy/paste and exact history',flush=True)
+                    raise FormatComplete
                 if args.cell_format_only:
                     nested='I00' in original;prefix='I11' if nested else 'A1'
                     path=pick_repeated(prefix,False,0,1,1)

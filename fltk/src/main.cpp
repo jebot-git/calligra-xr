@@ -342,6 +342,8 @@ public:
     std::optional<TextSelection> words_edit_previous;
     std::optional<TextCellAddress> pending_word_cell;
     std::vector<TextCellAddress> pending_word_cells;
+    std::optional<TextSelection> page_selection;
+    uint64_t page_selection_revision = 0;
     bool soft_break = false;
     bool formatting_dialog = false;
     int queued_format = 0;
@@ -874,6 +876,15 @@ public:
                 command(int(reinterpret_cast<intptr_t>(item->user_data())));
             return 1;
         }
+        if (event == FL_KEYDOWN && (Fl::event_state() & FL_CTRL) && Fl::event_key() == 'a') {
+            command(SelectAll);
+            return 1;
+        }
+        if (event == FL_KEYDOWN && (Fl::event_state() & FL_CTRL)
+            && (Fl::event_key() == 'c' || Fl::event_key() == FL_Insert)) {
+            command(Copy);
+            return 1;
+        }
         if (readonly()) {
             if (event == FL_KEYDOWN && (Fl::event_state() & FL_CTRL)) {
                 if (Fl::event_key() == 'c' || Fl::event_key() == FL_Insert)
@@ -1095,7 +1106,11 @@ public:
         formatting_dialog = true;
         std::optional<WordsTabsFormat> result;
         try {
-            result = tab_stops_dialog(window, std::move(snapshot), std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), selection.cells);
+            if (selection.anchor_cells) {
+                auto prepared = words->selection_snapshot(selection);
+                result = tab_stops_dialog(window, std::move(prepared.document), prepared.ranges.front().first, prepared.ranges.back().second, { }, prepared.ranges);
+            } else
+                result = tab_stops_dialog(window, std::move(snapshot), std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), selection.cells);
         } catch (...) {
             formatting_dialog = false;
             throw;
@@ -1171,7 +1186,7 @@ public:
         auto selection = word_selection();
         auto revision = words->revision();
         auto snapshot = words->style_snapshot();
-        auto selected = character_styles ? words->current_character_style(selection) : words_current_paragraph_style(snapshot, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
+        auto selected = character_styles ? words->current_character_style(selection) : words->current_paragraph_style(selection);
         formatting_dialog = true;
         std::optional<WordsStylesDialogResult> result;
         try {
@@ -1244,7 +1259,7 @@ public:
         title();
         sync_pages();
         if (!character.empty() || !paragraph.empty())
-            message(selection.anchor == selection.cursor && !character.empty() ? "Typing format updated; Pages shows document formatting" : "Formatting updated; Pages shows document formatting");
+            message(selection.collapsed() && !character.empty() ? "Typing format updated; Pages shows document formatting" : "Formatting updated; Pages shows document formatting");
     }
     bool word_list_action(WordsListAction action, bool key = false)
     {
@@ -1282,8 +1297,12 @@ public:
             anchor = cursor == first ? last : first;
         }
         TextSelection selection { Text(bytes.substr(0, std::clamp(anchor, 0, int(bytes.size())))).size(), Text(bytes.substr(0, cursor)).size() };
+        if (page_view && page_selection && words && page_selection_revision == words->revision()
+            && page_selection->anchor == selection.anchor && page_selection->cursor == selection.cursor)
+            return *page_selection;
         if (instances && page_view && words && page_revision == words->revision()) {
             selection.cells = text_pages->caret_cells(selection.cursor);
+            selection.anchor_cells = text_pages->caret_cells(selection.anchor);
             if (!selection.cells.empty())
                 selection.cell = selection.cells.back();
         }
@@ -1291,6 +1310,8 @@ public:
     }
     void restore_word_selection(TextSelection selection)
     {
+        page_selection = selection.anchor_cells ? std::optional(selection) : std::nullopt;
+        page_selection_revision = words->revision();
         pending_word_cell = selection.cell;
         pending_word_cells = selection.cells;
         auto text = words->text();
@@ -1305,6 +1326,8 @@ public:
     }
     void reset()
     {
+        page_selection.reset();
+        page_selection_revision = 0;
         workbook.reset();
         words.reset();
         stage.reset();
@@ -1596,6 +1619,11 @@ public:
                 bool pages = c == PageLayout;
                 if (pages && !page_view)
                     refresh_pages();
+                if (!pages && page_view) {
+                    auto selection = word_selection();
+                    if (selection.anchor_cells && *selection.anchor_cells != selection.cells)
+                        restore_word_selection({ selection.cursor, selection.cursor });
+                }
                 page_view = pages;
                 if (page_view) {
                     editor->hide();
@@ -1691,7 +1719,10 @@ public:
                                                                                          : true;
                 title();
             } else if (c == Copy) {
-                if (editor)
+                if (editor && kind == Kind::Words && page_view) {
+                    auto text = words->selected_text(word_selection()).toUtf8();
+                    Fl::copy(text.constData(), int(text.size()), 1);
+                } else if (editor)
                     Fl_Text_Editor::kf_copy(0, editor);
                 else {
                     auto text = utf8(workbook->display(sheet, grid->selected_col + 1, grid->selected_row + 1));
@@ -1721,8 +1752,13 @@ public:
             } else if (c == SelectAll) {
                 if (editor && kind == Kind::Words) {
                     words->clear_typing_format();
-                    editor->insert_position(buffer.length());
-                    Fl_Text_Editor::kf_select_all(0, editor);
+                    page_selection.reset();
+                    if (page_view)
+                        text_pages->select_document();
+                    else {
+                        editor->insert_position(buffer.length());
+                        Fl_Text_Editor::kf_select_all(0, editor);
+                    }
                 } else if (editor)
                     buffer.select(0, buffer.length());
             } else if (c == AddSheet) {
@@ -1846,6 +1882,12 @@ public:
             data["editing"]["cells"] = Json::array();
             for (const auto& cell : selection.cells)
                 data["editing"]["cells"].push_back({ cell.table, cell.row, cell.column, cell.rows, cell.columns });
+            data["editing"]["anchor_cells"] = selection.anchor_cells ? Json::array() : Json(nullptr);
+            if (selection.anchor_cells)
+                for (const auto& cell : *selection.anchor_cells)
+                    data["editing"]["anchor_cells"].push_back({ cell.table, cell.row, cell.column, cell.rows, cell.columns });
+            data["editing"]["collapsed"] = selection.collapsed();
+            data["editing"]["selected_text"] = utf8(words->selected_text(selection));
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
             Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array(), papers = Json::array();
             size_t table_paints = 0;

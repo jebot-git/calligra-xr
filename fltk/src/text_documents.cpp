@@ -182,6 +182,27 @@ namespace {
     std::optional<ScopedMutation> scoped_mutation(const OdfPackage& original, TextSelection selection,
         const std::function<void(OdfPackage&, TextSelection)>& mutate, bool local = true)
     {
+        if (local && selection.anchor_cells) {
+            auto prepared = materialize_words_selection(original,
+                { selection.anchor, *selection.anchor_cells }, { selection.cursor, selection.cells });
+            auto base = prepared.document;
+            base.xml = read_document_xml(prepared.document.xml.toByteArray());
+            const auto text = joined(base.body());
+            for (const auto& range : prepared.ranges)
+                mutate(prepared.document, { range.first, range.second });
+            if (joined(prepared.document.body()) != text)
+                fail("Formatting would change displayed selection text");
+            if (prepared.document.xml.toByteArray() == base.xml.toByteArray()
+                && prepared.document.part_changes_from(base).empty())
+                return { };
+            selection.anchor = prepared.anchor.position;
+            selection.cursor = prepared.cursor.position;
+            selection.anchor_cells = std::move(prepared.anchor.cells);
+            selection.cells = std::move(prepared.cursor.cells);
+            selection.cell = selection.cells.empty() ? std::optional<TextCellAddress> { } : selection.cells.back();
+            (void)read_text_flow(prepared.document);
+            return ScopedMutation { std::move(prepared.document), std::move(selection), true };
+        }
         auto candidate = original;
         candidate.xml = read_document_xml(original.xml.toByteArray());
         const auto before = joined(candidate.body());
@@ -202,6 +223,8 @@ namespace {
                 selection.anchor = reverse ? range->end : range->begin;
                 selection.cursor = reverse ? range->begin : range->end;
                 selection.cells = std::move(range->cells);
+                if (selection.anchor_cells)
+                    selection.anchor_cells = selection.cells;
                 selection.cell = selection.cells.empty() ? std::optional<TextCellAddress> { } : selection.cells.back();
                 candidate = std::move(range->document);
                 localized = true;
@@ -267,6 +290,8 @@ void TextDocument::cancel_edit()
 }
 std::optional<TextSelection> TextDocument::prepare_cell_edit(TextSelection selection)
 try {
+    if (selection.anchor_cells && *selection.anchor_cells != selection.cells)
+        fail("Text replacement across table cells is not supported yet");
     if (edit_ || selection.cells.empty())
         return { };
     const auto begin = std::min(selection.anchor, selection.cursor),
@@ -280,6 +305,8 @@ try {
     next.cells = std::move(materialized->cells);
     if (!next.cells.empty())
         next.cell = next.cells.back();
+    if (selection.anchor_cells)
+        next.anchor_cells = next.cells;
     begin_edit(selection);
     apply(std::move(materialized->document), selection, next);
     if (typing_format_) {
@@ -447,6 +474,15 @@ try {
     if (resolved)
         *resolved = selection;
     const auto previous = selection;
+    if (selection.anchor_cells) {
+        WordsDisplayMap display(read_text_flow(package_));
+        auto span = display.span({ selection.anchor, *selection.anchor_cells }, { selection.cursor, selection.cells });
+        for (const auto& slice : display.slices(span))
+            if (slice.active && slice.cells != selection.cells)
+                fail("List structure editing across table cells is not supported yet");
+    }
+    // One native list operation covers all paragraphs/items in this cell.
+    selection.anchor_cells.reset();
     bool handled = false;
     auto result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) {
         handled = change_words_list(candidate, std::min(scope.anchor, scope.cursor),
@@ -471,10 +507,104 @@ try {
     cancel_edit();
     throw;
 }
+WordsSelectionEdit TextDocument::selection_snapshot(TextSelection selection) const
+{
+    auto anchor = selection.anchor_cells.value_or(words_table_cells_at(package_, selection.anchor));
+    auto cursor = selection.anchor_cells ? selection.cells : words_table_cells_at(package_, selection.cursor);
+    return materialize_words_selection(package_, { selection.anchor, anchor }, { selection.cursor, cursor });
+}
+Text TextDocument::selected_text(TextSelection selection) const
+{
+    if (!selection.anchor_cells)
+        return text().mid(std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor) - std::min(selection.anchor, selection.cursor));
+    if (selection.collapsed())
+        return { };
+    auto flow = read_text_flow(package_);
+    WordsDisplayMap display(flow);
+    auto range = display.span({ selection.anchor, *selection.anchor_cells }, { selection.cursor, selection.cells });
+    auto slices = display.slices(range);
+    auto source = text();
+    Text result;
+    for (size_t i = 0; i < slices.size(); ++i) {
+        if (result.size() + slices[i].end - slices[i].begin + 1 > 16000000)
+            fail("Copied text exceeds native limit");
+        if (i)
+            result += '\n';
+        result += source.mid(slices[i].begin, slices[i].end - slices[i].begin);
+    }
+    return result;
+}
+std::optional<Text> TextDocument::current_paragraph_style(TextSelection selection) const
+{
+    if (!selection.anchor_cells)
+        return words_current_paragraph_style(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
+    auto prepared = selection_snapshot(selection);
+    std::optional<Text> value;
+    bool first = true;
+    for (const auto& range : prepared.ranges) {
+        auto next = words_current_paragraph_style(prepared.document, range.first, range.second);
+        if (first) {
+            value = next;
+            first = false;
+        } else if (value != next)
+            value.reset();
+    }
+    return value;
+}
 WordsFormatInfo TextDocument::format_info(TextSelection selection) const
 {
+    if (selection.anchor_cells) {
+        auto prepared = selection_snapshot(selection);
+        std::optional<WordsFormatInfo> combined;
+        auto same = [](auto& value, const auto& next) { if (value != next) value.reset(); };
+        for (const auto& range : prepared.ranges) {
+            auto value = read_words_format(prepared.document, range.first, range.second);
+            if (!combined) {
+                combined = value;
+                continue;
+            }
+            auto& c = combined->character;
+            const auto& n = value.character;
+            same(c.family, n.family);
+            same(c.color, n.color);
+            same(c.highlight, n.highlight);
+            same(c.size, n.size);
+            same(c.weight, n.weight);
+            same(c.italic, n.italic);
+            same(c.underline, n.underline);
+            same(c.strike, n.strike);
+            same(combined->bold, value.bold);
+            auto& p = combined->paragraph;
+            const auto& q = value.paragraph;
+            same(p.alignment, q.alignment);
+            same(p.left, q.left);
+            same(p.right, q.right);
+            same(p.indent, q.indent);
+            same(p.before, q.before);
+            same(p.after, q.after);
+            same(p.line_factor, q.line_factor);
+            same(p.keep_next, q.keep_next);
+            same(p.keep_together, q.keep_together);
+            same(p.break_before, q.break_before);
+            same(p.orphans, q.orphans);
+            same(p.widows, q.widows);
+        }
+        if (!selection.collapsed())
+            return combined.value_or(WordsFormatInfo { });
+        // The caret query still overlays its transient typing format below.
+        selection.anchor_cells.reset();
+        auto scoped = combined.value_or(WordsFormatInfo { });
+        if (typing_format_ && typing_format_->position == selection.cursor) {
+            if (typing_format_->style)
+                scoped = words_character_style_format(prepared.document, *typing_format_->style, prepared.cursor.position);
+            scoped.character.overlay(typing_format_->format);
+            if (typing_format_->format.weight)
+                scoped.bold = *typing_format_->format.weight >= 600;
+        }
+        return scoped;
+    }
     auto result = read_words_format(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
-    if (selection.anchor == selection.cursor && typing_format_ && typing_format_->position == selection.cursor) {
+    if (selection.collapsed() && typing_format_ && typing_format_->position == selection.cursor) {
         if (typing_format_->style) {
             auto named = words_character_style_format(package_, *typing_format_->style, selection.cursor);
             result.character = named.character;
@@ -507,7 +637,7 @@ try {
         selection = result->selection;
         apply(std::move(result->document), previous, selection);
     }
-    if (selection.anchor == selection.cursor) {
+    if (selection.collapsed()) {
         if (result && result->localized && typing_format_ && typing_format_->position == previous.cursor)
             typing_format_->position = selection.cursor;
         if (!typing_format_ || typing_format_->position != selection.cursor)
@@ -598,8 +728,22 @@ OdfPackage TextDocument::style_snapshot() const
 }
 std::optional<Text> TextDocument::current_character_style(TextSelection selection) const
 {
-    if (selection.anchor == selection.cursor && typing_format_ && typing_format_->position == selection.cursor && typing_format_->style)
+    if (selection.collapsed() && typing_format_ && typing_format_->position == selection.cursor && typing_format_->style)
         return typing_format_->style;
+    if (selection.anchor_cells) {
+        auto prepared = selection_snapshot(selection);
+        std::optional<Text> value;
+        bool first = true;
+        for (const auto& range : prepared.ranges) {
+            auto next = words_current_character_style(prepared.document, range.first, range.second);
+            if (first) {
+                value = next;
+                first = false;
+            } else if (value != next)
+                value.reset();
+        }
+        return value;
+    }
     return words_current_character_style(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
 }
 bool TextDocument::commit_styles(OdfPackage candidate, TextSelection selection,
@@ -634,9 +778,9 @@ try {
         }
     (void)read_text_flow(candidate);
     auto typing = typing_format_;
-    if (paragraph || (character && selection.anchor != selection.cursor))
+    if (paragraph || (character && !selection.collapsed()))
         typing.reset();
-    if (character && selection.anchor == selection.cursor)
+    if (character && selection.collapsed())
         typing = TypingFormat { selection.cursor, { }, *character };
     // Validate a transient name before committing; definition-only deletion
     // can remove a style that has not yet been inserted into the source.

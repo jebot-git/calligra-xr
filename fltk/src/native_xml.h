@@ -166,6 +166,10 @@ public:
       xmlSetProp(node_, BAD_CAST name.toUtf8().c_str(),
                  BAD_CAST value.toUtf8().c_str());
   }
+  void removeAttribute(const Text &name) {
+    if (node_)
+      xmlUnsetProp(node_, BAD_CAST name.toUtf8().c_str());
+  }
   void removeAttributeNS(const Text &uri, const Text &name) {
     if (node_) {
       auto *n =

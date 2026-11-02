@@ -29,6 +29,7 @@ public:
   std::vector<TextCellAddress> caret_cells(size_t position) const;
   bool prefer_cells(const std::vector<TextCellAddress> &);
   bool prefer_cell(const TextCellAddress &);
+  void select_document();
   size_t current_page() const;
   uint64_t rasterizations() const;
   GpuImageCache images;
@@ -43,6 +44,7 @@ private:
   double page_width_ = 1;
   std::vector<double> page_offsets_;
   TextEditMap edit_map_;
+  WordsDisplayMap display_map_;
   struct Stop {
     TextCaret caret;
     size_t page, line, global;
@@ -65,6 +67,8 @@ private:
   size_t preferred_page_ = 0, preferred_line_ = 0;
   TextCaret::Affinity affinity_ = TextCaret::Following;
   std::optional<double> preferred_x_;
+  std::vector<TextCellAddress> stop_cells(const Stop &) const;
+  std::optional<Stop> point_stop(const WordsTextPoint &) const;
   std::optional<Stop> cursor() const;
   std::optional<Stop> cursor_at(size_t position) const;
   std::optional<Stop> hit(double x, double y, bool closest = false) const;

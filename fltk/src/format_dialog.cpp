@@ -1026,9 +1026,10 @@ std::optional<WordsTabStopSpec> edit_tab_stop(Fl_Window &window,
 } // namespace
 std::optional<WordsTabsFormat>
 tab_stops_dialog(Fl_Window &window, OdfPackage original, size_t begin,
-                 size_t end, const std::vector<TextCellAddress> &cells) {
+                 size_t end, const std::vector<TextCellAddress> &cells,
+                 const std::vector<std::pair<size_t, size_t>> &ranges) {
   constexpr double mm = 72 / 25.4;
-  const auto initial = read_words_tabs(original, begin, end);
+  const auto initial = read_words_tabs(original, begin, end, ranges);
   auto current = initial.stops;
   std::optional<WordsTabSet> replacement;
   bool inherit = false;
@@ -1178,7 +1179,7 @@ tab_stops_dialog(Fl_Window &window, OdfPackage original, size_t begin,
         WordsTabsFormat format;
         format.inherit = true;
         format_words_tabs(preview, begin, end, format);
-        current = read_words_tabs(preview, begin, end).stops;
+        current = read_words_tabs(preview, begin, end, ranges).stops;
         replacement.reset();
         inherit = true;
         refresh();
