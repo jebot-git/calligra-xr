@@ -10,6 +10,8 @@ public:
   explicit OdfTableModelReader(const std::vector<XmlDocument> &);
   std::vector<XmlElement> cell_styles(const Text &name,
                                       bool styles_source) const;
+  std::vector<XmlElement> style_chain(const Text &family, const Text &name,
+                                      bool styles_source = false) const;
   TextTable read(const XmlElement &, const ReadCell &, size_t &expanded_slots,
                  bool styles_source = false) const;
 

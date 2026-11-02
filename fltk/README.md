@@ -230,6 +230,19 @@ CUPS test queues.
   inherited styles and changes only the chosen displayed instance, including
   repeated/nested content. Blank fields retain existing properties. The caret
   is retained across materialization and the complete edit has one-step undo.
+  Table → Sizing edits the current table's available, fixed or percentage width
+  and left/center/right alignment, the anchor row's automatic/minimum/exact
+  height, and the anchor column's fixed width or relative weight. Physical sizes
+  use millimetres. Exact heights clip overflow; fixed columns retain their widths
+  while relative columns share the remaining table width. Private style copies
+  retain unrelated inherited properties, source units, values and empty cells.
+  Repeated/nested instances keep their scope and the caret; source/style parts
+  share one exact undo step. Cancel, invalid and unchanged Apply preserve history.
+  Fixed conversion under a relative table width in document defaults remains
+  guarded pending default-style isolation. Repeated formula-containing source
+  cloning still requires reference adjustment; independent value/formula cells
+  support geometry-only edits. Proportional scaling of all fixed columns and
+  optimal content-based sizing remain unfinished.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

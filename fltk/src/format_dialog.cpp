@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "format_dialog.h"
 #include "native_text_shaper.h"
+#include "native_words_geometry.h"
 #include "suite/fltk_appearance.h"
 #include <charconv>
+#include <numeric>
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Choice.H>
@@ -1374,6 +1376,170 @@ cell_format_dialog(Fl_Window &window, OdfPackage original,
           format_words_table_cell(original, address, format, path, position);
       NativeTextShaper shaper(
           Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+      (void)paginate_text(read_text_flow(candidate.document), shaper);
+      return candidate;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+  return {};
+}
+
+std::optional<WordsTableEdit>
+table_sizing_dialog(Fl_Window &window, OdfPackage original,
+                    const TextCellAddress &address,
+                    const std::vector<TextCellAddress> &path, size_t position,
+                    double body_width) {
+  const auto initial = words_table_sizing(original, address, path);
+  NativeTextShaper shaper(
+      Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+  auto flow = read_text_flow(original);
+  auto measured =
+      measure_words_table_geometry(flow, path, body_width, shaper);
+  const auto table_alignment = flow.tables.at(address.table).alignment;
+  const double mm = 25.4 / 72.;
+  const int width = 740, height = 390,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Table sizing");
+  Fl_Choice table_mode(x + 180, y + 55, 180, 30, "Table width:");
+  table_mode.add("Available width|Fixed|Percentage");
+  Fl_Input table_value(x + 470, y + 55, 130, 30, "Size:");
+  Fl_Box table_unit(x + 610, y + 55, 70, 30);
+  Fl_Choice align(x + 180, y + 100, 180, 30, "Alignment:");
+  align.add("Left|Center|Right");
+  Fl_Choice row_mode(x + 180, y + 155, 180, 30, "Row height:");
+  row_mode.add("Automatic|Minimum|Exact");
+  Fl_Input row_value(x + 470, y + 155, 130, 30, "Height (mm):");
+  Fl_Choice column_mode(x + 180, y + 205, 180, 30, "Column width:");
+  column_mode.add("Relative weight|Fixed");
+  Fl_Input column_value(x + 470, y + 205, 130, 30, "Size:");
+  Fl_Box column_unit(x + 610, y + 205, 70, 30);
+  background.hint.resize(x + 18, y + height - 132, width - 36, 64);
+  background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  auto hint = "Anchor row " + Text::number(address.row + 1) + ", column " +
+              Text::number(address.column + 1) +
+              ". Exact height clips text. Fixed columns retain their widths; "
+              "relative columns share the remaining table width.";
+  background.hint.copy_label(hint.toUtf8().c_str());
+  table_mode.value(initial.table.mode);
+  row_mode.value(initial.row.mode);
+  column_mode.value(initial.column.mode);
+  align.value(table_alignment == TextTable::Center  ? 1
+              : table_alignment == TextTable::Right ? 2
+                                                   : 0);
+  auto display = [](double n) { return Text::number(n, 'g', 9); };
+  const double current_width =
+      std::accumulate(measured.columns.begin(), measured.columns.end(), 0.);
+  const double initial_table_value =
+      initial.table.mode == WordsTableSize::Stretch ? current_width * mm
+      : initial.table.mode == WordsTableSize::Fixed ? initial.table.value * mm
+                                                    : initial.table.value;
+  const double initial_row_value = initial.row.mode == WordsRowSize::Automatic
+                                       ? measured.rows.at(address.row) * mm
+                                       : initial.row.value * mm;
+  const double initial_column_value =
+      initial.column.mode == WordsColumnSize::Fixed ? initial.column.value * mm
+                                                    : initial.column.value;
+  table_value.value(display(initial_table_value).toUtf8().c_str());
+  row_value.value(display(initial_row_value).toUtf8().c_str());
+  column_value.value(display(initial_column_value).toUtf8().c_str());
+  std::function<void(Fl_Widget *)> update = [&](Fl_Widget *changed) {
+    if (changed == &table_mode)
+      table_value.value(
+          display(table_mode.value() == WordsTableSize::Percentage
+                      ? (initial.table.mode == WordsTableSize::Percentage
+                             ? initial.table.value
+                             : 100)
+                      : current_width * mm)
+              .toUtf8()
+              .c_str());
+    if (changed == &column_mode)
+      column_value.value(
+          display(column_mode.value() == WordsColumnSize::Fixed
+                      ? measured.columns.at(address.column) * mm
+                      : (initial.column.mode == WordsColumnSize::Weight
+                             ? initial.column.value
+                             : 1))
+              .toUtf8()
+              .c_str());
+    table_unit.copy_label(
+        table_mode.value() == WordsTableSize::Percentage ? "%" : "mm");
+    column_unit.copy_label(
+        column_mode.value() == WordsColumnSize::Fixed ? "mm" : "weight");
+    if (table_mode.value() == WordsTableSize::Stretch) {
+      table_value.deactivate();
+      align.deactivate();
+    } else {
+      table_value.activate();
+      align.activate();
+    }
+    if (row_mode.value() == WordsRowSize::Automatic)
+      row_value.deactivate();
+    else
+      row_value.activate();
+    panel.redraw();
+  };
+  for (auto *choice : {&table_mode, &row_mode, &column_mode})
+    choice->callback(
+        [](Fl_Widget *w, void *p) {
+          (*static_cast<std::function<void(Fl_Widget *)> *>(p))(w);
+        },
+        &update);
+  update(nullptr);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  auto read = [&](Fl_Input &input, double shown, double exact,
+                  bool unchanged_mode, double scale) {
+    auto text = Text(input.value()).trimmed();
+    if (unchanged_mode && (text.empty() || text == display(shown)))
+      return exact;
+    bool valid = false;
+    double n = text.toDouble(&valid);
+    if (!valid || !std::isfinite(n))
+      throw std::runtime_error(
+          "Enter a finite size for the selected sizing mode");
+    return n * scale;
+  };
+  while (panel.run(table_mode)) {
+    try {
+      WordsTableSizingChange change;
+      WordsTableSize table;
+      table.mode = WordsTableSize::Mode(table_mode.value());
+      if (table.mode != WordsTableSize::Stretch) {
+        table.value =
+            read(table_value, initial_table_value, initial.table.value,
+                 table.mode == initial.table.mode,
+                 table.mode == WordsTableSize::Fixed ? 1 / mm : 1);
+        table.alignment = align.value() == 1   ? TextTable::Center
+                          : align.value() == 2 ? TextTable::Right
+                                               : TextTable::Left;
+      }
+      if (table != initial.table)
+        change.table = table;
+      WordsRowSize row;
+      row.mode = WordsRowSize::Mode(row_mode.value());
+      if (row.mode != WordsRowSize::Automatic)
+        row.value = read(row_value, initial_row_value, initial.row.value,
+                         row.mode == initial.row.mode, 1 / mm);
+      if (row != initial.row)
+        change.row = row;
+      WordsColumnSize column;
+      column.mode = WordsColumnSize::Mode(column_mode.value());
+      column.value =
+          read(column_value, initial_column_value, initial.column.value,
+               column.mode == initial.column.mode,
+               column.mode == WordsColumnSize::Fixed ? 1 / mm : 1);
+      if (column != initial.column)
+        change.column = column;
+      auto candidate =
+          size_words_table(original, address, change, path, position);
       (void)paginate_text(read_text_flow(candidate.document), shaper);
       return candidate;
     } catch (const std::exception &error) {

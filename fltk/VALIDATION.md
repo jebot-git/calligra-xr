@@ -2358,3 +2358,55 @@ and broader section/column/header/footer/note/image-anchor work remain. Words
 stays first, Sheets functions next, Stage last; the full goal remains active.
 
 Artifacts: `/home/blux/de-xr/artifacts/calligra-words-range-lists-20261102`.
+
+## Native Words table sizing — 2026-11-02
+
+The universal Table → Sizing dialog edits table width (available, fixed or
+percentage), sized-table alignment, anchor-row height (automatic, minimum or
+exact), and anchor-column width (fixed or positive integer weight). Physical
+sizes use millimetres. Fixed columns retain their physical widths; weighted
+columns share the remaining table width. Exact row heights clip overflow.
+
+The native source transaction isolates addressed repeated rows/column definitions
+and enclosing repeated cells for nested tables. Private common/automatic style
+chains remove superseded named sizing properties while retaining unrelated raw
+properties, units, IDs and source data. Existing shared definitions remain intact.
+Empty cells acquire no paragraphs; independent value/formula cells retain their
+metadata. Content/styles/manifest and the full displayed caret path share one
+exact undo/redo step. Cancel, validation errors and unchanged Apply preserve
+source, revision and history. Fixed conversion under a relative table width in
+document defaults rejects atomically pending default-style isolation. Repeated
+formula-bearing source cloning still requires reference adjustment.
+
+All 54 applicable optimized Release suites and all 54 ASan/UBSan suites pass,
+with core leak detection enabled. The three legacy outline-font-assumption
+suites (native-text-shaping, native-text-hit and native-text-editing) remain
+excluded and are not counted as passing. The new core suite covers inherited
+styles, repeated/nested scope, implicit columns, merged and empty cells, numeric
+metadata, mode changes, no-op and exact archive/selection history.
+
+Flat/nested Wayland sizing, flat X11 and nested sanitizer GUI checks pass for
+dimensions, fixed/percentage/weighted/automatic modes, invalid/cancel/no-op
+handling, exact history and actual save/reopen. Sanitizer GUI uses a 90-second
+observation ceiling and disables third-party leak checks. Existing nested cell
+formatting and rudimentary editing regressions pass. Initial harness failures
+were corrected to scroll to the target page and measure only the addressed
+repeated nested instance; an initial cell-format regression used the wrong
+fixture, and the rerun uses its original geometry fixture.
+
+Version-matched content/styles schemas validate 87 generated OpenDocument
+packages. Fourteen private CUPS jobs cover sizing UI/core snapshots, and three
+further jobs cover Words/Sheets/Stage baseline output. Source archive data remains
+exact apart from regenerated manifests; native/reopened and captured CUPS pixels
+agree. All 23 new Words print pages were reviewed. The nine accepted suite
+baseline pages remain pixel-identical. Schema checks also caught invalid zero
+physical sizes during development; zero fixed widths and exact heights now
+reject, while automatic sizing and zero minimum height remain available.
+
+Proportional scaling of all fixed columns, optimal content-based sizing,
+default-style isolation, reference adjustment, large-document performance and
+broader Words section/column/header/footer/note/image-anchor work remain. The
+full goal remains active: Words first, Sheets functions next and Stage last.
+No system printer queue or active desktop/display-manager session was changed
+or restarted. Artifacts:
+`/home/blux/de-xr/artifacts/calligra-words-table-sizing-20261102`.

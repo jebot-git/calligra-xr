@@ -67,6 +67,38 @@ struct WordsCellFormat {
   std::array<std::optional<double>, 4> padding;
   std::array<std::optional<TextTableBorder>, 4> borders;
 };
+struct WordsTableSize {
+  enum Mode { Stretch, Fixed, Percentage } mode = Stretch;
+  double value = 0; // Points for Fixed, percent for Percentage.
+  TextTable::Alignment alignment = TextTable::Left;
+  bool operator==(const WordsTableSize &) const = default;
+};
+struct WordsRowSize {
+  enum Mode { Automatic, Minimum, Exact } mode = Automatic;
+  double value = 0; // Points; Exact clips overflowing text.
+  bool operator==(const WordsRowSize &) const = default;
+};
+struct WordsColumnSize {
+  enum Mode { Weight, Fixed } mode = Weight;
+  double value = 1; // Positive integer weight, or a width in points.
+  bool operator==(const WordsColumnSize &) const = default;
+};
+struct WordsTableSizing {
+  WordsTableSize table;
+  WordsRowSize row;
+  WordsColumnSize column;
+};
+struct WordsTableSizingChange {
+  std::optional<WordsTableSize> table;
+  std::optional<WordsRowSize> row;
+  std::optional<WordsColumnSize> column;
+};
+WordsTableSizing words_table_sizing(const OdfPackage &, const TextCellAddress &,
+                                    const std::vector<TextCellAddress> & = {});
+WordsTableEdit size_words_table(const OdfPackage &, const TextCellAddress &,
+                                const WordsTableSizingChange &,
+                                const std::vector<TextCellAddress> & = {},
+                                std::optional<size_t> position = {});
 TextCellStyle
 words_table_cell_format(const OdfPackage &, const TextCellAddress &,
                         const std::vector<TextCellAddress> &path = {});

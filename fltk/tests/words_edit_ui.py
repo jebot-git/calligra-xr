@@ -176,6 +176,7 @@ parser.add_argument('--repeated-format-only', action='store_true', help='Run loc
 parser.add_argument('--repeated-lists-only', action='store_true', help='Run local list indent/outdent and empty exit in repeated cells')
 parser.add_argument('--merge-only', action='store_true', help='Run rectangular merge/split and history checks with a flat/nested fixture')
 parser.add_argument('--subdivide-only', action='store_true', help='Run cell subdivision, geometry, editing and history checks')
+parser.add_argument('--table-sizing-only', action='store_true', help='Run table width, row height, column width and exact archive history checks')
 parser.add_argument('--range-lists-only', action='store_true', help='Run list indent/outdent across displayed cells and independent lists')
 parser.add_argument('--empty-cell-only', action='store_true', help='Run virtual empty cell typing, clipboard, breaks, navigation and exact history')
 parser.add_argument('--range-edit-only', action='store_true', help='Run cell-preserving range typing, deletion, Cut/paste and history checks')
@@ -192,14 +193,14 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
-if args.nested_fixture and not (args.repeated_edit_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only):
+if args.nested_fixture and not (args.repeated_edit_only or args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only):
     parser.error('--nested-fixture requires an edit/format/list/merge mode')
-if (args.range_lists_only or args.empty_cell_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not args.nested_fixture:
+if (args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and not args.nested_fixture:
     parser.error('List/merge modes require a flat or nested fixture via --nested-fixture')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only or args.repeated_edit_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.range_lists_only,args.empty_cell_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.range_edit_only,args.display_range_only,args.cell_format_only,args.geometry_only))>1:
+if args.grid_repeat_only or args.repeated_edit_only or args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.table_sizing_only,args.range_lists_only,args.empty_cell_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only,args.range_edit_only,args.display_range_only,args.cell_format_only,args.geometry_only))>1:
         parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
@@ -324,10 +325,10 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        if (args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
+        if (args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
         else:
-            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only)
+            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -505,7 +506,7 @@ try:
             assert process.wait(timeout=15) == 0
         else:
             original = data()['text']
-            if not (args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only):
+            if not (args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only):
                 assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
             _, original_xml = save('original')
 
@@ -1121,7 +1122,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only or args.repeated_edit_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only:
+            if args.grid_repeat_only or args.repeated_edit_only or args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1180,6 +1181,76 @@ try:
                     if ranged:key('Right',('Shift_L',),count=len(prefix))
                     check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
                     return path
+                if args.table_sizing_only:
+                    nested='Outer' in original
+                    def selected_box():
+                        key('End',('Control_L',))
+                        snapshot=settled_page();page=snapshot['page_layout'];boxes=page['table_cells']
+                        outer_id=max({c['table'] for c in boxes},key=lambda t:max(c['width'] for c in boxes if c['table']==t))
+                        if nested:
+                            outer=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==1)
+                            cell=next(c for c in boxes if c['table']!=outer_id and c['row']==1 and c['column']==1 and outer['x']<=c['x']<outer['x']+outer['width'] and outer['y']<=c['y']<outer['y']+outer['height'])
+                            path=[[outer_id,1,1,1,1],[cell['table'],1,1,1,1]]
+                        else:
+                            cell=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==1);path=[[outer_id,1,1,1,1]]
+                        vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                        left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']+sum(p['height']*zoom+24 for p in page['paper_styles'][:cell['page']])
+                        click(round(left+(cell['x']+6)*zoom),round(top+(cell['y']+5)*zoom));key('Home');key('Right',count=2)
+                        wait(lambda:data()['editing']['cells']==path and data()['editing']['cursor']==original.index('Cell')+2)
+                        return path
+                    path=selected_box();before_selection=dict(data()['editing'])
+                    def width_of(table_id):
+                        snapshot=settled_page();boxes=snapshot['page_layout']['table_cells']
+                        if nested:
+                            outer_id=snapshot['editing']['cells'][0][0]
+                            outer=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==1)
+                            boxes=[c for c in boxes if outer['x']<=c['x']<outer['x']+outer['width'] and outer['y']<=c['y']<outer['y']+outer['height']]
+                        return sum(c['width'] for c in boxes if c['table']==table_id and c['row']==0)
+                    initial_width=width_of(path[-1][0])
+                    def saved(name):return save(name,lambda raw:None)
+                    def sizing():
+                        menu_action('Sizing…');wait(lambda:data()['format_dialog']);time.sleep(.2);return panel_origin(740,390)
+                    x,y=sizing();field(x+520,y+70,'99');key('Escape');wait(lambda:not data()['format_dialog'])
+                    assert saved('sizing-cancelled')[1]==original_xml and parts('sizing-cancelled')==original_parts
+                    revision=data()['editing']['revision'];x,y=sizing();click(x+665,y+355);wait(lambda:not data()['format_dialog'])
+                    assert data()['editing']['revision']==revision and not data()['editing']['can_undo']
+                    assert saved('sizing-noop')[1]==original_xml and parts('sizing-noop')==original_parts
+                    x,y=sizing();choice(x+265,y+70,1,current=2);field(x+520,y+70,'-1');click(x+665,y+355);time.sleep(.25)
+                    assert data()['format_dialog'] and data()['editing']['revision']==revision
+                    field(x+520,y+70,'36' if nested else '120');choice(x+265,y+115,1,current=0)
+                    choice(x+265,y+170,2,current=1);field(x+520,y+170,'15')
+                    field(x+520,y+220,'0');click(x+665,y+355);time.sleep(.25)
+                    assert data()['format_dialog'] and data()['editing']['revision']==revision
+                    choice(x+265,y+220,1,current=0);field(x+520,y+220,'10' if nested else '30')
+                    capture_window('table-sizing-dialog');click(x+665,y+355);wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
+                    root,sized_xml=saved('table-sized');sized_parts=parts('table-sized');current=dict(data()['editing'])
+                    assert current['cells'][-1][1:]==[1,1,1,1]
+                    assert data()['text'][current['cursor']-2:current['cursor']+2]=='Cell'
+                    table_id=current['cell'][0];boxes=settled_page()['page_layout']['table_cells'];cell=next(c for c in boxes if c['table']==table_id and c['row']==1 and c['column']==1)
+                    assert abs(width_of(table_id)-(36 if nested else 120)*72/25.4)<.000001
+                    assert abs(cell['width']-(10 if nested else 30)*72/25.4)<.000001
+                    assert abs(cell['height']-15*72/25.4)<.000001
+                    capture_window('table-sized-layout')
+                    revision=data()['editing']['revision'];x,y=sizing();click(x+665,y+355);wait(lambda:not data()['format_dialog'])
+                    assert data()['editing']['revision']==revision and saved('sizing-sized-noop')[1]==sized_xml
+                    key('z',('Control_L',));assert saved('sizing-undone')[1]==original_xml and parts('sizing-undone')==original_parts
+                    assert data()['editing']['cells']==before_selection['cells'] and data()['editing']['cursor']==before_selection['cursor']
+                    key('y',('Control_L',));assert saved('sizing-redone')[1]==sized_xml and parts('sizing-redone')==sized_parts
+                    revision=data()['editing']['revision'];x,y=sizing();choice(x+265,y+70,2,current=1);field(x+520,y+70,'65');choice(x+265,y+115,2,current=1)
+                    choice(x+265,y+170,0,current=2);choice(x+265,y+220,0,current=1);field(x+520,y+220,'3');click(x+665,y+355)
+                    wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
+                    root,relative_xml=saved('table-relative');relative_parts=parts('table-relative');table_id=data()['editing']['cell'][0]
+                    assert abs(width_of(table_id)-initial_width*1.3)<.000001
+                    properties=list(root.iter(STYLE+'table-properties'));assert any(p.get(STYLE+'rel-width')=='65%' and p.get(TABLE+'align')=='right' for p in properties)
+                    assert any(p.get(STYLE+'rel-column-width')=='3*' for p in root.iter(STYLE+'table-column-properties'))
+                    key('z',('Control_L',));assert saved('sizing-relative-undone')[1]==sized_xml and parts('sizing-relative-undone')==sized_parts
+                    key('y',('Control_L',));assert saved('sizing-relative-redone')[1]==relative_xml and parts('sizing-relative-redone')==relative_parts
+                    saved_text=data()['text'];key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    report.unlink();process=start([args.bin_dir.resolve()/'calligra-words-fltk',source,'--report',report],client,'words-reopened');wait(first_report);check_text(saved_text)
+                    menu_action('Quit');assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'table_row_column_dimensions':True,'fixed_percentage_weight_auto_modes':True,'invalid_cancel_noop':True,'exact_archive_caret_history_reopen':True},indent=2)+'\n')
+                    print('PASS native table/row/column sizing, fixed/relative/auto modes, invalid/cancel/no-op, caret, exact history and reopen',flush=True)
+                    raise FormatComplete
                 if args.range_lists_only:
                     nested='Outer' in original
                     beta=original.index('Český Beta')

@@ -233,8 +233,13 @@ OdfTableModelReader::OdfTableModelReader(
     : impl_(std::make_shared<Impl>(documents)) {}
 std::vector<XmlElement>
 OdfTableModelReader::cell_styles(const Text &name, bool styles_source) const {
+  return style_chain("table-cell", name, styles_source);
+}
+std::vector<XmlElement>
+OdfTableModelReader::style_chain(const Text &family, const Text &name,
+                                 bool styles_source) const {
   std::vector<XmlElement> result;
-  impl_->chain("table-cell", name, styles_source,
+  impl_->chain(family, name, styles_source,
                [&](const XmlElement &style) { result.push_back(style); });
   return result;
 }

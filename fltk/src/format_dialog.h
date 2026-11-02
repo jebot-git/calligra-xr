@@ -31,6 +31,10 @@ std::optional<WordsTableEdit>
 cell_format_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
                    const std::vector<TextCellAddress> &, size_t position);
 std::optional<WordsTableEdit>
+table_sizing_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
+                    const std::vector<TextCellAddress> &, size_t position,
+                    double body_width);
+std::optional<WordsTableEdit>
 merge_cells_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
                    const std::vector<TextCellAddress> &);
 std::optional<WordsTableEdit>
