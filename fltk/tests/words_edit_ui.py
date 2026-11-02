@@ -174,6 +174,7 @@ parser.add_argument('--repeated-edit-only', action='store_true', help='Run local
 parser.add_argument('--repeated-format-only', action='store_true', help='Run local character, paragraph, tab and named formatting in repeated cells')
 parser.add_argument('--repeated-lists-only', action='store_true', help='Run local list indent/outdent and empty exit in repeated cells')
 parser.add_argument('--merge-only', action='store_true', help='Run rectangular merge/split and history checks with a flat/nested fixture')
+parser.add_argument('--subdivide-only', action='store_true', help='Run cell subdivision, geometry, editing and history checks')
 parser.add_argument('--nested-fixture', type=Path, help='Nested text fixture, or flat/nested source fixture for format/list/merge modes')
 parser.add_argument('--grid-only', action='store_true', help='Run focused table row/column UI checks')
 parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
@@ -184,14 +185,14 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
-if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only):
+if args.nested_fixture and not (args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only):
     parser.error('--nested-fixture requires an edit/format/list/merge mode')
-if (args.repeated_lists_only or args.merge_only) and not args.nested_fixture:
+if (args.repeated_lists_only or args.merge_only or args.subdivide_only) and not args.nested_fixture:
     parser.error('List/merge modes require a flat or nested fixture via --nested-fixture')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only))>1:
+if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or sum((args.grid_repeat_only,args.repeated_edit_only,args.repeated_format_only,args.repeated_lists_only,args.merge_only,args.subdivide_only))>1:
         parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
@@ -316,10 +317,10 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only) and args.nested_fixture:
+        if (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
         else:
-            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only)
+            produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -491,7 +492,7 @@ try:
             assert process.wait(timeout=15) == 0
         else:
             original = data()['text']
-            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only):
+            if not (args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only):
                 assert original == 'Start Český 日本語 tail\nSection alpha\nSection beta\nCell link   \tend\nsoft\nOther cell\nList header\nList item\nList continuation\nNested item\nNext item\nJoin one\nJoin two\nJoin continuation\nJoin nested'
             _, original_xml = save('original')
 
@@ -1107,7 +1108,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only:
+            if args.grid_repeat_only or args.repeated_edit_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1166,6 +1167,76 @@ try:
                     if ranged:key('Right',('Shift_L',),count=len(prefix))
                     check_text(original,original.index(prefix)+(len(prefix) if ranged else 0))
                     return path
+                if args.subdivide_only:
+                    nested='I00' in original;prefix='I00' if nested else 'A2'
+                    path=pick_repeated(prefix,False,1,0,0);position=original.index(prefix)
+                    baseline=data()['page_layout']['table_cells']
+                    def subdivide_dialog():
+                        menu_action('Subdivide cell…');wait(lambda:data()['format_dialog'])
+                        return panel_origin(520,260)
+                    x,y=subdivide_dialog();key('Escape');wait(lambda:not data()['format_dialog'])
+                    assert save('subdivide-cancelled')[1]==original_xml and parts('subdivide-cancelled')==original_parts
+                    revision=data()['editing']['revision']
+                    x,y=subdivide_dialog();field(x+150,y+85,'0');click(x+445,y+225);time.sleep(.3)
+                    assert data()['format_dialog'] and data()['editing']['revision']==revision
+                    field(x+150,y+85,'100000');field(x+400,y+85,'1024');click(x+445,y+225);time.sleep(.3)
+                    assert data()['format_dialog'] and data()['editing']['revision']==revision
+                    field(x+150,y+85,'1');field(x+400,y+85,'1');click(x+445,y+225);wait(lambda:not data()['format_dialog'])
+                    assert save('subdivide-noop')[1]==original_xml and not data()['editing']['can_undo']
+                    assert data()['editing']['cells']==path and data()['editing']['cursor']==position
+                    x,y=subdivide_dialog();field(x+150,y+85,'2');field(x+400,y+85,'3');click(x+445,y+225)
+                    wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
+                    def source_cells(table):
+                        rows=[]
+                        def walk(parent):
+                            for node in parent:
+                                if node.tag==TABLE+'table-row':
+                                    values=[]
+                                    for cell in node:
+                                        if cell.tag in (TABLE+'table-cell',TABLE+'covered-table-cell'):values.extend([cell]*int(cell.get(TABLE+'number-columns-repeated','1')))
+                                    rows.extend([values]*int(node.get(TABLE+'number-rows-repeated','1')))
+                                elif node.tag in tuple(TABLE+t for t in ('table-rows','table-row-group','table-header-rows')):walk(node)
+                        walk(table);return rows
+                    def selected_table(root):
+                        table=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')==('Outer' if nested else 'Grid'))
+                        return source_cells(table)[1][2].find(TABLE+'table') if nested else table
+                    root,parts_xml=save('subdivide-parts');parts_state=parts('subdivide-parts')
+                    grid=source_cells(selected_table(root));sr=0 if nested else 1;sc=0 if nested else 1
+                    assert len(grid)==(3 if nested else 4) and len(grid[0])==(4 if nested else 5)
+                    for r in range(2):
+                        for c in range(3):
+                            cell=grid[sr+r][sc+c]
+                            assert cell.tag==TABLE+'table-cell' and cell.get(TABLE+'number-rows-spanned','1')=='1' and cell.get(TABLE+'number-columns-spanned','1')=='1'
+                            assert plain(cell).strip()==(prefix if r==c==0 else '')
+                    if not nested:
+                        now=data()['page_layout']['table_cells']
+                        for before_coord,after_coord in [((0,1),(0,1)),((1,0),(1,0)),((1,2),(1,4)),((2,1),(3,1))]:
+                            old=next(c for c in baseline if (c['row'],c['column'])==before_coord)
+                            new=next(c for c in now if (c['row'],c['column'])==after_coord)
+                            for prop in ('x','y','width','height'):assert abs(old[prop]-new[prop])<.0001,(prop,old,new)
+                    # The new lower/middle part is independently editable.
+                    snapshot=settled_page();page=snapshot['page_layout'];table_id=data()['editing']['cell'][0]
+                    cell=next(c for c in page['table_cells'] if c['table']==table_id and c['row']==sr+1 and c['column']==sc+1)
+                    vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                    left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']
+                    click(round(left+(cell['x']+cell['width']/2)*zoom),round(top+(cell['y']+cell['height']/2)*zoom))
+                    wait(lambda:data()['editing']['cell']==[table_id,sr+1,sc+1,1,1])
+                    type_text('Y');root,_=save('subdivide-typed')
+                    assert plain(source_cells(selected_table(root))[sr+1][sc+1]).strip()=='Y'
+                    key('z',('Control_L',));assert save('subdivide-typing-undone')[1]==parts_xml
+                    key('y',('Control_L',));root,_=save('subdivide-typing-redone');assert plain(source_cells(selected_table(root))[sr+1][sc+1]).strip()=='Y'
+                    key('z',('Control_L',));key('z',('Control_L',));check_text(original,position)
+                    wait(lambda:data()['editing']['cells']==path)
+                    assert save('subdivide-all-undone')[1]==original_xml and parts('subdivide-all-undone')==original_parts
+                    key('y',('Control_L',));assert save('subdivide-redone')[1]==parts_xml and parts('subdivide-redone')==parts_state
+                    key('z',('Control_L',));check_text(original,position)
+                    assert save('subdivide-final-undone')[1]==original_xml and parts('subdivide-final-undone')==original_parts
+                    key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,
+                        'arbitrary_cell_subdivision':True,'new_part_typing':True,'neighbor_geometry':not nested,
+                        'invalid_cancel_noop':True,'exact_archive_history':True},indent=2)+'\n')
+                    print('PASS native Words subdivision, new-part typing, neighbor geometry and exact structural history',flush=True)
+                    raise FormatComplete
                 if args.merge_only:
                     nested='I00' in original
                     prefix='I00' if nested else 'A1'

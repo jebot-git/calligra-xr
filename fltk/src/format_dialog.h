@@ -29,4 +29,7 @@ std::optional<WordsTableEdit> insert_table_dialog(Fl_Window &, OdfPackage,
 std::optional<WordsTableEdit>
 merge_cells_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
                    const std::vector<TextCellAddress> &);
+std::optional<WordsTableEdit>
+subdivide_cell_dialog(Fl_Window &, OdfPackage, const TextCellAddress &,
+                      const std::vector<TextCellAddress> &);
 } // namespace DomeOffice

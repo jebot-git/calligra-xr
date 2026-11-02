@@ -366,7 +366,7 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
                     if (!value.endsWith('*'))
                       fail("Invalid relative table column width");
                     double n = value.left(value.size() - 1).toDouble(&ok);
-                    if (!ok || !std::isfinite(n) || n < 0 || n > 1000000)
+                    if (!ok || !std::isfinite(n) || n < 0 || n > 1000000000000.)
                       fail("Invalid relative table column width");
                     column.relative = n;
                   }

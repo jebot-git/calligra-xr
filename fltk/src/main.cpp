@@ -94,6 +94,7 @@ enum Command {
     DeleteColumn,
     MergeCells,
     SplitCell,
+    SubdivideCell,
     Bold,
     Italic,
     Underline,
@@ -402,6 +403,7 @@ public:
             add("&Table/Columns/&Delete column", 0, DeleteColumn);
             add("&Table/Cells/&Merge cells…", 0, MergeCells);
             add("&Table/Cells/&Split cell", 0, SplitCell);
+            add("&Table/Cells/S&ubdivide cell…", 0, SubdivideCell);
             add("&Format/Paragraph &styles…", 0, ParagraphStyles);
             add("&Format/Character &styles…", 0, CharacterStyles);
             add("&Format/Alignment/&Left", FL_CTRL + 'l', AlignLeft);
@@ -927,7 +929,7 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell)
+                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell)
                     office->word_grid(action);
                 else if (action == InsertTable || action == DeleteTable)
                     office->word_table(action == InsertTable);
@@ -984,6 +986,7 @@ public:
             break;
         case MergeCells:
         case SplitCell:
+        case SubdivideCell:
             break;
         default:
             throw std::runtime_error("Invalid table action");
@@ -993,6 +996,8 @@ public:
         try {
             if (command == MergeCells)
                 result = merge_cells_dialog(window, snapshot, address, path);
+            else if (command == SubdivideCell)
+                result = subdivide_cell_dialog(window, snapshot, address, path);
             else if (command == SplitCell)
                 result = split_words_table_cell(snapshot, address, path);
             else
@@ -1630,7 +1635,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

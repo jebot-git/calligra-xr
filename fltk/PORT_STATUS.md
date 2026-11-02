@@ -196,7 +196,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, arbitrary cell subdivision and reflow performance, cross-cell selection/formatting in repeated content, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, equal-physical subdivision/over-constrained geometry and reflow performance, cross-cell selection/formatting in repeated content, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -498,8 +498,34 @@ commands preserve the current selection and history. Dialog cancellation and
 invalid dimensions leave the live document untouched. All real edits use one
 structural history command and preflight native pagination.
 
-Arbitrary subdivision of independent cells, header/body-boundary merging and
-numeric/formula value/reference merging remain unfinished. Numeric/matrix/formula
+Equal-physical subdivision across unequal measures, header/body-boundary merging
+and numeric/formula value/reference merging remain unfinished. Numeric/matrix/formula
 metadata in the merge range rejects atomically; text-only string caches are
 invalidated when their paragraphs are combined. These operations do not complete
 remaining Words section, column, header/footer, note or image-anchor editing.
+
+
+## Cell subdivision — 2026-11-02
+
+Table → Cells → Subdivide cell accepts row and column counts for independent or
+merged cells. The engine refines the original logical grid by the necessary
+common factors and gives neighboring cells spans over the new slots. Existing
+row/column groups, covered data, source identities, opaque parts and cell styles
+are retained; repeated targets and their enclosing instances are materialized.
+The first part retains the original contents and cached numeric value. Other
+parts are independently editable and inherit the selected cell style. Source
+formulas and matrix references reject refinement pending coordinate adjustment.
+
+Fixed row heights/column widths are divided with their original measures, while
+flexible-column proportions are normalized together into valid ODF integer
+weights. Native relative weights can now reach 10^12, allowing normalization
+without the previous 10^6 limit invalidating ordinary source ratios. Candidate
+pagination precedes one structural history command; Cancel, invalid dimensions
+and a one-by-one request leave the document unchanged.
+
+Subdivisions across unequal existing grid measures follow logical proportions;
+equal physical widths/heights across those measures remain unfinished. In an
+over-constrained fixed-width table, the existing per-column shrink allocation
+can also change neighboring resolved widths after refinement. Further geometry
+work remains for that case, alongside richer cross-cell selection and the other
+Words layout/editing requirements. Sheets functions remain next; Stage last.

@@ -308,7 +308,7 @@ struct NativeBlockLayouter::Impl {
       fail("Invalid native table style");
     for (const auto &c : model.columns)
       if ((c.width && !dimension(*c.width)) || !std::isfinite(c.relative) ||
-          c.relative < 0 || c.relative > 1000000)
+          c.relative < 0 || c.relative > 1000000000000.)
         fail("Invalid native table column width");
     for (const auto &r : model.rows)
       if ((r.height && !dimension(*r.height)) || !dimension(r.minimum) ||

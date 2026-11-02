@@ -3,6 +3,8 @@
 #include "native_words_tabs.h"
 #include <functional>
 #include <limits>
+#include <numeric>
+#include <cmath>
 namespace DomeOffice {
 namespace {
 const Text XML = "http://www.w3.org/XML/1998/namespace";
@@ -1009,6 +1011,63 @@ void freeze_cell(OdfPackage &p, XmlElement table, XmlElement cell, Names &names,
     freeze_paragraph(p, sources[index], value, next);
   }
 }
+
+struct RefinedAxis {
+  std::vector<size_t> edges;
+  size_t factor, group;
+  RefinedAxis(size_t count, size_t begin, size_t span, size_t parts) {
+    auto common = std::gcd(span, parts);
+    factor = parts / common;
+    group = span / common;
+    edges.push_back(0);
+    for (size_t i = 0; i < count; ++i)
+      edges.push_back(edges.back() +
+                      (i >= begin && i < begin + span ? factor : 1));
+  }
+};
+Text fraction_style(OdfPackage &p, XmlElement source, const Text &family,
+                    const std::vector<std::pair<Text, Text>> &overrides,
+                    size_t &serial) {
+  auto root = p.xml.documentElement(),
+       group = child(root, OFFICE, "automatic-styles");
+  if (group.isNull()) {
+    group = p.xml.createElementNS(OFFICE, "office:automatic-styles");
+    root.insertBefore(group, child(root, OFFICE, "body"));
+  }
+  auto name = source.attributeNS(TABLE, "style-name");
+  XmlElement style;
+  std::set<Text> used;
+  for (auto s : p.xml.elementsByTagNameNS(STYLE, "style")) {
+    used.insert(s.attributeNS(STYLE, "name"));
+    if (s.parentNode() == group && s.attributeNS(STYLE, "family") == family &&
+        s.attributeNS(STYLE, "name") == name)
+      style = s.cloneNode(true);
+  }
+  if (!p.entry("styles.xml").empty())
+    for (auto s : read_document_xml(p.entry("styles.xml"))
+                      .elementsByTagNameNS(STYLE, "style"))
+      used.insert(s.attributeNS(STYLE, "name"));
+  if (style.isNull()) {
+    style = p.xml.createElementNS(STYLE, "style:style");
+    style.setAttributeNS(STYLE, "style:family", family);
+    if (!name.empty())
+      style.setAttributeNS(STYLE, "style:parent-style-name", name);
+  }
+  walk(style, [](XmlElement e) { e.removeAttributeNS(XML, "id"); });
+  do {
+    name = "WordsSubdivision" + Text::number(serial++);
+  } while (used.contains(name));
+  style.setAttributeNS(STYLE, "style:name", name);
+  auto props = child(style, STYLE, family + "-properties");
+  if (props.isNull()) {
+    props = p.xml.createElementNS(STYLE, "style:" + family + "-properties");
+    style.appendChild(props);
+  }
+  for (const auto &[key, value] : overrides)
+    props.setAttributeNS(STYLE, "style:" + key, value);
+  group.appendChild(style);
+  return name;
+}
 } // namespace
 std::optional<WordsTableRangeEdit>
 materialize_words_table_range(const OdfPackage &original,
@@ -1267,5 +1326,182 @@ split_words_table_cell(const OdfPackage &original,
       entry.removeAttributeNS(TABLE, "number-columns-spanned");
     }
   return finish(std::move(p), source, address.row, address.column, names);
+}
+
+WordsTableEdit subdivide_words_table_cell(
+    const OdfPackage &original, const TextCellAddress &address, size_t rows,
+    size_t columns, const std::vector<TextCellAddress> &context) {
+  if (original.kind() != Kind::Words || original.read_only())
+    fail("This document cannot be edited");
+  if (!rows || !columns || rows > 100000 || columns > 1024)
+    fail("Invalid cell subdivision dimensions");
+  auto original_flow = read_text_flow(original);
+  auto path = checked_path(original_flow, address, context);
+  const auto &old_table = original_flow.tables[address.table];
+  if (rows == 1 && columns == 1)
+    return unchanged_cell(original, address, path);
+  if (rows == address.rows && columns == address.columns)
+    return split_words_table_cell(original, address, path);
+  RefinedAxis rr(old_table.rows.size(), address.row, address.rows, rows),
+      cc(old_table.columns.size(), address.column, address.columns, columns);
+  auto nr = rr.edges.back(), nc = cc.edges.back();
+  if (nr > 100000 || nc > 1024 || nr > 1000000 / nc)
+    fail("The subdivided table exceeds the native grid limit");
+  // Refinement changes logical reference coordinates across the target table.
+  walk(old_table.source, [&](XmlElement e) {
+    if (e.hasAttributeNS(TABLE, "formula") ||
+        e.hasAttributeNS(TABLE, "number-matrix-columns-spanned") ||
+        e.hasAttributeNS(TABLE, "number-matrix-rows-spanned"))
+      fail("Table formulas need reference adjustment before subdivision");
+  });
+  auto p = original;
+  p.xml = read_document_xml(original.xml.toByteArray());
+  Names names(p);
+  auto flow = read_text_flow(p);
+  auto source = prepare_target(p, flow, path, names);
+  flow = read_text_flow(p);
+  Grid grid(flow.tables[table_index(flow, source)]);
+  auto selected = validate_address(grid.model, address);
+  auto old_rows =
+      materialize_rectangle(p, grid, 0, 0, grid.rows, grid.columns, names);
+  std::vector<std::vector<XmlElement>> old_slots(
+      grid.rows, std::vector<XmlElement>(grid.columns));
+  for (size_t r = 0; r < grid.rows; ++r)
+    for (size_t c = 0; c < grid.columns; ++c)
+      old_slots[r][c] = slot(old_rows[r], c).node;
+  complete_columns(p, source, grid.columns);
+  std::vector<XmlElement> old_columns(grid.columns);
+  for (size_t c = grid.columns; c-- > 0;) {
+    auto s = column_slot(source, c);
+    old_columns[c] =
+        isolate(s.node, "number-columns-repeated", s.instance, names);
+  }
+  size_t serial = 1;
+  // ODF relativeLength is an integer followed by '*'. Normalize all flexible
+  // columns together so fractional sub-columns retain exact weight ratios.
+  std::vector<long long> weights(grid.columns);
+  long long divisor = 0;
+  for (size_t c = 0; c < grid.columns; ++c) {
+    const auto &model = grid.model.columns[c];
+    if (model.relative > 0 || !model.width) {
+      auto weight = model.relative > 0 ? model.relative : 1;
+      if (std::abs(weight - std::round(weight)) > 1e-6)
+        fail("Relative column weights need integer normalization before "
+             "subdivision");
+      weights[c] =
+          std::llround(weight) *
+          static_cast<long long>(cc.factor / (cc.edges[c + 1] - cc.edges[c]));
+      divisor = std::gcd(divisor, weights[c]);
+    }
+  }
+  if (divisor)
+    for (auto &weight : weights)
+      weight /= divisor;
+  for (size_t c = 0; c < grid.columns; ++c) {
+    auto count = cc.edges[c + 1] - cc.edges[c];
+    const auto &model = grid.model.columns[c];
+    bool flexible = model.relative > 0 || !model.width;
+    if (count == 1 &&
+        (!flexible || weights[c] == (model.relative > 0 ? model.relative : 1)))
+      continue;
+    std::vector<std::pair<Text, Text>> props;
+    if (model.width && count > 1)
+      props.emplace_back("column-width",
+                         Text::number(*model.width / count, 'g', 17) + "pt");
+    if (flexible)
+      props.emplace_back("rel-column-width", Text::number(weights[c]) + "*");
+    auto style =
+        fraction_style(p, old_columns[c], "table-column", props, serial);
+    old_columns[c].setAttributeNS(TABLE, "table:style-name", style);
+    auto previous = old_columns[c];
+    for (size_t i = 1; i < count; ++i) {
+      auto added = names.clone(old_columns[c]);
+      previous.parentNode().insertAfter(added, previous);
+      previous = added;
+    }
+  }
+  std::vector<XmlElement> new_rows(nr);
+  for (size_t r = 0; r < grid.rows; ++r) {
+    auto count = rr.edges[r + 1] - rr.edges[r];
+    new_rows[rr.edges[r]] = old_rows[r];
+    if (count == 1)
+      continue;
+    const auto &model = grid.model.rows[r];
+    std::vector<std::pair<Text, Text>> props;
+    props.emplace_back("min-row-height",
+                       Text::number(model.minimum / count, 'g', 17) + "pt");
+    props.emplace_back("use-optimal-row-height",
+                       model.height ? "false" : "true");
+    if (model.height)
+      props.emplace_back("row-height",
+                         Text::number(*model.height / count, 'g', 17) + "pt");
+    auto style = fraction_style(p, old_rows[r], "table-row", props, serial);
+    old_rows[r].setAttributeNS(TABLE, "table:style-name", style);
+    auto previous = old_rows[r];
+    for (size_t i = 1; i < count; ++i) {
+      auto added = p.xml.createElementNS(TABLE, "table:table-row");
+      for (auto a : old_rows[r].attributes())
+        if (a.uri == TABLE &&
+            TextList{"style-name", "default-cell-style-name", "visibility"}
+                .contains(a.name.mid(a.name.indexOf(':') + 1)))
+          added.setAttributeNS(a.uri, a.name, a.value);
+      previous.parentNode().insertAfter(added, previous);
+      previous = added;
+      new_rows[rr.edges[r] + i] = added;
+    }
+  }
+  std::vector<std::vector<XmlElement>> slots(nr, std::vector<XmlElement>(nc));
+  for (size_t r = 0; r < grid.rows; ++r)
+    for (size_t c = 0; c < grid.columns; ++c) {
+      auto original_node = old_slots[r][c];
+      for (size_t ir = rr.edges[r]; ir < rr.edges[r + 1]; ++ir)
+        for (size_t ic = cc.edges[c]; ic < cc.edges[c + 1]; ++ic) {
+          auto node = ir == rr.edges[r] && ic == cc.edges[c]
+                          ? original_node
+                          : blank(p, nullptr, true);
+          slots[ir][ic] = node;
+        }
+      if (original_node.localName() == "table-cell") {
+        const auto *cell = grid.cell(r, c);
+        size_t end_r = cell ? cell->row + cell->rows : r + 1,
+               end_c = cell ? cell->column + cell->columns : c + 1;
+        set_count(original_node, "number-rows-spanned",
+                  rr.edges[end_r] - rr.edges[r]);
+        set_count(original_node, "number-columns-spanned",
+                  cc.edges[end_c] - cc.edges[c]);
+      }
+    }
+  // Detach only grid cells. Row groups, row identities and opaque row children
+  // remain in their original containers; each old cell node is reused once.
+  for (auto row : old_rows)
+    for (auto node : children(row, TABLE))
+      if (cell_node(node))
+        row.removeChild(node);
+  for (size_t r = 0; r < nr; ++r)
+    for (size_t c = 0; c < nc; ++c)
+      new_rows[r].appendChild(slots[r][c]);
+  auto start_r = rr.edges[address.row], start_c = cc.edges[address.column];
+  for (size_t r = 0; r < rows; ++r)
+    for (size_t c = 0; c < columns; ++c) {
+      auto ir = start_r + r * rr.group, ic = start_c + c * cc.group;
+      auto cell = slots[ir][ic];
+      if (r || c) {
+        cell = converted(p, cell, false);
+        slots[ir][ic] = cell;
+        if (cell.attributeNS(TABLE, "style-name").empty())
+          cell.setAttributeNS(TABLE, "table:style-name",
+                              selected.style_name.empty()
+                                  ? neutral_cell_style(p)
+                                  : selected.style_name);
+        if (paragraphs(cell).empty()) {
+          auto empty = blank(p, &selected);
+          while (!empty.firstChild().isNull())
+            cell.appendChild(empty.firstChild());
+        }
+      }
+      set_count(cell, "number-rows-spanned", rr.group);
+      set_count(cell, "number-columns-spanned", cc.group);
+    }
+  return finish(std::move(p), source, start_r, start_c, names);
 }
 } // namespace DomeOffice

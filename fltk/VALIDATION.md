@@ -2007,3 +2007,59 @@ and reference merging, repeating-header/body-boundary spans, and the remaining
 Words section/column/header/footer/note/image-anchor requirements remain open.
 Sheets functions remain next and Stage remains last. No active desktop session
 or system printer queue is restarted by this work.
+
+
+## Native Words cell subdivision — 2026-11-02
+
+The universal Table → Cells → Subdivide cell dialog accepts explicit row/column
+part counts for an independent or merged cell. The native engine refines only
+the necessary logical boundaries and extends neighboring cells across the new
+slots. It retains row/column groups, source nodes and opaque data, including
+covered metadata. The first part retains the original contents and cached value;
+new parts inherit cell/paragraph styles and are independently editable. Repeated
+targets and ancestors are localized, and the complete cell path follows the
+result. Native pagination preflights one structural command; Cancel, invalid
+counts, excessive grids and one-by-one requests preserve source and history.
+Formulas/matrix references reject refinement until coordinate adjustment exists.
+
+Fixed measures are divided from their resolved source styles. Flexible column
+ratios are normalized as a whole to integer weights: the initial fractional
+weights failed the ODF `relativeLength` schema, and scaling/reducing the weights
+fixes export without changing their ratios. The native relative-weight bound is
+now 10^12 so a valid input near the old 10^6 bound can be normalized without
+rejecting its result. The regression checks two large, nearly equal weights and
+preserved neighboring geometry. Existing merged grids follow logical proportions;
+equal physical parts across unequal measures and over-constrained fixed-width
+shrink allocation remain unfinished geometry work, not claimed as complete.
+
+All 47 applicable Release core suites and the same 47 ASan/UBSan suites pass,
+with leak detection enabled for the core sanitizer run. Three legacy suites
+with outline-font assumptions remain excluded, not counted as passing. Core
+cases independently compare neighboring rectangles at two available widths for
+fixed and mixed fixed/relative columns and fixed-height rows. They also cover
+existing merges, rich/list content, repeated/nested scope, numeric-cache
+retention, formula rejection, no-op/limits, unique IDs, typing and exact structural
+history. All 13 final core ODF fixtures pass the schema gate.
+
+Native Wayland Release GUI tests pass for flat and nested tables; nested
+Wayland ASan/UBSan (GUI leak checks disabled) and X11 checks pass as well. They
+drive Cancel, invalid dimensions/correction and a one-by-one no-op, inspect the
+six new XML cells and preserved flat-table rectangles, type in a new lower cell,
+and verify exact archive-part undo/redo to the clicked source instance. The first
+UI run reached its exit with an unsaved undo state; saving that final restored
+state corrects the test's exit workflow. The complete rerun passes. The existing
+nested merge/split regression also passes through the shared dimensions dialog.
+
+Eleven actual private CUPS capture jobs cover flat/nested UI snapshots and
+ordinary, relative, merged, repeated, nested, numeric-cache and typed core
+exports. Every original ZIP entry except the generated manifest remains exact;
+PDF/reopen and captured CUPS rasters match, with visible ink on every page.
+All 11 rendered pages were visually reviewed. The combined gate validates 91
+ODF packages against version-matched content/styles schemas. Artifacts are under
+`/home/blux/de-xr/artifacts/calligra-words-cell-subdivide-20261102`.
+
+This advances Words cell editing but leaves the geometry cases above, richer
+cross-cell selection, formula/reference operations and broader Words
+section/column/header/footer/note/image-anchor editing open. Sheets functions
+remain next and Stage remains last. No active desktop session or system printer
+queue is restarted by this increment.

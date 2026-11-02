@@ -1267,10 +1267,9 @@ insert_table_dialog(Fl_Window &window, OdfPackage original, size_t position) {
   return {};
 }
 
-std::optional<WordsTableEdit>
-merge_cells_dialog(Fl_Window &window, OdfPackage original,
-                   const TextCellAddress &address,
-                   const std::vector<TextCellAddress> &path) {
+static std::optional<WordsTableEdit> cell_dimensions_dialog(
+    Fl_Window &window, OdfPackage original, const TextCellAddress &address,
+    const std::vector<TextCellAddress> &path, bool subdivide) {
   const int width = 520, height = 260,
             x = std::max(0, (window.w() - width) / 2),
             y = std::max(0, (window.h() - height) / 2);
@@ -1278,17 +1277,22 @@ merge_cells_dialog(Fl_Window &window, OdfPackage original,
   window.begin();
   Panel panel(window, previous);
   Fl_Group::current(&panel);
-  Background background(window, x, y, width, height, "Merge cells");
+  Background background(window, x, y, width, height,
+                        subdivide ? "Subdivide cell" : "Merge cells");
   background.hint.copy_label(
-      "Merge a rectangle starting at this cell; keep all contents");
+      subdivide ? "Divide this cell into row and column parts; keep text in "
+                  "the first part"
+                : "Merge a rectangle starting at this cell; keep all contents");
   background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
   Fl_Input rows(x + 100, y + 70, 100, 30, "Rows:");
-  rows.value(Text::number(address.rows).toUtf8().constData());
+  rows.value(Text::number(subdivide ? 1 : address.rows).toUtf8().constData());
   Fl_Input columns(x + 350, y + 70, 100, 30, "Columns:");
   columns.value(
-      Text::number(std::max<size_t>(2, address.columns)).toUtf8().constData());
+      Text::number(subdivide ? 2 : std::max<size_t>(2, address.columns))
+          .toUtf8()
+          .constData());
   Buttons buttons(panel, x + width - 225, y + height - 50);
-  buttons.apply.label("Merge");
+  buttons.apply.label(subdivide ? "Subdivide" : "Merge");
   Fl_Group::current(previous);
   while (panel.run(rows))
     try {
@@ -1298,8 +1302,11 @@ merge_cells_dialog(Fl_Window &window, OdfPackage original,
       if (!rok || !cok || r <= 0 || c <= 0)
         throw std::runtime_error(
             "Enter positive whole numbers for rows and columns");
-      auto result = merge_words_table_cells(original, address, size_t(r),
-                                            size_t(c), path);
+      auto result = subdivide
+                        ? subdivide_words_table_cell(original, address,
+                                                     size_t(r), size_t(c), path)
+                        : merge_words_table_cells(original, address, size_t(r),
+                                                  size_t(c), path);
       NativeTextShaper shaper(
           Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
       (void)paginate_text(read_text_flow(result.document), shaper);
@@ -1310,5 +1317,19 @@ merge_cells_dialog(Fl_Window &window, OdfPackage original,
       background.hint.redraw();
     }
   return {};
+}
+std::optional<WordsTableEdit>
+merge_cells_dialog(Fl_Window &window, OdfPackage original,
+                   const TextCellAddress &address,
+                   const std::vector<TextCellAddress> &path) {
+  return cell_dimensions_dialog(window, std::move(original), address, path,
+                                false);
+}
+std::optional<WordsTableEdit>
+subdivide_cell_dialog(Fl_Window &window, OdfPackage original,
+                      const TextCellAddress &address,
+                      const std::vector<TextCellAddress> &path) {
+  return cell_dimensions_dialog(window, std::move(original), address, path,
+                                true);
 }
 } // namespace DomeOffice

@@ -58,5 +58,11 @@ merge_words_table_cells(const OdfPackage &, const TextCellAddress &,
 WordsTableEdit
 split_words_table_cell(const OdfPackage &, const TextCellAddress &,
                        const std::vector<TextCellAddress> &path = {});
+// Split one displayed cell into an explicit count of logical row/column parts.
+// Existing grid boundaries remain; neighboring cells span the refined slots.
+WordsTableEdit
+subdivide_words_table_cell(const OdfPackage &, const TextCellAddress &,
+                           size_t rows, size_t columns,
+                           const std::vector<TextCellAddress> &path = {});
 bool words_in_table(const OdfPackage &, size_t position);
 } // namespace DomeOffice

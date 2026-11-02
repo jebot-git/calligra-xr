@@ -191,9 +191,15 @@ CUPS test queues.
   combined text stays in its first cell, while retained covered-cell content
   becomes editable in its own cells. Both operations have one-step exact undo.
   Merge rejects repeating-header/body boundaries and selected numeric/formula
-  data pending value/reference merging. Arbitrary subdivision of independent
-  cells remains unfinished. Direct placement in lists still needs an anchored
-  table or list splitting.
+  data pending value/reference merging. Subdivide cell accepts explicit row and
+  column part counts, including an independent cell. It refines existing grid
+  boundaries and extends neighboring cells across the new slots; original text
+  and values stay in the first part. Fixed measures and flexible-column ratios
+  are retained, and the whole change has one-step exact undo. Existing merged
+  cells follow their underlying grid proportions when subdivided. Equal physical
+  parts across unequal merged columns and over-constrained fixed-width shrink
+  geometry still need further work. Direct placement in lists still needs an
+  anchored table or list splitting.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

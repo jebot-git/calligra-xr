@@ -49,8 +49,12 @@ def main():
     parser.add_argument('--list-only', action='store_true', help='Run repeated-cell list UI/core snapshots')
     parser.add_argument('--merge-artifacts', type=Path, help='Words merge/split UI snapshots')
     parser.add_argument('--merge-only', action='store_true', help='Run merge/split UI and optional core snapshots')
+    parser.add_argument('--subdivide-artifacts', type=Path, help='Words cell subdivision UI snapshots')
+    parser.add_argument('--subdivide-only', action='store_true', help='Run subdivision UI and optional core snapshots')
     parser.add_argument('--artifacts', type=Path, required=True)
     args = parser.parse_args()
+    if args.subdivide_only and (args.edit_only or args.format_only or args.list_only or args.merge_only or not args.subdivide_artifacts):
+        parser.error('--subdivide-only requires --subdivide-artifacts and excludes other focused modes')
     if args.merge_only and (args.edit_only or args.format_only or args.list_only or not args.merge_artifacts):
         parser.error('--merge-only requires --merge-artifacts and excludes other focused modes')
     if args.list_only and (args.edit_only or args.format_only or not args.list_artifacts):
@@ -59,12 +63,18 @@ def main():
         parser.error('--format-only requires --format-artifacts and excludes --edit-only')
     if args.edit_only and not args.edit_artifacts:
         parser.error('--edit-only requires --edit-artifacts')
-    if not (args.edit_only or args.format_only or args.list_only or args.merge_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
+    if not (args.edit_only or args.format_only or args.list_only or args.merge_only or args.subdivide_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
         parser.error('Grid mode requires --grid-artifacts, --repeat-artifacts and --core-artifacts')
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
     cases = []
-    if args.merge_only:
+    if args.subdivide_only:
+        cases=[('subdivide-'+name,args.subdivide_artifacts/('subdivide-'+name+'.odt')) for name in ('parts','typed')]
+        if args.core_artifacts:
+            cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in (
+                'subdivided','relative-subdivided','merged-subdivided','repeated-subdivided',
+                'nested-subdivided','numeric-subdivided','typed-subdivided')]
+    elif args.merge_only:
         cases=[('merge-'+name,args.merge_artifacts/('merge-'+name+'.odt')) for name in ('merged','split','typed')]
         if args.core_artifacts:
             cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in (
