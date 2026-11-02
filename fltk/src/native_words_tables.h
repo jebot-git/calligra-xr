@@ -20,7 +20,8 @@ struct WordsTableRangeEdit {
 // Materialize only the selected displayed instance before a text transaction.
 // Offsets stay within the leaf cell; the complete outer-to-inner path is
 // needed. No result means that all enclosing row/cell sources are already
-// independent.
+// independent and the leaf already has a real paragraph. A virtual empty cell
+// caret is replaced by a real paragraph only in this discarded-on-cancel copy.
 std::optional<WordsTableRangeEdit>
 materialize_words_table_range(const OdfPackage &,
                               const std::vector<TextCellAddress> &,

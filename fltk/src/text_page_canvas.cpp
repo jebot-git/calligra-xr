@@ -953,6 +953,9 @@ int TextPageCanvas::handle(int event) {
         auto begin = std::min(range.anchor, range.cursor),
              end = std::max(range.anchor, range.cursor);
         if (range.collapsed()) {
+          if (auto stop = cursor();
+              stop && edit_map_.virtual_paragraph(stop->caret.paragraph))
+            return 1;
           if (key == FL_BackSpace)
             begin = control ? edit_map_.previous_word(begin)
                             : edit_map_.previous_grapheme(begin);

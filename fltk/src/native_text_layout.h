@@ -193,6 +193,7 @@ struct TextTableCell {
   TextCellStyle style;
   std::vector<TextBlock> blocks;
   std::shared_ptr<const TextParagraph> empty_format;
+  std::optional<size_t> empty_paragraph;
 };
 struct TextTableRow {
   XmlElement source;
@@ -227,6 +228,13 @@ struct TextTable {
 };
 struct TextFlow {
   std::vector<TextParagraph> paragraphs;
+  // Virtual, zero-length cell paragraphs follow real source indices. Their
+  // positions do not add separators or alter the package's source text.
+  struct EmptyCell {
+    XmlElement source;
+    size_t position;
+  };
+  std::vector<EmptyCell> empty_cells;
   std::vector<TextBlock> blocks;
   std::vector<TextTable> tables;
   std::map<Text, TextPageStyle> masters;

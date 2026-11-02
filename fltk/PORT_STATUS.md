@@ -619,3 +619,27 @@ Cross-cell list level/structure commands, empty-source-cell text editing,
 large-range performance and broader Words table sizing, formula/reference,
 section/column/header/footer/note/image-anchor work remain unfinished. Words
 stays first, Sheets functions next, Stage last; the full goal remains active.
+
+
+## Empty Words source-cell editing — 2026-11-02
+
+Truly empty table cells now expose a native caret and participate in displayed
+navigation and selections. Virtual paragraph identities follow real source
+indices without adding source text or XML separators. Empty cells with the same
+format share shaping while retaining their own source identity, geometry and
+complete repeated/nested cell paths. Covered and hidden cells remain excluded.
+
+First typing, paste or a paragraph/soft break creates a real paragraph in the
+addressed cell. Repeated rows/cells and enclosing instances are isolated in the
+same event transaction. Inherited cell text formatting applies, stale string
+caches are invalidated, and untouched cells remain empty. No delivered input,
+cancelled preedit and failed edits restore exact original XML and selection;
+undo returns to the original virtual caret. Backspace/Delete at a collapsed
+virtual caret are no-ops. Value/formula or unsupported-object cells still
+require their dedicated editors and reject text preparation atomically.
+
+The applicable Release/sanitizer, GUI, export and CUPS evidence is recorded in
+VALIDATION.md. Cross-cell list structure, table sizing, value/reference adjustment,
+large-document performance and the remaining section/column/header/footer/note/
+image-anchor work are unfinished. Words stays first, Sheets functions next,
+Stage last. The full goal remains active.

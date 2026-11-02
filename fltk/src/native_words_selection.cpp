@@ -18,6 +18,8 @@ WordsDisplayMap::WordsDisplayMap(const TextFlow &flow) {
     starts.push_back(total);
     total += p.text.size() + 1;
   }
+  for (const auto &cell : flow.empty_cells)
+    starts.push_back(cell.position);
   std::vector<TextCellAddress> path;
   auto walk = [&](auto &&self, const std::vector<TextBlock> &blocks,
                   size_t depth) -> void {
@@ -36,6 +38,8 @@ WordsDisplayMap::WordsDisplayMap(const TextFlow &flow) {
                                path});
       } else {
         const auto &table = block_table(flow, block);
+        if (!table.visible)
+          continue;
         for (const auto &cell : table.cells) {
           bool row = false, column = false;
           for (size_t r = cell.row; r < cell.row + cell.rows; ++r)
@@ -46,7 +50,16 @@ WordsDisplayMap::WordsDisplayMap(const TextFlow &flow) {
             continue;
           path.push_back(
               {block.index, cell.row, cell.column, cell.rows, cell.columns});
-          self(self, cell.blocks, depth + 1);
+          if (cell.blocks.empty() && cell.empty_paragraph) {
+            const auto index = *cell.empty_paragraph;
+            if (paragraphs_.size() >= 1000000)
+              throw std::runtime_error(
+                  "Displayed selection exceeds native paragraph limit");
+            if (!indices_.emplace(key(index, path), paragraphs_.size()).second)
+              throw std::runtime_error("Ambiguous empty cell identity");
+            paragraphs_.push_back({index, starts.at(index), 0, path});
+          } else
+            self(self, cell.blocks, depth + 1);
           path.pop_back();
         }
       }

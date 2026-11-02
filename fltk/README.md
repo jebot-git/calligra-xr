@@ -214,6 +214,11 @@ CUPS test queues.
   each cell; paragraph and soft breaks stay in the starting cell. Preparation and
   input share one undo command, with exact rollback on cancelled/empty input.
   Numeric/formula and unsupported embedded-object edits reject atomically.
+  Empty source cells have virtual carets without adding XML. Typing, paste and
+  paragraph/soft breaks create a real paragraph in only the addressed cell;
+  repeated and nested instances remain independent. Cancelled or empty input
+  and boundary deletion preserve the original empty source. Undo restores its
+  virtual caret. Cell text formatting is inherited by the first input.
   Cross-cell list-structure commands remain guarded.
   Table → Cells → Cell format edits each side's padding and border, background
   color (including transparent) and vertical alignment. It retains effective

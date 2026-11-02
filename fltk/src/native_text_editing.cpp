@@ -31,6 +31,13 @@ void TextEditMap::reset(const TextFlow &flow) {
   }
   if (text_.size() > 16'000'000)
     throw std::runtime_error("Native editing text exceeds limit");
+  source_paragraphs_ = starts_.size();
+  for (const auto &cell : flow.empty_cells) {
+    if (cell.position > text_.size())
+      throw std::runtime_error("Invalid empty cell text position");
+    starts_.push_back(cell.position);
+    sizes_.push_back(0);
+  }
   std::vector<UChar> utf16;
   std::vector<size_t> from16;
   for (size_t i = 0; i < text_.size(); ++i) {

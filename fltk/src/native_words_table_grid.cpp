@@ -764,6 +764,18 @@ void editable_cell_values(XmlElement node) {
       fail("These cells contain values or formulas requiring a value merge");
   }
 }
+XmlElement create_empty_cell_paragraph(OdfPackage &p, XmlElement cell) {
+  if (cell.namespaceURI() != TABLE || cell.localName() != "table-cell")
+    fail("The empty caret is not in an editable table cell");
+  for (auto child = cell.firstChild(); !child.isNull();
+       child = child.nextSibling())
+    if (child.isElement() || ((child.isText() || child.isCDATASection()) &&
+                              !child.nodeValue().trimmed().empty()))
+      fail("This cell contains content requiring a rich object editor");
+  auto paragraph = p.xml.createElementNS(TEXT, "text:p");
+  cell.appendChild(paragraph);
+  return paragraph;
+}
 void rectangle(const Grid &grid, const TextCellAddress &a, size_t rows,
                size_t columns) {
   if (!rows || !columns || a.row >= grid.rows || a.column >= grid.columns ||
@@ -1105,7 +1117,7 @@ WordsSelectionEdit materialize_words_selection(const OdfPackage &original,
   }
   auto flow = read_text_flow(p);
   auto ps = paragraphs(p.body());
-  if (ps.empty())
+  if (ps.empty() && original_flow.empty_cells.empty())
     return {p, anchor, cursor, {{0, 0}}};
   for (size_t i = 0; i < ps.size(); ++i)
     ps[i].setAttribute(marker, "p" + Text::number(i));
@@ -1163,9 +1175,12 @@ WordsSelectionEdit materialize_words_selection(const OdfPackage &original,
       root = isolate(chosen.node, "number-columns-repeated", chosen.instance,
                      names);
     }
-    auto paragraph = find(root, "p" + Text::number(slice.paragraph));
-    mapped.emplace_back(paragraph, slice.begin - starts.at(slice.paragraph),
-                        slice.end - starts.at(slice.paragraph), slice.active);
+    const bool empty = slice.paragraph >= original_flow.paragraphs.size();
+    auto paragraph = empty ? create_empty_cell_paragraph(p, root)
+                           : find(root, "p" + Text::number(slice.paragraph));
+    const auto start = empty ? slice.begin : starts.at(slice.paragraph);
+    mapped.emplace_back(paragraph, slice.begin - start, slice.end - start,
+                        slice.active);
   }
   walk(p.xml.documentElement(),
        [&](auto node) { node.removeAttribute(marker); });
@@ -1222,14 +1237,27 @@ materialize_words_table_range(const OdfPackage &original,
                count(cell.source, "number-columns-repeated") > 1;
     previous_cell = leaf = cell.source;
   }
-  if (!repeated)
-    return {};
   auto old_paragraphs = paragraphs(leaf);
-  if (old_paragraphs.empty())
-    fail("This table cell has no editable paragraph");
-  const size_t first = offset_of(original, old_paragraphs.front()),
-               last = offset_of(original, old_paragraphs.back()) +
-                      plain_text(old_paragraphs.back()).size();
+  const bool empty = old_paragraphs.empty();
+  size_t first, last;
+  if (empty) {
+    auto found = std::find_if(
+        original_flow.empty_cells.begin(), original_flow.empty_cells.end(),
+        [&](const auto &entry) { return entry.source == leaf; });
+    if (found == original_flow.empty_cells.end())
+      fail("This table cell has no editable empty caret");
+    first = last = found->position;
+    for (const auto &address : context)
+      editable_cell_values(
+          validate_address(original_flow.tables[address.table], address)
+              .source);
+  } else {
+    if (!repeated)
+      return {};
+    first = offset_of(original, old_paragraphs.front());
+    last = offset_of(original, old_paragraphs.back()) +
+           plain_text(old_paragraphs.back()).size();
+  }
   if (begin < first || end > last)
     fail("The text selection crosses its table cell");
   auto p = original;
@@ -1242,6 +1270,8 @@ materialize_words_table_range(const OdfPackage &original,
   const auto &address = context.back();
   auto chosen = isolate_cell(p, grid, address.row, address.column, names);
   auto chosen_paragraphs = paragraphs(chosen);
+  if (empty)
+    chosen_paragraphs.push_back(create_empty_cell_paragraph(p, chosen));
   const auto first_chosen = offset_of(p, chosen_paragraphs.front());
   const auto mapped_begin = first_chosen + begin - first,
              mapped_end = first_chosen + end - first;

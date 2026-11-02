@@ -517,9 +517,14 @@ struct NativeBlockLayouter::Impl {
       double inner = std::max(.01, w - insets[i][1] - insets[i][3]);
       auto text = blocks(cell.blocks, inner);
       if (cell.blocks.empty() && cell.empty_format) {
-        TextBlock strut{
-            TextBlock::Paragraph, size_t(-1), cell.empty_format, {}};
-        text.height = paragraph(strut, inner)->height;
+        TextBlock strut{TextBlock::Paragraph,
+                        cell.empty_paragraph.value_or(size_t(-1)),
+                        cell.empty_format,
+                        {}};
+        auto box = paragraph(strut, inner);
+        text.height = box->height;
+        if (cell.empty_paragraph)
+          append(text, *box, 0, 0);
       }
       content[i] = std::make_shared<const TextBoxLayout>(std::move(text));
       if (cell.rows == 1 && model.rows[cell.row].visible &&

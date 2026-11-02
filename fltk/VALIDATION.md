@@ -2250,3 +2250,56 @@ structure commands, empty-source-cell text editing, large-range performance,
 table sizing, value/reference adjustment and broader Words layout/editing remain
 unfinished. The full goal remains active: Words first, Sheets functions next,
 Stage last. No desktop/display-manager session or system printer queue restarts.
+
+## Native Words empty source-cell editing — 2026-11-02
+
+The layout model now gives truly empty source cells virtual paragraph identities
+and clipped caret lines without changing source XML or the paragraph-separated
+text stream. The display selection map includes these identities in document
+order, retaining full repeated/nested instance paths. Layout caching includes
+the paragraph identity even when empty cells share one inherited format.
+Hidden tables and hidden rows/columns do not expose displayed selection entries;
+covered-cell metadata remains outside displayed content.
+
+Text event preparation creates a real paragraph in the addressed empty cell and
+isolates repeated rows/cells and enclosing instances in the same transaction.
+Existing insertion, paragraph/soft-break, clipboard, style inheritance, string
+cache invalidation and exact history handling then apply normally. No delivered
+input, cancelled preedit and failed edits restore original XML, saved state and
+virtual selection. Backspace/Delete at a collapsed virtual caret are no-ops.
+Value/formula and unsupported-object cells reject text preparation atomically.
+
+`native-words-empty-cell` checks independent, repeated, nested, table-only,
+multiple distinct empty sources with shared formatting, and cells following the
+last body paragraph. It verifies every virtual line's displayed identity,
+unchanged source text during layout/queries, inherited bold/blue text, Unicode
+and paragraph breaks, unmodified peers, cache invalidation, unique IDs, opaque
+archive bytes, saved ODF reopen and exact selection/source undo/redo. It also
+checks hidden tables, cross-cell empty selections, boundary-only no-op deletion,
+cancelled preedit, stale endpoints and numeric/unsupported-object rejection.
+
+All 52 applicable optimized Release suites and all 52 ASan/UBSan suites pass,
+with leak detection enabled for core tests. The three older outline-font-dependent
+native-text-shaping, native-text-hit and native-text-editing suites remain
+excluded; these results do not count them as passing. Flat/nested private Wayland,
+flat X11 and nested sanitizer GUI tests pass for empty-cell caret placement,
+typing, paste, paragraph/soft breaks, navigation, boundary no-ops, save/reopen and
+exact archive/selection history. GUI leak detection remains disabled for
+third-party libraries. Rudimentary and prior nested cross-cell editing regressions
+also pass.
+
+Version-matched content/styles schemas validate 140 generated ODF packages.
+Fifteen private CUPS jobs validate the new flat/nested UI and seven core fixtures;
+three further suite-baseline jobs cover Words, Sheets and Stage. Export preserves
+source archive entries except the regenerated manifest. Native, reopened and
+captured print rasters agree. All 24 rendered pages were visually reviewed, and
+the nine accepted suite-baseline pages remain pixel-identical to the prior
+bitmap baseline. No system printer queues or desktop/display-manager sessions
+were changed or restarted.
+
+This increment closes empty-source-cell text editing. Cross-cell list structure,
+large-document performance, table sizing, value/reference adjustment and broader
+section/column/header/footer/note/image-anchor behavior remain unfinished. Words
+stays first, Sheets functions next, Stage last; the full goal remains active.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-empty-cell-20261102`.

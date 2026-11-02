@@ -13,6 +13,7 @@
 #include <memory>
 #include <set>
 #include <span>
+#include <tuple>
 #include <unicode/ubrk.h>
 #include <unordered_map>
 #include <unicode/utext.h>
@@ -1133,7 +1134,37 @@ struct Reader {
     formatted_tables.emplace(std::move(key), table);
     return table;
   }
-  void finish_tables() {
+  void finish_tables(XmlElement body = {}) {
+    size_t position = 0;
+    std::map<const void *, size_t> positions;
+    auto scan = [&](auto &&self, XmlElement node) -> void {
+      positions.emplace(node.identity(), position);
+      if (node.namespaceURI() == TEXT &&
+          (node.localName() == "p" || node.localName() == "h")) {
+        position += plain_text(node).size() + 1;
+        return;
+      }
+      for (auto child = node.firstChild(); !child.isNull();
+           child = child.nextSibling())
+        if (child.isElement())
+          self(self, child);
+    };
+    if (!body.isNull())
+      scan(scan, body);
+    const auto length = position ? position - 1 : 0;
+    std::map<const void *, size_t> empty_indices;
+    for (auto &table : flow.tables)
+      for (auto &cell : table.cells)
+        if (!body.isNull() && cell.blocks.empty()) {
+          auto [it, added] = empty_indices.emplace(cell.source.identity(),
+                                                   flow.paragraphs.size() +
+                                                       flow.empty_cells.size());
+          if (added)
+            flow.empty_cells.push_back(
+                {cell.source,
+                 std::min(positions.at(cell.source.identity()), length)});
+          cell.empty_paragraph = it->second;
+        }
     // These are independent bounds for the cached resolved formatting; source
     // text was already checked during parsing. Repeated identical contexts
     // share it.
@@ -2333,15 +2364,15 @@ TextFlow read_text_flow(const OdfPackage &package) {
   reader.load_images(package);
   reader.pages();
   reader.blocks(package.body());
-  reader.finish_tables();
+  if (reader.flow.paragraphs.empty())
+    reader.flow.paragraphs.push_back(reader.make_paragraph({}, nullptr, false));
+  reader.finish_tables(package.body());
   size_t total = 0;
   for (const auto &p : reader.flow.paragraphs) {
     total += p.text.size();
     if (total > 4'000'000)
       fail("Document exceeds native layout text limit");
   }
-  if (reader.flow.paragraphs.empty())
-    reader.flow.paragraphs.push_back(reader.make_paragraph({}, nullptr, false));
   return std::move(reader.flow);
 }
 
@@ -2432,7 +2463,8 @@ class ParagraphBoxes {
     std::vector<Cluster> clusters;
   };
   std::map<uintptr_t, Prepared> prepared;
-  std::map<std::pair<uintptr_t, double>, std::shared_ptr<const TextBoxLayout>>
+  std::map<std::tuple<uintptr_t, size_t, double>,
+           std::shared_ptr<const TextBoxLayout>>
       cached;
   size_t characters = 0, wrapped_lines = 0;
 
@@ -2443,7 +2475,7 @@ public:
   operator()(const TextBlock &block, double width, size_t source = 0) {
     const auto &p = block_paragraph(flow, block);
     auto identity = reinterpret_cast<uintptr_t>(&p);
-    auto key = std::pair{identity, width};
+    auto key = std::tuple{identity, block.index, width};
     if (!source)
       if (auto it = cached.find(key); it != cached.end())
         return it->second;

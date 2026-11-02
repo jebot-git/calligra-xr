@@ -10,6 +10,9 @@ public:
   size_t global(size_t paragraph, size_t offset) const;
   size_t paragraph_size(size_t paragraph) const;
   size_t paragraph_count() const { return starts_.size(); }
+  bool virtual_paragraph(size_t paragraph) const {
+    return paragraph >= source_paragraphs_;
+  }
   size_t previous_grapheme(size_t) const;
   size_t next_grapheme(size_t) const;
   size_t previous_word(size_t) const;
@@ -19,6 +22,7 @@ public:
 
 private:
   Text text_;
+  size_t source_paragraphs_ = 0;
   std::vector<size_t> starts_, sizes_, graphemes_, word_starts_;
   std::vector<std::pair<size_t, size_t>> words_;
 };
