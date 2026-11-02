@@ -234,6 +234,7 @@ public:
     std::optional<TextSelection> before_event;
     std::function<void()> finish_event;
     std::function<void(int)> start_event;
+    std::function<bool()> prepare_edit;
     int handle(int event) override
     {
         if (!handling) {
@@ -265,7 +266,8 @@ public:
             // until clipboard delivery so it belongs to the insertion event.
             switch (handle_rmb(0)) {
             case 1:
-                kf_cut(0, this);
+                if (!prepare_edit || prepare_edit())
+                    kf_cut(0, this);
                 break;
             case 2:
                 kf_copy(0, this);
@@ -278,7 +280,14 @@ public:
         } else if (event == FL_PASTE && !Fl::event_length()) {
             result = 1;
         } else {
-            result = Fl_Text_Editor::handle(event);
+            const int key = Fl::event_key(), state = Fl::event_state();
+            const bool control = (state & FL_CTRL) && !(state & FL_ALT);
+            const auto binding = bound_key_function(key, state & (FL_SHIFT | FL_CTRL | FL_ALT | FL_META));
+            const bool bound_mutation = binding == kf_default || binding == kf_enter
+                || binding == kf_backspace || binding == kf_delete || binding == kf_cut;
+            const bool mutation = (event == FL_PASTE && Fl::event_length())
+                || (event == FL_KEYDOWN && ((Fl::event_length() && !control) || key == FL_BackSpace || key == FL_Delete || key == FL_Enter || key == FL_KP_Enter || key == FL_Tab || bound_mutation || (control && key == 'x')));
+            result = mutation && prepare_edit && !prepare_edit() ? 1 : Fl_Text_Editor::handle(event);
         }
         if (!--handling) {
             if (event == FL_KEYDOWN) {
@@ -553,6 +562,7 @@ public:
             editor->add_key_binding('y', FL_CTRL, undo_key);
             if (kind == Kind::Words) {
                 static_cast<WordsEditor*>(editor)->finish_event = [this] { finish_word_edit(); };
+                static_cast<WordsEditor*>(editor)->prepare_edit = [this] { return prepare_word_edit(); };
                 static_cast<WordsEditor*>(editor)->start_event = [this](int event) {
                     if (!words)
                         return;
@@ -766,6 +776,27 @@ public:
                 editor->activate();
         }
     }
+    bool prepare_word_edit()
+    {
+        if (!words || words->editing() || readonly())
+            return true;
+        const auto previous = word_selection();
+        try {
+            if (auto selection = words->prepare_cell_edit(previous)) {
+                fill_buffer(words->text());
+                restore_word_selection(*selection);
+                sync_pages();
+            }
+            return true;
+        } catch (const std::exception& e) {
+            words->cancel_edit();
+            words->end_edit();
+            fill_buffer(words->text());
+            restore_word_selection(previous);
+            message(e.what());
+            return false;
+        }
+    }
     void finish_word_edit()
     {
         if (!words || !words->editing())
@@ -855,8 +886,15 @@ public:
         if (readonly() || begin == end)
             return;
         auto previous = word_selection();
+        const auto original_selection = previous;
         try {
-            words->begin_edit(previous);
+            if (auto selection = words->prepare_cell_edit(previous)) {
+                const auto delta = ptrdiff_t(selection->cursor) - ptrdiff_t(previous.cursor);
+                begin = size_t(ptrdiff_t(begin) + delta);
+                end = size_t(ptrdiff_t(end) + delta);
+                previous = *selection;
+            } else
+                words->begin_edit(previous);
             try {
                 words->replace(begin, end - begin, { }, true, previous, TextSelection { begin, begin });
                 words->end_edit(TextSelection { begin, begin });
@@ -868,7 +906,10 @@ public:
             fill_buffer(words->text());
             restore_word_selection({ begin, begin });
         } catch (const std::exception& e) {
-            restore_word_selection(previous);
+            words->cancel_edit();
+            words->end_edit();
+            fill_buffer(words->text());
+            restore_word_selection(original_selection);
             message(e.what());
         }
         modified = words->modified();
@@ -1616,9 +1657,13 @@ public:
                 } else if (!editor)
                     Fl::paste(*grid, 1);
             } else if (c == Cut) {
-                if (editor && editor->active_r())
+                if (editor && editor->active_r()) {
+                    if (kind == Kind::Words && !prepare_word_edit())
+                        return;
                     Fl_Text_Editor::kf_cut(0, editor);
-                else if (!editor) {
+                    if (kind == Kind::Words)
+                        finish_word_edit();
+                } else if (!editor) {
                     command(Copy);
                     formula->value("");
                     cell_pending = true;

@@ -170,7 +170,11 @@ CUPS test queues.
   Header groups and repeated cells keep their source semantics. The selected
   repeated cell, including enclosing repeated cells around nested tables, becomes
   independently editable after the command. Undo restores its cell instance and
-  exact archive parts. Tables containing formulas reject these structural edits
+  exact archive parts. Native page typing, deletion, cut/paste and paragraph/soft
+  breaks also localize preexisting repeated cells, including nested ancestors,
+  before changing text. Materialization and the text edit share one undo step;
+  cancelled/empty events restore the original source and transient typing format.
+  Tables containing formulas reject these structural edits
   until reference adjustment is implemented. Direct placement in lists needs an
   anchored table or list splitting; merge/split controls remain pending.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.

@@ -37,10 +37,18 @@ bool is_paragraph(XmlElement node) {
 }
 std::vector<XmlElement> paragraphs(XmlElement root) {
   std::vector<XmlElement> result;
-  walk(root, [&](XmlElement n) {
-    if (is_paragraph(n))
+  // Match TextDocument's source stream. Embedded note/annotation paragraphs
+  // belong to their containing paragraph, not a second editable source range.
+  std::function<void(XmlElement)> collect = [&](XmlElement n) {
+    if (is_paragraph(n)) {
       result.push_back(n);
-  });
+      return;
+    }
+    for (auto child = n.firstChild(); !child.isNull(); child = child.nextSibling())
+      if (child.isElement())
+        collect(child);
+  };
+  collect(root);
   return result;
 }
 size_t offset_of(const OdfPackage &p, XmlElement node) {
@@ -664,6 +672,60 @@ WordsTableEdit finish(OdfPackage p, XmlElement source, size_t row,
   return focused(std::move(p), offset);
 }
 } // namespace
+std::optional<WordsTableRangeEdit>
+materialize_words_table_range(const OdfPackage &original,
+                              const std::vector<TextCellAddress> &context,
+                              size_t begin, size_t end) {
+  if (context.empty())
+    return {};
+  if (original.kind() != Kind::Words || original.read_only())
+    fail("This document cannot be edited");
+  if (begin > end)
+    fail("Invalid table text range");
+  auto original_flow = read_text_flow(original);
+  XmlElement previous_cell, leaf;
+  bool repeated = false;
+  for (const auto &address : context) {
+    if (address.table >= original_flow.tables.size())
+      fail("Invalid table context");
+    const auto &table = original_flow.tables[address.table];
+    const auto &cell = validate_address(table, address);
+    auto enclosing = ancestor(table.source, "table-cell");
+    if (enclosing != previous_cell)
+      fail("The complete enclosing table context is required");
+    repeated = repeated ||
+               count(table.rows[cell.row].source, "number-rows-repeated") > 1 ||
+               count(cell.source, "number-columns-repeated") > 1;
+    previous_cell = leaf = cell.source;
+  }
+  auto old_paragraphs = paragraphs(leaf);
+  if (old_paragraphs.empty())
+    fail("This table cell has no editable paragraph");
+  const size_t first = offset_of(original, old_paragraphs.front()),
+               last = offset_of(original, old_paragraphs.back()) +
+                      plain_text(old_paragraphs.back()).size();
+  if (begin < first || end > last)
+    fail("The text selection crosses its table cell");
+  if (!repeated)
+    return {};
+  auto p = original;
+  p.xml = read_document_xml(original.xml.toByteArray());
+  Names names(p);
+  auto flow = read_text_flow(p);
+  auto source = prepare_target(p, flow, context, names);
+  flow = read_text_flow(p);
+  Grid grid(flow.tables[table_index(flow, source)]);
+  const auto &address = context.back();
+  auto chosen = isolate_cell(p, grid, address.row, address.column, names);
+  auto chosen_paragraphs = paragraphs(chosen);
+  const auto first_chosen = offset_of(p, chosen_paragraphs.front());
+  const auto mapped_begin = first_chosen + begin - first,
+             mapped_end = first_chosen + end - first;
+  (void)read_text_flow(p);
+  auto cells = words_table_cells_at(p, mapped_end);
+  return WordsTableRangeEdit{std::move(p), mapped_begin, mapped_end,
+                             std::move(cells)};
+}
 std::vector<TextCellAddress> words_table_cells_at(const OdfPackage &p,
                                                   size_t position) {
   if (p.kind() != Kind::Words)

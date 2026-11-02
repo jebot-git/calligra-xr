@@ -225,10 +225,44 @@ void TextDocument::cancel_edit()
     edit_->changed = false;
     edit_->cancelled = true;
 }
+std::optional<TextSelection> TextDocument::prepare_cell_edit(TextSelection selection)
+try {
+    if (edit_ || selection.cells.empty())
+        return { };
+    const auto begin = std::min(selection.anchor, selection.cursor),
+               end = std::max(selection.anchor, selection.cursor);
+    auto materialized = materialize_words_table_range(package_, selection.cells, begin, end);
+    if (!materialized)
+        return { };
+    const bool reverse = selection.anchor > selection.cursor;
+    TextSelection next { reverse ? materialized->end : materialized->begin,
+        reverse ? materialized->begin : materialized->end };
+    next.cells = std::move(materialized->cells);
+    if (!next.cells.empty())
+        next.cell = next.cells.back();
+    begin_edit(selection);
+    apply(std::move(materialized->document), selection, next);
+    if (typing_format_) {
+        if (typing_format_->position == selection.cursor)
+            typing_format_->position = next.cursor;
+        else
+            typing_format_.reset();
+    }
+    edit_->prepared = true;
+    edit_->prepared_xml = package_.xml.toByteArray();
+    return next;
+} catch (...) {
+    cancel_edit();
+    throw;
+}
 std::optional<TextSelection> TextDocument::end_edit(std::optional<TextSelection> next)
 try {
     if (!edit_)
         return { };
+    // An empty paste or a boundary key must not leave a structural-only edit.
+    if (edit_->prepared && package_.xml.toByteArray() == edit_->prepared_xml
+        && package_.part_changes_from(edit_->original).empty())
+        cancel_edit();
     if (edit_->cancelled) {
         auto selection = edit_->previous;
         edit_.reset();

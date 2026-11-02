@@ -170,6 +170,8 @@ parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on 
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
 parser.add_argument('--rudimentary-only', action='store_true', help='Verify basic native editing, save/reopen and history with the current system font')
 parser.add_argument('--grid-repeat-only', action='store_true', help='Run repeated-row caret/undo UI checks')
+parser.add_argument('--repeated-edit-only', action='store_true', help='Run local typing, deletion and clipboard checks in preexisting repeated cells')
+parser.add_argument('--nested-fixture', type=Path, help='Also test the nested/repeated source fixture in repeated-edit mode')
 parser.add_argument('--grid-only', action='store_true', help='Run focused table row/column UI checks')
 parser.add_argument('--tables-only', action='store_true', help='Run focused structural table UI checks')
 parser.add_argument('--tabs-only', action='store_true', help='Run focused native tab stop UI checks')
@@ -179,11 +181,13 @@ parser.add_argument('--styles-only', action='store_true', help='Run focused name
 parser.add_argument('--format-only', action='store_true', help='Run focused character/paragraph format UI checks')
 parser.add_argument('--text-view', action='store_true', help='Run the full editing regression in the explicit plain text view')
 args = parser.parse_args()
+if args.nested_fixture and not args.repeated_edit_only:
+    parser.error('--nested-fixture requires --repeated-edit-only')
 if args.rudimentary_only:
     args.page_only = True
-if args.grid_repeat_only:
-    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view:
-        parser.error('--grid-repeat-only requires native page editing without other focused modes')
+if args.grid_repeat_only or args.repeated_edit_only:
+    if args.grid_only or args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime or args.text_view or (args.grid_repeat_only and args.repeated_edit_only):
+        parser.error('Repeated-cell modes require native page editing without other focused modes')
     args.grid_only=True
 
 if args.grid_only and (args.tables_only or args.tabs_only or args.page_setup_only or args.page_only or args.character_styles_only or args.styles_only or args.format_only or args.ime):
@@ -307,7 +311,7 @@ try:
             time.sleep(.15 if args.ime else .09)
 
         source = art / 'editing.odt'
-        produce(source,repeated=args.grid_repeat_only)
+        produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only)
         report = art / 'report.json'
         report.unlink(missing_ok=True)
         process = start([args.bin_dir.resolve() / 'calligra-words-fltk', source,
@@ -1094,7 +1098,7 @@ try:
                         'page_layout':layout_report,'full_native_editor_regressions':False},indent=2)+'\n')
                     print('PASS native Words table insertion/deletion, nested tables, cell typing and exact structural undo',flush=True)
                     raise FormatComplete
-            if args.grid_repeat_only:
+            if args.grid_repeat_only or args.repeated_edit_only:
                 click_records=[]
                 def settled_page():
                     previous=None;since=0;reports=set()
@@ -1108,14 +1112,15 @@ try:
                         if time.monotonic()-since>.5 and len(reports)>=3:
                             return snapshot
                     return wait(ready)
-                def repeated_click(row,column):
+                def repeated_click(row,column,start=False):
                     snapshot=settled_page();page=snapshot['page_layout']
                     cell=next(c for c in page['table_cells'] if c['table']==0 and c['row']==row and c['column']==column)
                     vx,vy,vw,vh=page['viewport']
                     zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
                     left=vx+(vw-cell['page_width']*zoom)/2
                     top=vy+12-page['scroll']
-                    point=[round(left+(cell['x']+12)*zoom),round(top+(cell['y']+cell['height']/2)*zoom)]
+                    point=[round(left+(cell['x']+(1 if start else 12))*zoom),
+                        round(top+(cell['y']+(3 if start else cell['height']/2))*zoom)]
                     click_records.append({'window_size':snapshot['window_size'],'viewport':page['viewport'],
                         'row':row,'column':column,'point':point})
                     (art/'grid-clicks.json').write_text(json.dumps(click_records,indent=2)+'\n')
@@ -1131,6 +1136,139 @@ try:
                     wait(lambda:data()['editing']['cell']==[0,1,0,1,1])
                     assert save(name)[1]==original_xml
                     assert parts(name)==original_parts
+                if args.repeated_edit_only:
+                    first_text='Cell link   \tend\nsoft'
+                    def column_texts(root,column):
+                        table=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells')
+                        result=[]
+                        for row in table.findall(TABLE+'table-row'):
+                            cells=row.findall(TABLE+'table-cell')
+                            value='\n'.join(plain(p) for p in cells[column].iter(TEXT+'p'))
+                            result.extend([value]*int(row.get(TABLE+'number-rows-repeated','1')))
+                        return result
+                    def changed(name,column,expected):
+                        root,xml=save(name)
+                        texts=column_texts(root,column)
+                        assert len(texts)==3 and texts[1]==expected,texts
+                        assert texts[0]==texts[2]==(first_text if column==0 else 'Other cell'),texts
+                        assert data()['text']=='\n'.join(plain(p) for p in root.iter() if p.tag in (TEXT+'p',TEXT+'h'))
+                        wait(lambda:data()['editing']['cell']==[0,1,column,1,1])
+                        return xml
+                    def restored(name,position,column=0):
+                        revision=data()['editing']['revision'];key('z',('Control_L',))
+                        wait(lambda:data()['editing']['revision']!=revision)
+                        check_text(original,position)
+                        wait(lambda:data()['editing']['cell']==[0,1,column,1,1])
+                        assert save(name)[1]==original_xml and parts(name)==original_parts
+                        assert not data()['editing']['can_undo'] and data()['editing']['can_redo']
+                    repeated_click(1,0,True);key('Home')
+                    cell_start=original.index('Cell ');check_text(original,cell_start)
+                    # Joining across the previous cell/body boundary rejects
+                    # the entire event, including speculative materialization.
+                    key('BackSpace');check_text(original,cell_start)
+                    wait(lambda:data()['editing']['cell']==[0,1,0,1,1])
+                    assert not data()['modified'] and not data()['editing']['can_undo']
+                    assert save('repeated-boundary-rejected')[1]==original_xml
+                    key('Right',count=3);check_text(original,cell_start+3)
+                    key('BackSpace');changed('repeated-direct-backspace',0,first_text[:2]+first_text[3:])
+                    restored('repeated-direct-backspace-undone',cell_start+3)
+                    key('Delete');changed('repeated-direct-delete',0,first_text[:3]+first_text[4:])
+                    restored('repeated-direct-delete-undone',cell_start+3)
+                    revision=data()['editing']['revision'];key('x')
+                    wait(lambda:data()['editing']['revision']!=revision and data()['modified'])
+                    typed=changed('repeated-typed',0,first_text[:3]+'x'+first_text[3:])
+                    key('BackSpace');changed('repeated-backspaced',0,first_text)
+                    key('z',('Control_L',));assert save('repeated-backspace-undone')[1]==typed
+                    restored('repeated-typing-undone',cell_start+3)
+                    key('y',('Control_L',));assert save('repeated-typing-redone')[1]==typed
+                    restored('repeated-typing-restored',cell_start+3)
+                    repeated_click(1,0,True);key('Home');check_text(original,cell_start)
+                    key('Right',('Shift_L',),count=4);key('x',('Control_L',))
+                    changed('repeated-cut',0,first_text[4:])
+                    restored('repeated-cut-undone',cell_start+4)
+                    # The global menu path bypasses the editor's key handler.
+                    repeated_click(1,0,True);key('Home')
+                    key('Right',('Shift_L',),count=4);menu_action('Cut')
+                    changed('repeated-menu-cut',0,first_text[4:])
+                    restored('repeated-menu-cut-undone',cell_start+4)
+                    # Cutting copied Cell; deliver it asynchronously into just
+                    # the clicked instance of the other repeated column.
+                    repeated_click(1,1,True);key('Home')
+                    other=original.index('Other cell');check_text(original,other)
+                    key('v',('Control_L',));wait(lambda:data()['modified'])
+                    pasted=changed('repeated-pasted',1,'CellOther cell')
+                    restored('repeated-paste-undone',other,1)
+                    key('y',('Control_L',));assert save('repeated-paste-redone')[1]==pasted
+                    restored('repeated-all-restored',other,1)
+                    for name,modifiers in [('paragraph',()),('soft-break',('Shift_L',))]:
+                        repeated_click(1,0,True);key('Home');key('Right',count=3)
+                        key('Return',modifiers)
+                        changed('repeated-'+name,0,first_text[:3]+'\n'+first_text[3:])
+                        root,_=save('repeated-'+name+'-structure')
+                        table=next(t for t in root.iter(TABLE+'table') if t.get(TABLE+'name')=='Cells')
+                        selected=table.findall(TABLE+'table-row')[1].findall(TABLE+'table-cell')[0]
+                        assert len(selected.findall(TEXT+'p'))==(2 if name=='paragraph' else 1)
+                        restored('repeated-'+name+'-undone',cell_start+3)
+                    capture_window('repeated-edit-restored')
+                    key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    if args.nested_fixture:
+                        source=art/'nested-edit.odt';source.write_bytes(args.nested_fixture.read_bytes())
+                        report=art/'nested-report.json'
+                        with zipfile.ZipFile(source) as archive:
+                            original_styles=archive.read('styles.xml')
+                        process=start([args.bin_dir.resolve()/'calligra-words-fltk',source,'--report',report],client,'nested-words')
+                        wait(first_report)
+                        if args.wayland:
+                            window=wait(lambda:next((w for w in scene()['windows'] if w.get('client_pid')==process.pid),None))
+                            request=urllib.request.Request(f'http://127.0.0.1:{port}/api/action',
+                                data=json.dumps({'op':'focus','id':window['id']}).encode(),headers={'Content-Type':'application/json'})
+                            with urllib.request.urlopen(request,timeout=2) as response:response.read()
+                            wait(lambda:scene()['focused']==window['id'])
+                        else:
+                            host=wait(lambda:next((w for w in xd.screen().root.query_tree().children
+                                if 'Calligra Words' in str(w.get_wm_name())),None))
+                            host.set_input_focus(X.RevertToParent,X.CurrentTime);xd.sync()
+                        snapshot=settled_page();original=snapshot['text']
+                        root,original_xml=save('nested-original');original_parts=parts('nested-original')
+                        page=data()['page_layout'];boxes=page['table_cells']
+                        ids={c['table'] for c in boxes};assert len(ids)==2,ids
+                        outer_id=max(ids,key=lambda id:max(c['width'] for c in boxes if c['table']==id))
+                        inner_id=next(id for id in ids if id!=outer_id)
+                        outer=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==2)
+                        inner=next(c for c in boxes if c['table']==inner_id and c['row']==1 and c['column']==1
+                            and outer['x']<=c['x']<outer['x']+outer['width']
+                            and outer['y']<=c['y']<outer['y']+outer['height'])
+                        vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
+                        left=vx+(vw-inner['page_width']*zoom)/2;top=vy+12-page['scroll']
+                        click(round(left+(inner['x']+1)*zoom),round(top+(inner['y']+3)*zoom))
+                        expected_cells=[[outer_id,1,2,1,1],[inner_id,1,1,1,1]]
+                        wait(lambda:data()['editing']['cells']==expected_cells)
+                        key('Home');key('Right',count=3);position=original.index('Český')+3
+                        check_text(original,position)
+                        key('x');wait(lambda:data()['modified'])
+                        root,nested_typed=save('repeated-nested-typed')
+                        def visible_text(node,value,factor=1):
+                            if node.tag==TABLE+'table-row':factor*=int(node.get(TABLE+'number-rows-repeated','1'))
+                            if node.tag==TABLE+'table-cell':factor*=int(node.get(TABLE+'number-columns-repeated','1'))
+                            if node.tag==TEXT+'p':return factor if plain(node)==value else 0
+                            return sum(visible_text(c,value,factor) for c in node)
+                        assert visible_text(root,'Česxký link')==1 and visible_text(root,'Český link')==35
+                        assert [c[1:] for c in data()['editing']['cells']]==[[1,2,1,1],[1,1,1,1]]
+                        key('z',('Control_L',));check_text(original,position)
+                        wait(lambda:data()['editing']['cells']==expected_cells)
+                        assert save('nested-typing-undone')[1]==original_xml
+                        assert parts('nested-typing-undone')==original_parts
+                        key('y',('Control_L',));assert save('nested-typing-redone')[1]==nested_typed
+                        assert [c[1:] for c in data()['editing']['cells']]==[[1,2,1,1],[1,1,1,1]]
+                        capture_window('nested-repeated-typed')
+                        key('q',('Control_L',));assert process.wait(timeout=15)==0
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,
+                        'local_preexisting_repeated_cell_typing':True,'local_backspace_cut_paste':True,
+                        'local_direct_delete':True,'rejected_boundary_atomic':True,'paragraph_soft_break':True,
+                        'menu_cut':True,'one_step_exact_archive_history':True,'clicked_cell_restored':True,
+                        'nested_repeated_ancestors':bool(args.nested_fixture)},indent=2)+'\n')
+                    print('PASS preexisting repeated-cell typing, deletion, clipboard, paragraph/soft breaks and exact source/cell undo',flush=True)
+                    raise FormatComplete
                 repeated_click(1,0); clicked=data()['editing']['cursor']
                 repeat_action('Insert below',[0,2,0,1,1])
                 root,repeat_xml=save('grid-repeat-row-added')

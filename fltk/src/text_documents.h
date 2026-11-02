@@ -23,6 +23,10 @@ public:
     // One frontend event can contain several buffer replacements. Defer history
     // changes until it succeeds; any failed mutation cancels the entire event.
     void begin_edit(TextSelection);
+    // Before frontend mutation, isolate a repeated displayed cell and start one
+    // compound event. Refill the frontend with text() and the returned selection.
+    // end_edit/cancel_edit includes materialization in the same undo operation.
+    std::optional<TextSelection> prepare_cell_edit(TextSelection);
     std::optional<TextSelection> end_edit(std::optional<TextSelection> next = { });
     void cancel_edit();
     bool editing() const { return bool(edit_); }
@@ -87,6 +91,8 @@ private:
         OdfPackage original;
         TextSelection previous, next;
         std::optional<TypingFormat> typing;
+        Bytes prepared_xml;
+        bool prepared = false;
         bool changed = false, cancelled = false;
     };
     std::optional<EditGroup> edit_;

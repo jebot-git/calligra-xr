@@ -1805,3 +1805,45 @@ Artifacts: `/home/blux/de-xr/artifacts/calligra-words-table-grid-20261030`.
 Merge/split controls, general typing into preexisting repeated cells, formula
 reference rewrites, anchored tables in lists and the broader Words layout work
 remain. Sheets functions follow Words; Stage remains last.
+
+
+## Local text events in repeated Words cells — 2026-11-02
+
+Native page editing now materializes the selected displayed row/cell instance
+before the editor mutates its buffer. Complete outer-to-inner cell paths isolate
+nested targets inside repeated ancestors. Scalar selections and pending caret
+formats are remapped to the new source positions. The source isolation and all
+callbacks in the frontend event commit as one history step; empty or cancelled
+events restore the original package and transient format. The same preparation
+covers keyboard input, native deletion, context/menu cut and asynchronous paste.
+
+The new repeated-edit core suite covers a 3×3 outer grid containing repeated
+2×2 inner grids: one edited inner cell changes, the other 35 retain their text.
+It checks forward/reverse Unicode selections, exact source/ZIP undo and redo,
+compound failure rollback, preparation-only no-ops, pending color formatting and
+already-independent source. A preserved note before the table reproduced an
+offset bug: the table walker counted its embedded paragraph a second time.
+Stopping traversal at each source paragraph now matches TextDocument's stream;
+that regression passes with the note content/ID and exact undo retained. This
+is a source-coordinate fix and does not implement note layout.
+
+Release and ASan/UBSan with core leak checking pass all 43 suites applicable to
+the current bitmap runtime. The three previously documented outline-font
+assumption suites remain excluded, not counted as passing. Both Release and
+sanitizer builds pass real native Wayland typing, direct backspace/delete,
+boundary rejection, keyboard/menu cut, paste, paragraph splits and soft breaks.
+X11 passes the same flow. The nested fixture also passes the real frontend in
+all three runs, including clicked outer/inner paths and exact source undo/redo.
+The sanitizer build uses -O1 with address/undefined instrumentation; GUI leak
+checking remains disabled for external runtime libraries.
+
+Twelve actual private CUPS jobs cover UI snapshots and nested core typing/range/
+color cases. Export preserves package entries, source remains unchanged, and
+reopened/captured PDFs rasterize identically. The colored inserted glyph is
+checked in the rendered output. All cases and the nested GUI were visually
+reviewed. Version-matched ODF schemas validate the core, GUI and print packages.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-repeated-edit-20261102`.
+Per-instance formatting of existing repeated content, merge/split controls,
+formula reference adjustment and the broader Words layout/editing work remain;
+Sheets functions and then Stage retain their priority order.

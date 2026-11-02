@@ -38,22 +38,38 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bin-dir', type=Path, required=True)
     parser.add_argument('--test-bin-dir', type=Path)
-    parser.add_argument('--grid-artifacts', type=Path, required=True)
-    parser.add_argument('--repeat-artifacts', type=Path, required=True)
-    parser.add_argument('--core-artifacts', type=Path, required=True)
+    parser.add_argument('--grid-artifacts', type=Path)
+    parser.add_argument('--repeat-artifacts', type=Path)
+    parser.add_argument('--core-artifacts', type=Path)
+    parser.add_argument('--edit-artifacts', type=Path, help='Preexisting repeated-cell editing UI snapshots')
+    parser.add_argument('--edit-only', action='store_true', help='Run only repeated text-edit snapshots and optional nested core fixtures')
     parser.add_argument('--artifacts', type=Path, required=True)
     args = parser.parse_args()
+    if args.edit_only and not args.edit_artifacts:
+        parser.error('--edit-only requires --edit-artifacts')
+    if not args.edit_only and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
+        parser.error('Grid mode requires --grid-artifacts, --repeat-artifacts and --core-artifacts')
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
-    cases = [(name, args.grid_artifacts/('grid-'+name+'.odt'))
-             for name in ('expanded', 'row-deleted', 'column-deleted')]
-    cases += [('repeat-'+name, args.repeat_artifacts/('grid-repeat-'+name+'.odt'))
+    cases = []
+    if not args.edit_only:
+        cases = [(name, args.grid_artifacts/('grid-'+name+'.odt'))
+                 for name in ('expanded', 'row-deleted', 'column-deleted')]
+        cases += [('repeat-'+name, args.repeat_artifacts/('grid-repeat-'+name+'.odt'))
               for name in ('row-added', 'column-typed')]
-    cases += [(name, args.core_artifacts/(file+'.odt')) for name, file in (
+        cases += [(name, args.core_artifacts/(file+'.odt')) for name, file in (
         ('style-row', 'promoted-row-style-retained'),
         ('style-neutral', 'promoted-neutral-style-retained'),
         ('style-column', 'deleted-anchor-column-style-retained'),
         ('hidden-horizontal', 'horizontal-covered-retained'))]
+    elif args.core_artifacts:
+        cases += [('nested-'+name,args.core_artifacts/(file+'.odt')) for name,file in (
+            ('typed','typed'),('range','range-replaced'),('blue','typed-blue'))]
+    if args.edit_artifacts:
+        cases += [('edit-'+name,args.edit_artifacts/('repeated-'+name+'.odt')) for name in (
+            'typed','direct-backspace','direct-delete','cut','menu-cut','pasted','paragraph','soft-break')]
+        nested=args.edit_artifacts/'repeated-nested-typed.odt'
+        if nested.is_file():cases.append(('edit-nested-typed',nested))
     binary = args.bin_dir.resolve()/'calligra-words-fltk'
     helper = (args.test_bin_dir or args.bin_dir).resolve()/'calligra-native-text-shaper-test'
     env = dict(os.environ, LD_LIBRARY_PATH='/usr/local/lib/domed/bitmap',
@@ -88,6 +104,8 @@ def main():
             for page in pages:
                 picture = Image.open(page).convert('L')
                 assert sum(picture.histogram()[:80]) > 50, (name, 'blank page')
+            if name == 'nested-blue':
+                assert sum(color_count(Image.open(page), (22, 90, 167)) for page in pages) > 5
             if name in ('style-row', 'style-column'):
                 picture = Image.open(pages[0]).convert('RGB')
                 assert color_count(picture, (255, 0, 0)) > 20, name

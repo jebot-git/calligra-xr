@@ -12,6 +12,19 @@ struct WordsTableEdit {
   std::optional<TextCellAddress> cell{};
   std::vector<TextCellAddress> cells{};
 };
+struct WordsTableRangeEdit {
+  OdfPackage document;
+  size_t begin = 0, end = 0;
+  std::vector<TextCellAddress> cells;
+};
+// Materialize only the selected displayed instance before a text transaction.
+// Offsets stay within the leaf cell; the complete outer-to-inner path is
+// needed. No result means that all enclosing row/cell sources are already
+// independent.
+std::optional<WordsTableRangeEdit>
+materialize_words_table_range(const OdfPackage &,
+                              const std::vector<TextCellAddress> &,
+                              size_t begin, size_t end);
 // Source offsets count Unicode scalars and paragraph separators. A table can
 // be inserted inside a body, section or existing cell. Deletion
 // resolves the nearest source table, retaining its outer containers.
