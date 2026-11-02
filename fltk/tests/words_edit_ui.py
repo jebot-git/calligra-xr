@@ -1183,8 +1183,16 @@ try:
                     return path
                 if args.table_sizing_only:
                     nested='Outer' in original
+                    def scroll_at(x,y,down):
+                        point=xd.screen().root.translate_coords(host,0,0)
+                        if args.wayland:
+                            box=next(w for w in scene()['windows'] if w['id']==window['id'])['desktop']
+                            x+=int(box['x']);y+=int(box['y'])
+                        xtest.fake_input(xd,X.MotionNotify,x=point.x+x,y=point.y+y)
+                        button=5 if down else 4
+                        xtest.fake_input(xd,X.ButtonPress,button);xtest.fake_input(xd,X.ButtonRelease,button);xd.sync();time.sleep(.15)
                     def selected_box():
-                        key('End',('Control_L',))
+                        key('Home',('Control_L',))
                         snapshot=settled_page();page=snapshot['page_layout'];boxes=page['table_cells']
                         outer_id=max({c['table'] for c in boxes},key=lambda t:max(c['width'] for c in boxes if c['table']==t))
                         if nested:
@@ -1194,11 +1202,48 @@ try:
                         else:
                             cell=next(c for c in boxes if c['table']==outer_id and c['row']==1 and c['column']==1);path=[[outer_id,1,1,1,1]]
                         vx,vy,vw,vh=page['viewport'];zoom=max(.05,min(1.5,(vw-48)/max(p['width'] for p in page['paper_styles'])))
-                        left=vx+(vw-cell['page_width']*zoom)/2;top=vy+12-page['scroll']+sum(p['height']*zoom+24 for p in page['paper_styles'][:cell['page']])
-                        click(round(left+(cell['x']+6)*zoom),round(top+(cell['y']+5)*zoom));key('Home');key('Right',count=2)
+                        left=vx+(vw-cell['page_width']*zoom)/2
+                        for _ in range(100):
+                            top=vy+12-page['scroll']+sum(p['height']*zoom+24 for p in page['paper_styles'][:cell['page']])
+                            target_y=top+(cell['y']+5)*zoom
+                            if vy+20<=target_y<=vy+vh-20:break
+                            scroll_at(vx+vw//2,vy+vh//2,target_y>vy+vh-20)
+                            page=settled_page()['page_layout']
+                        else:raise AssertionError('Could not scroll the addressed table into view')
+                        click(round(left+(cell['x']+6)*zoom),round(top+(cell['y']+5)*zoom));key('Home')
+                        # Soft-wrap boundaries may have two visual caret stops
+                        # at one source offset in these deliberately narrow cells.
+                        for _ in range(20):
+                            if data()['editing']['cursor']==original.index('Cell')+2:break
+                            key('Right')
                         wait(lambda:data()['editing']['cells']==path and data()['editing']['cursor']==original.index('Cell')+2)
                         return path
                     path=selected_box();before_selection=dict(data()['editing'])
+                    # Read the fixture's effective percentage independently of
+                    # its displayed width, which is scoped to one instance.
+                    office='{urn:oasis:names:tc:opendocument:xmlns:office:1.0}'
+                    common={};automatic={};default_percentage=None
+                    for doc in (ET.fromstring(original_styles),ET.fromstring(original_xml)):
+                        for group in doc:
+                            if group.tag not in (office+'styles',office+'automatic-styles'):continue
+                            if group.tag==office+'automatic-styles' and doc.tag!=office+'document-content':continue
+                            for definition in group:
+                                if definition.get(STYLE+'family')!='table':continue
+                                if definition.tag==STYLE+'default-style':
+                                    props=definition.find(STYLE+'table-properties')
+                                    default_percentage=None if props is None else props.get(STYLE+'rel-width')
+                                elif definition.tag==STYLE+'style':
+                                    (automatic if group.tag==office+'automatic-styles' and doc.tag==office+'document-content' else common)[definition.get(STYLE+'name')]=definition
+                    source_root=ET.fromstring(original_xml);source_table=next(t for t in source_root.iter(TABLE+'table') if t.get(TABLE+'name')=='Grid')
+                    name=source_table.get(TABLE+'style-name');definition=automatic.get(name,common.get(name));chain=[]
+                    while definition is not None:
+                        chain.append(definition);name=definition.get(STYLE+'parent-style-name');definition=common.get(name,automatic.get(name)) if name else None
+                        assert len(chain)<256
+                    initial_percentage=default_percentage
+                    for definition in reversed(chain):
+                        props=definition.find(STYLE+'table-properties')
+                        if props is not None:initial_percentage=props.get(STYLE+'rel-width',initial_percentage)
+                    initial_percentage=float(initial_percentage.rstrip('%'))
                     def width_of(table_id):
                         snapshot=settled_page();boxes=snapshot['page_layout']['table_cells']
                         if nested:
@@ -1209,38 +1254,50 @@ try:
                     initial_width=width_of(path[-1][0])
                     def saved(name):return save(name,lambda raw:None)
                     def sizing():
-                        menu_action('Sizing…');wait(lambda:data()['format_dialog']);time.sleep(.2);return panel_origin(740,390)
+                        menu_action('Sizing…');wait(lambda:data()['format_dialog']);time.sleep(.2);return panel_origin(740,440)
                     x,y=sizing();field(x+520,y+70,'99');key('Escape');wait(lambda:not data()['format_dialog'])
                     assert saved('sizing-cancelled')[1]==original_xml and parts('sizing-cancelled')==original_parts
-                    revision=data()['editing']['revision'];x,y=sizing();click(x+665,y+355);wait(lambda:not data()['format_dialog'])
+                    revision=data()['editing']['revision'];x,y=sizing();click(x+665,y+405);wait(lambda:not data()['format_dialog'])
                     assert data()['editing']['revision']==revision and not data()['editing']['can_undo']
                     assert saved('sizing-noop')[1]==original_xml and parts('sizing-noop')==original_parts
-                    x,y=sizing();choice(x+265,y+70,1,current=2);field(x+520,y+70,'-1');click(x+665,y+355);time.sleep(.25)
+                    x,y=sizing();choice(x+265,y+70,1,current=2);field(x+520,y+70,'-1');click(x+665,y+405);time.sleep(.25)
                     assert data()['format_dialog'] and data()['editing']['revision']==revision
-                    field(x+520,y+70,'36' if nested else '120');choice(x+265,y+115,1,current=0)
+                    field(x+520,y+70,'24' if nested else '120');choice(x+265,y+115,1,current=0)
                     choice(x+265,y+170,2,current=1);field(x+520,y+170,'15')
-                    field(x+520,y+220,'0');click(x+665,y+355);time.sleep(.25)
+                    field(x+520,y+220,'0');click(x+665,y+405);time.sleep(.25)
                     assert data()['format_dialog'] and data()['editing']['revision']==revision
-                    choice(x+265,y+220,1,current=0);field(x+520,y+220,'10' if nested else '30')
-                    capture_window('table-sizing-dialog');click(x+665,y+355);wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
+                    choice(x+265,y+220,1,current=0);field(x+520,y+220,'8' if nested else '30')
+                    capture_window('table-sizing-dialog');click(x+665,y+405);wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
                     root,sized_xml=saved('table-sized');sized_parts=parts('table-sized');current=dict(data()['editing'])
                     assert current['cells'][-1][1:]==[1,1,1,1]
                     assert data()['text'][current['cursor']-2:current['cursor']+2]=='Cell'
                     table_id=current['cell'][0];boxes=settled_page()['page_layout']['table_cells'];cell=next(c for c in boxes if c['table']==table_id and c['row']==1 and c['column']==1)
-                    assert abs(width_of(table_id)-(36 if nested else 120)*72/25.4)<.000001
-                    assert abs(cell['width']-(10 if nested else 30)*72/25.4)<.000001
+                    assert abs(width_of(table_id)-(24 if nested else 120)*72/25.4)<.000001
+                    assert abs(cell['width']-(8 if nested else 30)*72/25.4)<.000001
                     assert abs(cell['height']-15*72/25.4)<.000001
                     capture_window('table-sized-layout')
-                    revision=data()['editing']['revision'];x,y=sizing();click(x+665,y+355);wait(lambda:not data()['format_dialog'])
+                    revision=data()['editing']['revision'];x,y=sizing();click(x+665,y+405);wait(lambda:not data()['format_dialog'])
                     assert data()['editing']['revision']==revision and saved('sizing-sized-noop')[1]==sized_xml
                     key('z',('Control_L',));assert saved('sizing-undone')[1]==original_xml and parts('sizing-undone')==original_parts
                     assert data()['editing']['cells']==before_selection['cells'] and data()['editing']['cursor']==before_selection['cursor']
                     key('y',('Control_L',));assert saved('sizing-redone')[1]==sized_xml and parts('sizing-redone')==sized_parts
+                    revision=data()['editing']['revision'];x,y=sizing();field(x+520,y+70,'30' if nested else '150');click(x+192,y+260)
+                    capture_window('table-proportional-dialog');click(x+665,y+405)
+                    wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
+                    _,scaled_xml=saved('table-proportional');scaled_parts=parts('table-proportional');table_id=data()['editing']['cell'][0]
+                    boxes=settled_page()['page_layout']['table_cells'];scaled_cell=next(c for c in boxes if c['table']==table_id and c['row']==1 and c['column']==1)
+                    assert abs(width_of(table_id)-(30 if nested else 150)*72/25.4)<.000001
+                    assert abs(scaled_cell['width']-(10 if nested else 37.5)*72/25.4)<.000001
+                    revision=data()['editing']['revision'];x,y=sizing();click(x+192,y+260);click(x+665,y+405);wait(lambda:not data()['format_dialog'])
+                    assert data()['editing']['revision']==revision and saved('proportional-noop')[1]==scaled_xml
+                    key('z',('Control_L',));assert saved('proportional-undone')[1]==sized_xml and parts('proportional-undone')==sized_parts
+                    key('y',('Control_L',));assert saved('proportional-redone')[1]==scaled_xml and parts('proportional-redone')==scaled_parts
+                    key('z',('Control_L',));assert saved('proportional-restored')[1]==sized_xml and parts('proportional-restored')==sized_parts
                     revision=data()['editing']['revision'];x,y=sizing();choice(x+265,y+70,2,current=1);field(x+520,y+70,'65');choice(x+265,y+115,2,current=1)
-                    choice(x+265,y+170,0,current=2);choice(x+265,y+220,0,current=1);field(x+520,y+220,'3');click(x+665,y+355)
+                    choice(x+265,y+170,0,current=2);choice(x+265,y+220,0,current=1);field(x+520,y+220,'3');click(x+665,y+405)
                     wait(lambda:not data()['format_dialog'] and data()['editing']['revision']!=revision)
                     root,relative_xml=saved('table-relative');relative_parts=parts('table-relative');table_id=data()['editing']['cell'][0]
-                    assert abs(width_of(table_id)-initial_width*1.3)<.000001
+                    assert abs(width_of(table_id)-initial_width*65/initial_percentage)<.000001
                     properties=list(root.iter(STYLE+'table-properties'));assert any(p.get(STYLE+'rel-width')=='65%' and p.get(TABLE+'align')=='right' for p in properties)
                     assert any(p.get(STYLE+'rel-column-width')=='3*' for p in root.iter(STYLE+'table-column-properties'))
                     key('z',('Control_L',));assert saved('sizing-relative-undone')[1]==sized_xml and parts('sizing-relative-undone')==sized_parts
@@ -1248,7 +1305,7 @@ try:
                     saved_text=data()['text'];key('q',('Control_L',));assert process.wait(timeout=15)==0
                     report.unlink();process=start([args.bin_dir.resolve()/'calligra-words-fltk',source,'--report',report],client,'words-reopened');wait(first_report);check_text(saved_text)
                     menu_action('Quit');assert process.wait(timeout=15)==0
-                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'table_row_column_dimensions':True,'fixed_percentage_weight_auto_modes':True,'invalid_cancel_noop':True,'exact_archive_caret_history_reopen':True},indent=2)+'\n')
+                    (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,'nested':nested,'table_row_column_dimensions':True,'fixed_percentage_weight_auto_modes':True,'proportional_fixed_columns':True,'invalid_cancel_noop':True,'exact_archive_caret_history_reopen':True},indent=2)+'\n')
                     print('PASS native table/row/column sizing, fixed/relative/auto modes, invalid/cancel/no-op, caret, exact history and reopen',flush=True)
                     raise FormatComplete
                 if args.range_lists_only:

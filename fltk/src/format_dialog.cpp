@@ -1400,7 +1400,7 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
       measure_words_table_geometry(flow, path, body_width, shaper);
   const auto table_alignment = flow.tables.at(address.table).alignment;
   const double mm = 25.4 / 72.;
-  const int width = 740, height = 390,
+  const int width = 740, height = 440,
             x = std::max(0, (window.w() - width) / 2),
             y = std::max(0, (window.h() - height) / 2);
   auto previous = Fl_Group::current();
@@ -1421,12 +1421,15 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
   column_mode.add("Relative weight|Fixed");
   Fl_Input column_value(x + 470, y + 205, 130, 30, "Size:");
   Fl_Box column_unit(x + 610, y + 205, 70, 30);
+  Fl_Check_Button proportional(x + 180, y + 245, 500, 30,
+                               "Scale fixed columns proportionally");
   background.hint.resize(x + 18, y + height - 132, width - 36, 64);
   background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
   auto hint = "Anchor row " + Text::number(address.row + 1) + ", column " +
               Text::number(address.column + 1) +
-              ". Exact height clips text. Fixed columns retain their widths; "
-              "relative columns share the remaining table width.";
+              ". Exact height clips text. Fixed columns keep their widths "
+              "unless proportional scaling is selected. Relative columns "
+              "share the remaining table width.";
   background.hint.copy_label(hint.toUtf8().c_str());
   table_mode.value(initial.table.mode);
   row_mode.value(initial.row.mode);
@@ -1484,6 +1487,13 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
       row_value.deactivate();
     else
       row_value.activate();
+    if (proportional.value()) {
+      column_mode.deactivate();
+      column_value.deactivate();
+    } else {
+      column_mode.activate();
+      column_value.activate();
+    }
     panel.redraw();
   };
   for (auto *choice : {&table_mode, &row_mode, &column_mode})
@@ -1492,6 +1502,11 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
           (*static_cast<std::function<void(Fl_Widget *)> *>(p))(w);
         },
         &update);
+  proportional.callback(
+      [](Fl_Widget *w, void *p) {
+        (*static_cast<std::function<void(Fl_Widget *)> *>(p))(w);
+      },
+      &update);
   update(nullptr);
   Buttons buttons(panel, x + width - 225, y + height - 50);
   Fl_Group::current(previous);
@@ -1530,16 +1545,19 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
                          row.mode == initial.row.mode, 1 / mm);
       if (row != initial.row)
         change.row = row;
-      WordsColumnSize column;
-      column.mode = WordsColumnSize::Mode(column_mode.value());
-      column.value =
-          read(column_value, initial_column_value, initial.column.value,
-               column.mode == initial.column.mode,
-               column.mode == WordsColumnSize::Fixed ? 1 / mm : 1);
-      if (column != initial.column)
-        change.column = column;
-      auto candidate =
-          size_words_table(original, address, change, path, position);
+      change.proportional_columns = proportional.value();
+      if (!change.proportional_columns) {
+        WordsColumnSize column;
+        column.mode = WordsColumnSize::Mode(column_mode.value());
+        column.value =
+            read(column_value, initial_column_value, initial.column.value,
+                 column.mode == initial.column.mode,
+                 column.mode == WordsColumnSize::Fixed ? 1 / mm : 1);
+        if (column != initial.column)
+          change.column = column;
+      }
+      auto candidate = size_words_table(original, address, change, path,
+                                        position, body_width, &shaper);
       (void)paginate_text(read_text_flow(candidate.document), shaper);
       return candidate;
     } catch (const std::exception &error) {

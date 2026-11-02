@@ -197,17 +197,11 @@ struct OdfTableModelReader::Impl {
     }
   }
   template <class Apply>
-  void chain(const Text &family, const Text &name, bool styles_source,
-             Apply apply) const {
+  void definition_chain(const Text &family, XmlElement node, bool styles_source,
+                        Apply apply) const {
     if (auto it = defaults.find(family); it != defaults.end())
       apply(it->second);
     const auto &automatic = styles_source ? master : content;
-    XmlElement node;
-    Key key{family, name};
-    if (auto it = automatic.find(key); it != automatic.end())
-      node = it->second;
-    else if (auto it = common.find(key); it != common.end())
-      node = it->second;
     std::vector<XmlElement> stack;
     while (!node.isNull()) {
       if (stack.size() >= 256 ||
@@ -227,6 +221,18 @@ struct OdfTableModelReader::Impl {
     for (auto it = stack.rbegin(); it != stack.rend(); ++it)
       apply(*it);
   }
+  template <class Apply>
+  void chain(const Text &family, const Text &name, bool styles_source,
+             Apply apply) const {
+    const auto &automatic = styles_source ? master : content;
+    XmlElement node;
+    Key key{family, name};
+    if (auto it = automatic.find(key); it != automatic.end())
+      node = it->second;
+    else if (auto it = common.find(key); it != common.end())
+      node = it->second;
+    definition_chain(family, node, styles_source, apply);
+  }
 };
 OdfTableModelReader::OdfTableModelReader(
     const std::vector<XmlDocument> &documents)
@@ -241,6 +247,15 @@ OdfTableModelReader::style_chain(const Text &family, const Text &name,
   std::vector<XmlElement> result;
   impl_->chain(family, name, styles_source,
                [&](const XmlElement &style) { result.push_back(style); });
+  return result;
+}
+std::vector<XmlElement>
+OdfTableModelReader::definition_chain(const XmlElement &node,
+                                      bool styles_source) const {
+  std::vector<XmlElement> result;
+  impl_->definition_chain(
+      node.attributeNS(STYLE, "family"), node, styles_source,
+      [&](const XmlElement &style) { result.push_back(style); });
   return result;
 }
 TextTable OdfTableModelReader::read(const XmlElement &node,

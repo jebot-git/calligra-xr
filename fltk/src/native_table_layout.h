@@ -7,6 +7,8 @@ using LayoutParagraph = std::function<std::shared_ptr<const TextBoxLayout>(
     const TextBlock &, double)>;
 using LayoutParagraphFrom = std::function<std::shared_ptr<const TextBoxLayout>(
     const TextBlock &, double, size_t)>;
+// Shares pagination's prepared paragraph cache and supports narrow cell areas.
+LayoutParagraph table_paragraph_layouter(const TextFlow &, NativeTextShaper &);
 const TextParagraph &block_paragraph(const TextFlow &, const TextBlock &);
 const TextTable &block_table(const TextFlow &, const TextBlock &);
 TextRect intersect_text_rect(TextRect, TextRect);
@@ -23,6 +25,7 @@ struct NativeCellLayout {
 };
 struct NativeTableLayout {
   double x = 0, width = 0, height = 0;
+  double available_width = 0;
   std::vector<double> column_edges, row_edges;
   size_t header_rows = 0;
   std::vector<NativeCellLayout> cells;

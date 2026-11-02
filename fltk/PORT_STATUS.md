@@ -101,10 +101,17 @@ retains non-sizing style inheritance and source values, leaves empty cells empty
 and restores source/style parts and the displayed caret together on undo.
 Invalid, cancelled and unchanged commands preserve history. Exact row heights
 clip overflowing text; fixed columns retain their declared widths while weighted
-columns share remaining space. Converting a default-style relative table width
-to a fixed width still needs default-style isolation. Repeated formula-bearing
-source cloning, proportional fixed-column scaling and optimal content-based
-sizing remain unfinished.
+columns share remaining space. Fixed conversion relocates a default percentage
+to existing named style roots and unstyled peer tables, preserving their prior
+widths and inheritance. Proportional scaling uses rendered fixed-column widths
+and the selected master/nested cell's text area while retaining relative weights.
+It preserves implicit shrink proportions and hidden-column metadata. A visible
+fixed column that has shrunk to zero needs a positive table width applied without
+proportional scaling first. Geometry measurement now shares pagination's prepared
+cell-paragraph cache. Narrow cell text areas wrap and clip within the original
+cell geometry; body and floating-frame margin validation remains strict.
+Repeated formula-bearing source cloning and optimal content-based sizing remain
+unfinished.
 
 Native Words page editing provides a grapheme-safe caret, visual bidi/ligature
 navigation, vertical and word/paragraph movement, GPU range selection, mouse

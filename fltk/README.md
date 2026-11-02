@@ -238,11 +238,18 @@ CUPS test queues.
   retain unrelated inherited properties, source units, values and empty cells.
   Repeated/nested instances keep their scope and the caret; source/style parts
   share one exact undo step. Cancel, invalid and unchanged Apply preserve history.
-  Fixed conversion under a relative table width in document defaults remains
-  guarded pending default-style isolation. Repeated formula-containing source
+  Fixed conversion relocates an inherited default percentage to existing table
+  style roots and unstyled peers, retaining their appearance and parent-style
+  inheritance. Other document-default properties remain. Scale fixed columns
+  proportionally uses their current rendered widths and the selected page/nested
+  text area; weighted columns retain their ratios. It also preserves resolved
+  shrink-to-fit proportions. Individual column sizing is disabled while scaling.
+  A visible fixed column that has shrunk to zero needs a positive table width
+  applied without proportional scaling first; an entirely zero-width table has
+  no proportions to resize.
+  Repeated formula-containing source
   cloning still requires reference adjustment; independent value/formula cells
-  support geometry-only edits. Proportional scaling of all fixed columns and
-  optimal content-based sizing remain unfinished.
+  support geometry-only edits. Optimal content-based sizing remains unfinished.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.
   Stops support left/right/center/Unicode-character alignment, line patterns,
   double strokes, color, width and text leaders with named character styles.

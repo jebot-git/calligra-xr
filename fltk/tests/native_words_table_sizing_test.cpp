@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
 #include "native_words_geometry.h"
+#include "native_table_model.h"
 #include <cassert>
 #include <cmath>
 #include <filesystem>
@@ -139,6 +140,292 @@ template <class F> void rejects(F f) {
     rejected = true;
   }
   assert(rejected);
+}
+
+XmlElement style_named(const XmlDocument &doc, const Text &name) {
+  for (auto style : doc.elementsByTagNameNS(STYLE, "style"))
+    if (style.attributeNS(STYLE, "name") == name)
+      return style;
+  throw std::runtime_error("Missing style");
+}
+XmlElement add_table_style(XmlDocument &doc, XmlElement group, const Text &name,
+                           const Text &parent = {}, const Text &relative = {}) {
+  auto style = doc.createElementNS(STYLE, "style:style");
+  style.setAttributeNS(STYLE, "style:name", name);
+  style.setAttributeNS(STYLE, "style:family", "table");
+  if (!parent.empty())
+    style.setAttributeNS(STYLE, "style:parent-style-name", parent);
+  if (!relative.empty()) {
+    auto props = doc.createElementNS(STYLE, "style:table-properties");
+    props.setAttributeNS(STYLE, "style:rel-width", relative);
+    style.appendChild(props);
+  }
+  group.appendChild(style);
+  return style;
+}
+XmlElement peer(XmlDocument &doc, XmlElement parent, const Text &name,
+                const Text &style = {}) {
+  auto table = doc.createElementNS(TABLE, "table:table");
+  table.setAttributeNS(TABLE, "table:name", name);
+  if (!style.empty())
+    table.setAttributeNS(TABLE, "table:style-name", style);
+  auto col = doc.createElementNS(TABLE, "table:table-column");
+  col.setAttributeNS(TABLE, "table:number-columns-repeated", "3");
+  table.appendChild(col);
+  auto row = doc.createElementNS(TABLE, "table:table-row");
+  auto cell = doc.createElementNS(TABLE, "table:table-cell");
+  cell.setAttributeNS(TABLE, "table:number-columns-repeated", "3");
+  auto para = doc.createElementNS(TEXT, "text:p");
+  set_plain_text(para, "Peer");
+  cell.appendChild(para);
+  row.appendChild(cell);
+  table.appendChild(row);
+  parent.appendChild(table);
+  return table;
+}
+OdfPackage relative_default_fixture(bool nested) {
+  auto p = fixture(nested);
+  auto styles = read_document_xml(p.entry("styles.xml"));
+  auto common = child(styles.documentElement(), OFFICE, "styles");
+  auto def = styles.createElementNS(STYLE, "style:default-style");
+  def.setAttributeNS(STYLE, "style:family", "table");
+  auto props = styles.createElementNS(STYLE, "style:table-properties");
+  props.setAttributeNS(STYLE, "style:rel-width", "60.00%");
+  props.setAttributeNS(STYLE, "style:width", "7in");
+  props.setAttributeNS(TABLE, "table:align", "left");
+  props.setAttributeNS(FO, "fo:margin", "1pt");
+  def.appendChild(props);
+  common.appendChild(def);
+  child(style_named(styles, "RelBase"), STYLE, "table-properties")
+      .removeAttributeNS(STYLE, "rel-width");
+  child(style_named(p.xml, "Sized"), STYLE, "table-properties")
+      .removeAttributeNS(STYLE, "rel-width");
+  add_table_style(styles, common, "UnusedChild", "RelBase");
+  add_table_style(styles, common, "Shadow", {}, "40%");
+  add_table_style(styles, common, "Explicit", {}, "25%");
+  add_table_style(p.xml,
+                  child(p.xml.documentElement(), OFFICE, "automatic-styles"),
+                  "Shadow");
+  auto automatic = child(styles.documentElement(), OFFICE, "automatic-styles");
+  add_table_style(styles, automatic, "Shadow");
+  auto master = styles.elementsByTagNameNS(STYLE, "master-page")[0];
+  auto header = styles.createElementNS(STYLE, "style:header");
+  peer(styles, header, "HeaderUnstyled");
+  peer(styles, header, "HeaderShadow", "Shadow");
+  master.appendChild(header);
+  peer(p.xml, p.body(), "PeerUnstyled");
+  peer(p.xml, p.body(), "PeerShared", "Sized");
+  peer(p.xml, p.body(), "PeerShadow", "Shadow");
+  peer(p.xml, p.body(), "PeerExplicit", "Explicit");
+  p.set_entry("styles.xml", styles.toByteArray(), "text/xml");
+  return p;
+}
+void default_isolation(const std::filesystem::path &dir) {
+  for (bool nested : {false, true}) {
+    auto prefix =
+        nested ? std::string("default-nested-") : std::string("default-flat-");
+    auto p = relative_default_fixture(nested);
+    auto file = Text((dir / (prefix + "source.odt")).string());
+    p.save(file);
+    TextDocument d;
+    d.load(file);
+    auto original = state(d);
+    auto old = point(d, nested);
+    WordsTableSizingChange change;
+    change.table = WordsTableSize{WordsTableSize::Fixed, nested ? 70. : 240.,
+                                  TextTable::Center};
+    auto edit = size_words_table(d.style_snapshot(), *old.cell, change,
+                                 old.cells, old.cursor);
+    auto flow = read_text_flow(edit.document);
+    for (size_t t = 0; t < flow.tables.size(); ++t) {
+      const auto &table = flow.tables[t];
+      if (t == edit.cell->table) {
+        assert(!table.relative_width && table.width &&
+               near(*table.width, change.table->value));
+      } else {
+        assert(table.relative_width &&
+               near(*table.relative_width,
+                    table.name == "PeerExplicit" ? .25 : .6));
+      }
+    }
+    auto styles = read_document_xml(edit.document.entry("styles.xml"));
+    for (auto def : styles.elementsByTagNameNS(STYLE, "default-style"))
+      if (def.attributeNS(STYLE, "family") == "table") {
+        auto props = child(def, STYLE, "table-properties");
+        assert(!props.hasAttributeNS(STYLE, "rel-width") &&
+               props.attributeNS(STYLE, "width") == "7in" &&
+               props.attributeNS(FO, "margin") == "1pt");
+      }
+    auto common_shadow = style_named(styles, "Shadow");
+    assert(child(common_shadow, STYLE, "table-properties")
+               .attributeNS(STYLE, "rel-width") == "40%");
+    OdfTableModelReader catalogue({styles, edit.document.xml});
+    for (auto table : styles.elementsByTagNameNS(TABLE, "table")) {
+      size_t slots = 0;
+      auto model = catalogue.read(
+          table, [](auto) { return std::vector<TextBlock>{}; }, slots, true);
+      assert(model.relative_width && near(*model.relative_width, .6));
+    }
+    auto unused = catalogue.style_chain("table", "UnusedChild");
+    assert(std::any_of(unused.begin(), unused.end(), [](auto style) {
+      return child(style, STYLE, "table-properties")
+                 .attributeNS(STYLE, "rel-width") == "60.00%";
+    }));
+    TextSelection next{edit.cursor, edit.cursor, edit.cell, edit.cells};
+    next.anchor_cells = next.cells;
+    assert(d.commit_structure(edit.document, old, next, d.revision()));
+    auto changed = state(d);
+    assert(d.undo() == old && state(d) == original);
+    assert(d.redo() == next && state(d) == changed);
+    auto same = size_words_table(d.style_snapshot(), *next.cell, change,
+                                 next.cells, next.cursor);
+    assert(same.document.xml.toByteArray() == changed.xml &&
+           same.document.entry("styles.xml") == changed.styles);
+    d.save(Text((dir / (prefix + "fixed.odt")).string()));
+  }
+}
+OdfPackage fixed_columns_fixture(bool nested, bool mixed = false) {
+  auto p = fixture(nested);
+  auto group = child(p.xml.documentElement(), OFFICE, "automatic-styles");
+  auto cols =
+      child(style_named(p.xml, "Cols"), STYLE, "table-column-properties");
+  cols.setAttributeNS(STYLE, "style:rel-column-width", mixed ? "4*" : "0*");
+  cols.setAttributeNS(STYLE, "style:column-width", "40pt");
+  cols.setAttributeNS(STYLE, "style:use-optimal-column-width", "false");
+  auto head = p.xml.createElementNS(STYLE, "style:style");
+  head.setAttributeNS(STYLE, "style:name", "Head");
+  head.setAttributeNS(STYLE, "style:family", "table-column");
+  head.setAttributeNS(STYLE, "style:parent-style-name", "ColBase");
+  auto props = p.xml.createElementNS(STYLE, "style:table-column-properties");
+  props.setAttributeNS(STYLE, "style:column-width", "20pt");
+  props.setAttributeNS(STYLE, "style:rel-column-width", "0*");
+  head.appendChild(props);
+  group.appendChild(head);
+  auto table = p.xml.elementsByTagNameNS(TABLE, "table")[nested ? 1 : 0];
+  auto column =
+      child(child(table, TABLE, "table-header-columns"), TABLE, "table-column");
+  column.setAttributeNS(TABLE, "table:style-name", "Head");
+  return p;
+}
+void proportional_resize(const std::filesystem::path &dir) {
+  NativeTextShaper shaper("monospace", 12);
+  for (bool nested : {false, true})
+    for (bool mixed : {false, true}) {
+      auto prefix = std::string(nested ? "resize-nested-" : "resize-flat-") +
+                    (mixed ? "mixed-" : "fixed-");
+      auto p = fixed_columns_fixture(nested, mixed);
+      auto file = Text((dir / (prefix + "source.odt")).string());
+      p.save(file);
+      TextDocument d;
+      d.load(file);
+      auto old = point(d, nested);
+      auto original = state(d);
+      auto before =
+          measure_words_table_geometry(d.flow(), old.cells, {}, shaper);
+      double total =
+          std::accumulate(before.columns.begin(), before.columns.end(), 0.);
+      WordsTableSizingChange change;
+      change.proportional_columns = true;
+      change.table =
+          WordsTableSize{WordsTableSize::Fixed, total * 1.5, TextTable::Center};
+      auto edit = size_words_table(d.style_snapshot(), *old.cell, change,
+                                   old.cells, old.cursor, {}, &shaper);
+      auto flow = read_text_flow(edit.document);
+      auto after = measure_words_table_geometry(flow, edit.cells, {}, shaper);
+      for (size_t c = 0; c < 3; ++c)
+        assert(near(after.columns[c], before.columns[c] * 1.5));
+      const auto &table = flow.tables[edit.cell->table];
+      if (mixed)
+        assert(table.columns[1].relative == 4 &&
+               table.columns[2].relative == 4);
+      for (const auto &peer : flow.tables)
+        if (peer.source != table.source && peer.name.startsWith("Grid"))
+          assert(near(*peer.columns[0].width, 20) &&
+                 near(*peer.columns[1].width, 40));
+      TextSelection next{edit.cursor, edit.cursor, edit.cell, edit.cells};
+      next.anchor_cells = next.cells;
+      assert(d.commit_structure(edit.document, old, next, d.revision()));
+      auto changed = state(d);
+      assert(d.undo() == old && state(d) == original);
+      assert(d.redo() == next && state(d) == changed);
+      auto same = size_words_table(d.style_snapshot(), *next.cell, change,
+                                   next.cells, next.cursor, {}, &shaper);
+      assert(same.document.xml.toByteArray() == changed.xml &&
+             same.document.entry("styles.xml") == changed.styles);
+      d.save(Text((dir / (prefix + "sized.odt")).string()));
+      change.table =
+          WordsTableSize{WordsTableSize::Percentage, 35, TextTable::Right};
+      edit = size_words_table(d.style_snapshot(), *next.cell, change,
+                              next.cells, next.cursor, {}, &shaper);
+      auto percentage = measure_words_table_geometry(
+          read_text_flow(edit.document), edit.cells, {}, shaper);
+      double desired = percentage.available_width * .35;
+      for (size_t c = 0; c < 3; ++c)
+        assert(
+            near(percentage.columns[c], before.columns[c] * desired / total));
+      edit.document.save(Text((dir / (prefix + "relative.odt")).string()));
+      change.table = WordsTableSize{};
+      auto stretched = size_words_table(edit.document, *edit.cell, change,
+                                        edit.cells, edit.cursor, {}, &shaper);
+      auto stretch = measure_words_table_geometry(
+          read_text_flow(stretched.document), stretched.cells, {}, shaper);
+      desired = stretch.available_width - table.left - table.right;
+      for (size_t c = 0; c < 3; ++c)
+        assert(near(stretch.columns[c], before.columns[c] * desired / total));
+      stretched.document.save(Text((dir / (prefix + "stretch.odt")).string()));
+      change.column = WordsColumnSize{WordsColumnSize::Fixed, 80};
+      rejects([&] {
+        size_words_table(d.style_snapshot(), *next.cell, change, next.cells,
+                         next.cursor);
+      });
+      assert(state(d) == changed);
+    }
+  // Measure implicit fixed-column shrink rather than scaling raw declarations.
+  auto shrink = fixed_columns_fixture(false);
+  auto styles = read_document_xml(shrink.entry("styles.xml"));
+  for (auto document : {styles, shrink.xml})
+    for (auto style : document.elementsByTagNameNS(STYLE, "style"))
+      if (style.attributeNS(STYLE, "family") == "table") {
+        auto props = child(style, STYLE, "table-properties");
+        props.removeAttributeNS(STYLE, "width");
+        props.removeAttributeNS(STYLE, "rel-width");
+      }
+  shrink.set_entry("styles.xml", styles.toByteArray(), "text/xml");
+  std::vector<TextCellAddress> path{{0, 1, 1, 1, 1}};
+  auto before =
+      measure_words_table_geometry(read_text_flow(shrink), path, 80, shaper);
+  double total =
+      std::accumulate(before.columns.begin(), before.columns.end(), 0.);
+  WordsTableSizingChange change;
+  change.table =
+      WordsTableSize{WordsTableSize::Fixed, total * 2, TextTable::Left};
+  change.proportional_columns = true;
+  auto edit =
+      size_words_table(shrink, path.back(), change, path, {}, 80, &shaper);
+  auto after = measure_words_table_geometry(read_text_flow(edit.document),
+                                            edit.cells, 80, shaper);
+  for (size_t c = 0; c < 3; ++c)
+    assert(near(after.columns[c], before.columns[c] * 2));
+  edit.document.save(Text((dir / "resize-implicit-shrink.odt").string()));
+  // A zero-width visible fixed column cannot be represented as positiveLength.
+  auto original = shrink.xml.toByteArray();
+  rejects([&] {
+    size_words_table(shrink, path.back(), change, path, {}, 40, &shaper);
+  });
+  assert(shrink.xml.toByteArray() == original);
+  auto hidden = fixed_columns_fixture(false);
+  auto columns = hidden.xml.elementsByTagNameNS(TABLE, "table-column");
+  columns[1].setAttributeNS(TABLE, "table:visibility", "collapse");
+  before =
+      measure_words_table_geometry(read_text_flow(hidden), path, {}, shaper);
+  change.table = WordsTableSize{WordsTableSize::Fixed, before.columns[0] * 2,
+                                TextTable::Left};
+  edit = size_words_table(hidden, path.back(), change, path, {}, {}, &shaper);
+  auto flow = read_text_flow(edit.document);
+  assert(near(*flow.tables[0].columns[0].width, 40) &&
+         !flow.tables[0].columns[1].visible &&
+         near(*flow.tables[0].columns[1].width, 80));
+  edit.document.save(Text((dir / "resize-hidden.odt").string()));
 }
 } // namespace
 int main(int argc, char **argv) {
@@ -314,7 +601,7 @@ int main(int argc, char **argv) {
        edit.document.xml.elementsByTagNameNS(TABLE, "covered-table-cell"))
     assert(plain_text(covered) == "Hidden metadata");
   edit.document.save(Text((dir / "merged-sized.odt").string()));
-  // Relative widths in document defaults cannot be removed by a named layer.
+  // Relative defaults are relocated before a fixed table conversion.
   auto inherited_default = fixture();
   auto default_styles =
       read_document_xml(inherited_default.entry("styles.xml"));
@@ -331,11 +618,18 @@ int main(int argc, char **argv) {
        styles_before = inherited_default.entry("styles.xml");
   change = {};
   change.table = WordsTableSize{WordsTableSize::Fixed, 100, TextTable::Left};
-  rejects(
-      [&] { size_words_table(inherited_default, {0, 1, 1, 1, 1}, change); });
+  auto fixed_default =
+      size_words_table(inherited_default, {0, 1, 1, 1, 1}, change);
+  auto fixed_flow = read_text_flow(fixed_default.document);
+  assert(!fixed_flow.tables[0].relative_width && fixed_flow.tables[0].width &&
+         near(*fixed_flow.tables[0].width, 100));
+  fixed_default.document.save(Text((dir / "default-fixed.odt").string()));
   assert(inherited_default.xml.toByteArray() == content_before &&
          inherited_default.entry("styles.xml") == styles_before);
-  std::cout << "PASS table/row/column sizing, inherited style isolation, "
-               "repeated/nested scope, empty/numeric cells and exact "
-               "archive history\n";
+  default_isolation(dir);
+  proportional_resize(dir);
+  std::cout
+      << "PASS table/row/column sizing, inherited style isolation, "
+         "repeated/nested scope, empty/numeric cells and exact "
+         "archive history, default relocation and proportional resizing\n";
 }

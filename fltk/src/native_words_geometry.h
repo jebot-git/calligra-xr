@@ -14,6 +14,7 @@ struct RefinedAxis {
 struct WordsTableGeometry {
   std::vector<double> columns, rows;
   double body_width = 0;
+  double available_width = 0; // The selected table's enclosing text area.
 };
 using InspectTableGeometry = std::function<void(
     NativeBlockLayouter &, const NativeTableLayout &, const TextTable &)>;

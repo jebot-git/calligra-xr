@@ -1129,7 +1129,9 @@ WordsTableEdit size_words_table(const OdfPackage &original,
                                 const TextCellAddress &address,
                                 const WordsTableSizingChange &change,
                                 const std::vector<TextCellAddress> &context,
-                                std::optional<size_t> position) {
+                                std::optional<size_t> position,
+                                std::optional<double> body_width,
+                                NativeTextShaper *provided_shaper) {
   if (original.kind() != Kind::Words || original.read_only())
     fail("This document cannot be edited");
   auto flow = read_text_flow(original);
@@ -1200,6 +1202,43 @@ WordsTableEdit size_words_table(const OdfPackage &original,
   const bool table_changed = wanted.table != initial.table,
              row_changed = wanted.row != initial.row,
              column_changed = wanted.column != initial.column;
+  std::vector<std::pair<size_t, double>> scaled_columns;
+  if (change.proportional_columns) {
+    if (column_changed)
+      fail("Choose proportional resizing or an individual column width");
+    std::optional<NativeTextShaper> owned_shaper;
+    if (!provided_shaper) {
+      owned_shaper.emplace();
+      provided_shaper = &*owned_shaper;
+    }
+    auto measured =
+        measure_words_table_geometry(flow, path, body_width, *provided_shaper);
+    const auto &table = flow.tables[address.table];
+    const double before =
+        std::accumulate(measured.columns.begin(), measured.columns.end(), 0.);
+    double after = wanted.table.mode == WordsTableSize::Fixed
+                       ? wanted.table.value
+                   : wanted.table.mode == WordsTableSize::Percentage
+                       ? measured.available_width * wanted.table.value / 100.
+                       : measured.available_width - table.left - table.right;
+    if (!std::isfinite(before) || before <= 1e-8 || !std::isfinite(after) ||
+        after <= 1e-8 || after > 100000)
+      fail("The table needs positive dimensions for proportional resizing");
+    const double factor = after / before;
+    for (size_t c = 0; c < table.columns.size(); ++c) {
+      const auto &column = table.columns[c];
+      if (column.relative > 0 || !column.width)
+        continue;
+      const double size =
+          (column.visible ? measured.columns[c] : *column.width) * factor;
+      length(size);
+      if (size <= 0)
+        fail("A visible fixed column with zero width needs an explicit width "
+             "before proportional resizing");
+      if (!near(size, *column.width))
+        scaled_columns.emplace_back(c, size);
+    }
+  }
   const auto &old = validate_address(flow.tables[address.table], address);
   auto ps = paragraphs(old.source);
   size_t caret_offset = 0;
@@ -1212,7 +1251,8 @@ WordsTableEdit size_words_table(const OdfPackage &original,
   } else if (position &&
              *position != unchanged_cell(original, address, path).cursor)
     fail("The empty-cell caret is stale");
-  if (!table_changed && !row_changed && !column_changed) {
+  if (!table_changed && !row_changed && !column_changed &&
+      scaled_columns.empty()) {
     auto result = unchanged_cell(original, address, path);
     if (position)
       result.cursor = *position;
@@ -1276,13 +1316,6 @@ WordsTableEdit size_words_table(const OdfPackage &original,
                        const TextList &remove) {
     auto chain =
         catalogue.style_chain(family, node.attributeNS(TABLE, "style-name"));
-    if (family == "table" && wanted.table.mode == WordsTableSize::Fixed)
-      for (const auto &style : chain)
-        if (style.localName() == "default-style" &&
-            child(style, STYLE, "table-properties")
-                .hasAttributeNS(STYLE, "rel-width"))
-          fail("A relative table width in document defaults needs "
-               "default-style isolation before fixed sizing");
     std::erase_if(chain, [](const auto &style) {
       return style.localName() == "default-style";
     });
@@ -1337,6 +1370,100 @@ WordsTableEdit size_words_table(const OdfPackage &original,
     auto text = point_length(n);
     return text.left(text.size() - 2);
   };
+  if (table_changed && wanted.table.mode == WordsTableSize::Fixed) {
+    Text relative;
+    for (auto style : catalogue.style_chain("table", {}))
+      if (style.localName() == "default-style")
+        relative = child(style, STYLE, "table-properties")
+                       .attributeNS(STYLE, "rel-width");
+    if (!relative.empty()) {
+      // ODF has no reset token for an inherited relative table width. Move
+      // that one default property to existing style roots and unstyled peers.
+      // Preserve the named inheritance graph (including unused definitions),
+      // so changing a parent later still affects its children normally.
+      std::vector<XmlElement> roots;
+      std::vector<XmlElement> unstyled;
+      for (const auto &document : documents) {
+        const bool master =
+            document.documentElement().localName() == "document-styles";
+        for (auto definition : document.elementsByTagNameNS(STYLE, "style")) {
+          if (definition.attributeNS(STYLE, "family") != "table")
+            continue;
+          auto chain = catalogue.definition_chain(definition, master);
+          bool explicit_relative = false;
+          XmlElement root;
+          for (auto style : chain)
+            if (style.localName() == "style") {
+              if (root.isNull())
+                root = style;
+              explicit_relative |= child(style, STYLE, "table-properties")
+                                       .hasAttributeNS(STYLE, "rel-width");
+            }
+          if (!explicit_relative && !root.isNull() &&
+              std::find(roots.begin(), roots.end(), root) == roots.end())
+            roots.push_back(root);
+        }
+        for (auto table_node : document.elementsByTagNameNS(TABLE, "table")) {
+          if (table_node == target)
+            continue;
+          auto chain = catalogue.style_chain(
+              "table", table_node.attributeNS(TABLE, "style-name"), master);
+          if (std::none_of(chain.begin(), chain.end(), [](auto style) {
+                return style.localName() == "style";
+              }))
+            unstyled.push_back(table_node);
+        }
+      }
+      auto document_for = [&](XmlElement node) -> XmlDocument & {
+        while (node.parentNode().isElement())
+          node = node.parentNode();
+        return node == styles_document.documentElement() ? styles_document
+                                                         : p.xml;
+      };
+      for (auto root : roots) {
+        auto &document = document_for(root);
+        auto props = child(root, STYLE, "table-properties");
+        if (props.isNull()) {
+          props = document.createElementNS(STYLE, "style:table-properties");
+          root.appendChild(props);
+        }
+        props.setAttributeNS(STYLE, "style:rel-width", relative);
+        if (&document == &styles_document)
+          styles_changed = true;
+      }
+      if (!unstyled.empty()) {
+        auto common = common_group();
+        Text name;
+        do {
+          name = "WordsTableDefault" + Text::number(serial++);
+        } while (used.contains(name));
+        used.insert(name);
+        auto definition = styles_document.createElementNS(STYLE, "style:style");
+        definition.setAttributeNS(STYLE, "style:name", name);
+        definition.setAttributeNS(STYLE, "style:family", "table");
+        auto props =
+            styles_document.createElementNS(STYLE, "style:table-properties");
+        props.setAttributeNS(STYLE, "style:rel-width", relative);
+        definition.appendChild(props);
+        common.appendChild(definition);
+        for (auto table_node : unstyled)
+          table_node.setAttributeNS(TABLE, "table:style-name", name);
+        styles_changed = true;
+      }
+      for (const auto &document : documents)
+        for (auto definition :
+             document.elementsByTagNameNS(STYLE, "default-style"))
+          if (definition.attributeNS(STYLE, "family") == "table") {
+            auto props = child(definition, STYLE, "table-properties");
+            if (props.hasAttributeNS(STYLE, "rel-width")) {
+              props.removeAttributeNS(STYLE, "rel-width");
+              if (document.documentElement() ==
+                  styles_document.documentElement())
+                styles_changed = true;
+            }
+          }
+    }
+  }
   if (table_changed) {
     auto props = style_for(target, "table", {"width", "rel-width"});
     if (wanted.table.mode == WordsTableSize::Fixed)
@@ -1374,7 +1501,7 @@ WordsTableEdit size_words_table(const OdfPackage &original,
       props.setAttributeNS(STYLE, "style:row-height",
                            point_length(wanted.row.value));
   }
-  if (column_changed) {
+  if (column_changed || !scaled_columns.empty()) {
     size_t explicit_columns = 0;
     for (auto definition : columns(target))
       explicit_columns += count(definition, "number-columns-repeated");
@@ -1395,24 +1522,30 @@ WordsTableEdit size_words_table(const OdfPackage &original,
           props.setAttributeNS(fo, "fo:break-after", "auto");
         }
     }
-    auto slot = column_slot(target, address.column);
-    auto selected =
-        isolate(slot.node, "number-columns-repeated", slot.instance, names);
-    auto props = style_for(
-        selected, "table-column",
-        {"column-width", "rel-column-width", "use-optimal-column-width"});
-    props.setAttributeNS(STYLE, "style:use-optimal-column-width", "false");
-    if (address.column >= explicit_columns) {
-      props.setAttributeNS(fo, "fo:break-before", "auto");
-      props.setAttributeNS(fo, "fo:break-after", "auto");
-    }
-    props.setAttributeNS(STYLE, "style:rel-column-width",
-                         wanted.column.mode == WordsColumnSize::Fixed
-                             ? "0*"
-                             : number(wanted.column.value) + "*");
-    if (wanted.column.mode == WordsColumnSize::Fixed)
-      props.setAttributeNS(STYLE, "style:column-width",
-                           point_length(wanted.column.value));
+    auto apply_column = [&](size_t column, const WordsColumnSize &size) {
+      auto slot = column_slot(target, column);
+      auto selected =
+          isolate(slot.node, "number-columns-repeated", slot.instance, names);
+      auto props = style_for(
+          selected, "table-column",
+          {"column-width", "rel-column-width", "use-optimal-column-width"});
+      props.setAttributeNS(STYLE, "style:use-optimal-column-width", "false");
+      if (column >= explicit_columns) {
+        props.setAttributeNS(fo, "fo:break-before", "auto");
+        props.setAttributeNS(fo, "fo:break-after", "auto");
+      }
+      props.setAttributeNS(STYLE, "style:rel-column-width",
+                           size.mode == WordsColumnSize::Fixed
+                               ? "0*"
+                               : number(size.value) + "*");
+      if (size.mode == WordsColumnSize::Fixed)
+        props.setAttributeNS(STYLE, "style:column-width",
+                             point_length(size.value));
+    };
+    if (column_changed)
+      apply_column(address.column, wanted.column);
+    for (const auto &[column, size] : scaled_columns)
+      apply_column(column, {WordsColumnSize::Fixed, size});
   }
   if (styles_changed)
     p.set_entry("styles.xml", styles_document.toByteArray(), "text/xml");

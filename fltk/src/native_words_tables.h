@@ -92,13 +92,16 @@ struct WordsTableSizingChange {
   std::optional<WordsTableSize> table;
   std::optional<WordsRowSize> row;
   std::optional<WordsColumnSize> column;
+  bool proportional_columns = false;
 };
 WordsTableSizing words_table_sizing(const OdfPackage &, const TextCellAddress &,
                                     const std::vector<TextCellAddress> & = {});
 WordsTableEdit size_words_table(const OdfPackage &, const TextCellAddress &,
                                 const WordsTableSizingChange &,
                                 const std::vector<TextCellAddress> & = {},
-                                std::optional<size_t> position = {});
+                                std::optional<size_t> position = {},
+                                std::optional<double> body_width = {},
+                                NativeTextShaper *shaper = nullptr);
 TextCellStyle
 words_table_cell_format(const OdfPackage &, const TextCellAddress &,
                         const std::vector<TextCellAddress> &path = {});

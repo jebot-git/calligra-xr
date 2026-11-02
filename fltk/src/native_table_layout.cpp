@@ -336,6 +336,7 @@ struct NativeBlockLayouter::Impl {
       }
     }
     auto out = std::make_shared<NativeTableLayout>();
+    out->available_width = available;
     double nominal =
         model.relative_width
             ? available * *model.relative_width

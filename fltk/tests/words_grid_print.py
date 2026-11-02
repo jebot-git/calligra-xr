@@ -87,11 +87,15 @@ def main():
     art.mkdir(parents=True, exist_ok=False)
     cases = []
     if args.sizing_only:
-        cases=[(name,args.sizing_artifacts/(name+'.odt')) for name in ('table-sized','table-relative')]
+        cases=[(name,args.sizing_artifacts/(name+'.odt')) for name in ('table-sized','table-relative','table-proportional')]
         if args.core_artifacts:
             cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in (
-                'flat-sized','flat-relative','flat-stretch','nested-sized','nested-relative','nested-stretch',
-                'empty-sized','numeric-sized','implicit-sized','merged-sized')]
+                'default-flat-fixed','default-nested-fixed',
+                'resize-flat-fixed-sized','resize-flat-fixed-relative','resize-flat-fixed-stretch',
+                'resize-nested-fixed-sized','resize-nested-fixed-relative','resize-nested-fixed-stretch',
+                'resize-flat-mixed-sized','resize-flat-mixed-relative',
+                'resize-nested-mixed-sized','resize-nested-mixed-relative',
+                'resize-implicit-shrink','resize-hidden','flat-sized','nested-sized')]
     elif args.range_list_only:
         if not args.range_list_artifacts:
             parser.error('--range-list-only requires --range-list-artifacts')

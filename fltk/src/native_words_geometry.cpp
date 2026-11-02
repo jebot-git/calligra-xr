@@ -65,13 +65,7 @@ void inspect_words_table_geometry(const TextFlow &flow,
                                   const std::vector<TextCellAddress> &path,
                                   double body_width, NativeTextShaper &shaper,
                                   const InspectTableGeometry &inspect) {
-  NativeBlockLayouter layouter(flow, [&](const TextBlock &block, double width) {
-    TextFlow paragraph;
-    paragraph.paragraphs.push_back(block_paragraph(flow, block));
-    paragraph.blocks.push_back({TextBlock::Paragraph, 0});
-    return std::make_shared<const TextBoxLayout>(
-        layout_text_box(paragraph, width, shaper));
-  });
+  NativeBlockLayouter layouter(flow, table_paragraph_layouter(flow, shaper));
   const std::vector<TextBlock> *blocks = &flow.blocks;
   for (size_t i = 0; i < path.size(); ++i) {
     auto found =
@@ -135,6 +129,7 @@ WordsTableGeometry measure_words_table_geometry(
   inspect_words_table_geometry(
       flow, path, result.body_width, shaper,
       [&](auto &, const auto &layout, const auto &) {
+        result.available_width = layout.available_width;
         for (size_t i = 1; i < layout.column_edges.size(); ++i)
           result.columns.push_back(layout.column_edges[i] -
                                    layout.column_edges[i - 1]);

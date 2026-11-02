@@ -12,6 +12,10 @@ public:
                                       bool styles_source) const;
   std::vector<XmlElement> style_chain(const Text &family, const Text &name,
                                       bool styles_source = false) const;
+  // Resolve this definition itself, even when an automatic style shadows its
+  // name.
+  std::vector<XmlElement> definition_chain(const XmlElement &,
+                                           bool styles_source = false) const;
   TextTable read(const XmlElement &, const ReadCell &, size_t &expanded_slots,
                  bool styles_source = false) const;
 

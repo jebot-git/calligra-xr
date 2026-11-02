@@ -1736,12 +1736,11 @@ double image_position(const ListImage &image, double top, double bottom) {
     return top + image.offset;
   return (top + bottom - image.height) / 2;
 }
-std::vector<WrappedLine> wrap(const TextParagraph &p,
-                              const std::vector<Cluster> &clusters,
-                              const TextPageStyle &page, size_t start,
-                              const MeasureText &measure,
-                              const ShapingParagraph *shaping = nullptr,
-                              NativeTextShaper *shaper = nullptr) {
+std::vector<WrappedLine>
+wrap(const TextParagraph &p, const std::vector<Cluster> &clusters,
+     const TextPageStyle &page, size_t start, const MeasureText &measure,
+     const ShapingParagraph *shaping = nullptr,
+     NativeTextShaper *shaper = nullptr, bool cell_frame = false) {
   const bool rtl =
       shaping ? shaping->whole().rtl : p.direction == TextParagraph::RTL;
   double body_start = p.left, first_start = p.left + p.indent, label_start = 0;
@@ -1822,10 +1821,14 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
                      label_start + label_metrics.width + label.min_distance);
     }
   }
-  const double available =
-      page.width - page.left - page.right - body_start - p.right;
-  if (!std::isfinite(available) || available < 1)
+  double available = page.width - page.left - page.right - body_start - p.right;
+  if (!std::isfinite(available) || (!cell_frame && available < 1))
     fail("Paragraph margins leave no text area");
+  // A narrow cell remains valid when padding/margins consume its text area.
+  // Lay out at least one cluster per line; the real cell clip retains the
+  // declared geometry and hides overflow. Body/frame validation stays strict.
+  if (cell_frame)
+    available = std::max(1., available);
   std::vector<WrappedLine> lines;
   size_t leader_pieces = 0;
   size_t i = std::lower_bound(
@@ -1840,8 +1843,10 @@ std::vector<WrappedLine> wrap(const TextParagraph &p,
     double width = 0, max_ascent = 0, max_descent = 0;
     double indent = (i == 0 ? first_start - body_start : 0);
     double limit = available - indent;
-    if (limit < 1)
+    if (!cell_frame && limit < 1)
       fail("Paragraph indent leaves no text area");
+    if (cell_frame)
+      limit = std::max(1., limit);
     bool hard = false;
     while (end < clusters.size()) {
       auto &c = clusters[end];
@@ -2501,7 +2506,7 @@ public:
     frame.width = width;
     frame.left = frame.right = frame.top = frame.bottom = 0;
     auto lines = wrap(p, found->second.clusters, frame, source, measure,
-                      found->second.shaping.get(), shaper);
+                      found->second.shaping.get(), shaper, true);
     auto result = std::make_shared<TextBoxLayout>();
     double y = 0;
     for (auto &wrapped : lines) {
@@ -2606,6 +2611,23 @@ TextBoxLayout layout_text_box(const TextFlow &flow, double width,
         return shaper.shape(t, f).metrics;
       },
       &shaper);
+}
+
+LayoutParagraph table_paragraph_layouter(const TextFlow &flow,
+                                         NativeTextShaper &shaper) {
+  struct Context {
+    MeasureText measure;
+    ParagraphBoxes paragraphs;
+    Context(const TextFlow &flow, NativeTextShaper &shaper)
+        : measure([&shaper](const Text &text, const TextFont &font) {
+            return shaper.shape(text, font).metrics;
+          }),
+          paragraphs(flow, measure, &shaper) {}
+  };
+  auto context = std::make_shared<Context>(flow, shaper);
+  return [context](const TextBlock &block, double width) {
+    return context->paragraphs(block, width);
+  };
 }
 
 static TextPagination paginate_impl(const TextFlow &flow,

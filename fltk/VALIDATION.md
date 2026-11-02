@@ -2410,3 +2410,67 @@ full goal remains active: Words first, Sheets functions next and Stage last.
 No system printer queue or active desktop/display-manager session was changed
 or restarted. Artifacts:
 `/home/blux/de-xr/artifacts/calligra-words-table-sizing-20261102`.
+
+
+## Words inherited widths and proportional resizing — 2026-11-03
+
+Table → Sizing can now convert a table to a true fixed width when its percentage
+comes from document defaults. The relative-width property is relocated to existing
+named table-style roots and unstyled peer tables before removal from the default.
+Other default properties, raw percentage units, named parent relationships and
+explicit overrides remain. This includes unused definitions, automatic/common
+name shadowing and source tables in master-page headers. Header/footer source
+preservation is covered; their rendering/editing remains unfinished. The selected
+table then receives its private sizing chain. Source/styles/manifest and the
+full displayed caret have exact undo/redo.
+
+The new Scale fixed columns proportionally option uses the selected page and
+nested cell's rendered widths and text area, including padding and borders.
+Weighted columns retain their ratios; fixed columns scale from resolved geometry,
+including implicit fixed-column shrink. Hidden-column source/visibility remains.
+The checkbox disables individual column sizing, and incompatible backend requests
+reject atomically. Cancel and unchanged Apply retain history. A visible fixed
+column that has shrunk to zero needs a positive table width applied without
+proportional scaling first; an entirely zero-width table cannot define a ratio.
+Optimal content-based sizing and repeated formula-source reference adjustment
+remain unfinished.
+
+Geometry measurement now shares pagination's prepared cell-paragraph formatter.
+Narrow cell text areas, including areas consumed by padding/margins, wrap at least
+one cluster per line and retain their real clipping bounds. Body/floating-frame
+margin checks remain strict. This corrects a failure exposed by the implicit
+shrink fixture rather than approximating the requested column geometry.
+
+All 54 applicable optimized Release suites and all 54 ASan/UBSan suites pass.
+Core leak detection is enabled. Three legacy outline-font-assumption suites
+(native-text-shaping, native-text-hit and native-text-editing) remain excluded
+and are not counted as passing. Expanded table-sizing coverage checks inherited
+default relocation, header/unused/shadowed styles, fixed/mixed/weighted modes,
+fixed/percentage/available target widths, nested/repeated scope, hidden columns,
+implicit shrink, no-op, rejected conflicting/zero-width operations and exact
+archive/selection history. Thirty-six core packages validate against their
+version-matched OpenDocument content/styles schemas.
+
+Flat/nested Wayland sizing with inherited-default fixtures, flat X11 and nested
+sanitizer GUI checks pass, including proportional dimensions, no-op, history
+and actual save/reopen. Sanitizer GUI uses a 90-second observation ceiling and
+disables third-party leak checks. Existing measured nested subdivision and
+rudimentary editing regressions pass. Harness corrections scroll to the addressed
+cell, account for soft-wrap caret stops, and keep asserted GUI dimensions inside
+the enclosing cell because reported paint rectangles are clipped. The oversized
+case's saved source retains its actual requested physical width.
+
+The combined schema gate validates 140 generated OpenDocument packages. Twenty-two
+private CUPS jobs cover sizing UI/core snapshots; three more cover Words, Sheets
+and Stage baseline output. Export retains source archive entries apart from the
+regenerated manifest, and native/reopened/captured CUPS pixels agree. All 42 new
+Words print pages were visually reviewed. All nine accepted suite-baseline pages
+remain pixel-identical. No system printer queue or active desktop/display-manager
+session was changed or restarted.
+
+The relative-width property follows [ODF 1.3 section 20.340.2](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part3-schema/OpenDocument-v1.3-os-part3-schema.html).
+This increment advances Words geometry; broader section/column/header/footer/
+note/image-anchor editing, list controls, reference adjustment and large-document
+performance remain. Words stays first, Sheets functions next, Stage last; the
+full goal remains active. Artifacts:
+`/home/blux/de-xr/artifacts/calligra-words-table-resize-20261102`.
