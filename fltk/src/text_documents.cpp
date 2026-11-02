@@ -4,6 +4,7 @@
 #include "ooxml_text_import.h"
 #include "native_enhanced_geometry.h"
 #include <algorithm>
+#include <functional>
 #include <stdexcept>
 namespace DomeOffice {
 namespace {
@@ -172,6 +173,45 @@ namespace {
         for (auto p : paragraphs(parent))
             parts << plain_text(p);
         return parts.join('\n');
+    }
+    struct ScopedMutation {
+        OdfPackage document;
+        TextSelection selection;
+        bool localized = false;
+    };
+    std::optional<ScopedMutation> scoped_mutation(const OdfPackage& original, TextSelection selection,
+        const std::function<void(OdfPackage&, TextSelection)>& mutate, bool local = true)
+    {
+        auto candidate = original;
+        candidate.xml = read_document_xml(original.xml.toByteArray());
+        const auto before = joined(candidate.body());
+        mutate(candidate, selection);
+        if (joined(candidate.body()) != before)
+            fail("Formatting would change document text");
+        if (candidate.xml.toByteArray() == original.xml.toByteArray()
+            && candidate.part_changes_from(original).empty())
+            return { };
+        // Probe first: an already effective format must not leave a structural
+        // edit. Reapply to unmodified localized source so other copies retain
+        // their old formatting.
+        bool localized = false;
+        if (local)
+            if (auto range = materialize_words_table_range(original, selection.cells,
+                    std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor))) {
+                const bool reverse = selection.anchor > selection.cursor;
+                selection.anchor = reverse ? range->end : range->begin;
+                selection.cursor = reverse ? range->begin : range->end;
+                selection.cells = std::move(range->cells);
+                selection.cell = selection.cells.empty() ? std::optional<TextCellAddress> { } : selection.cells.back();
+                candidate = std::move(range->document);
+                localized = true;
+                const auto expanded = joined(candidate.body());
+                mutate(candidate, selection);
+                if (joined(candidate.body()) != expanded)
+                    fail("Formatting would change localized document text");
+            }
+        (void)read_text_flow(candidate);
+        return ScopedMutation { std::move(candidate), std::move(selection), localized };
     }
 }
 TextDocument::TextDocument()
@@ -433,7 +473,7 @@ WordsFormatInfo TextDocument::format_info(TextSelection selection) const
     }
     return result;
 }
-bool TextDocument::format_characters(TextSelection selection, const WordsCharacterFormat& format)
+bool TextDocument::format_characters(TextSelection selection, const WordsCharacterFormat& format, TextSelection* resolved)
 try {
     if (edit_cancelled())
         fail("This text edit was cancelled");
@@ -442,30 +482,34 @@ try {
     validate_words_format(format);
     if (selection.anchor > text().size() || selection.cursor > text().size())
         fail("Invalid text selection");
+    if (resolved)
+        *resolved = selection;
     if (format.empty())
         return false;
-    OdfPackage candidate = package_;
-    candidate.xml = read_document_xml(package_.xml.toByteArray());
-    auto before = text();
-    bool changed = format_words_characters(candidate, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), format);
-    if (joined(candidate.body()) != before)
-        fail("Character formatting would change document text");
-    if (changed) {
-        (void)read_text_flow(candidate);
-        apply(std::move(candidate), selection, selection);
+    const auto previous = selection;
+    auto result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) {
+        format_words_characters(candidate, std::min(scope.anchor, scope.cursor), std::max(scope.anchor, scope.cursor), format);
+    });
+    if (result) {
+        selection = result->selection;
+        apply(std::move(result->document), previous, selection);
     }
     if (selection.anchor == selection.cursor) {
+        if (result && result->localized && typing_format_ && typing_format_->position == previous.cursor)
+            typing_format_->position = selection.cursor;
         if (!typing_format_ || typing_format_->position != selection.cursor)
             typing_format_ = TypingFormat { selection.cursor, { } };
         typing_format_->format.overlay(format);
     } else
         typing_format_.reset();
-    return changed;
+    if (resolved)
+        *resolved = selection;
+    return bool(result);
 } catch (...) {
     cancel_edit();
     throw;
 }
-bool TextDocument::format_paragraphs(TextSelection selection, const WordsParagraphFormat& format)
+bool TextDocument::format_paragraphs(TextSelection selection, const WordsParagraphFormat& format, TextSelection* resolved)
 try {
     if (edit_cancelled())
         fail("This text edit was cancelled");
@@ -473,15 +517,61 @@ try {
         fail("This document is read-only");
     if (selection.anchor > text().size() || selection.cursor > text().size())
         fail("Invalid text selection");
-    OdfPackage candidate = package_;
-    candidate.xml = read_document_xml(package_.xml.toByteArray());
-    auto before = text();
-    if (!format_words_paragraphs(candidate, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), format))
+    if (resolved)
+        *resolved = selection;
+    if (format.empty())
         return false;
-    if (joined(candidate.body()) != before)
-        fail("Paragraph formatting would change document text");
-    (void)read_text_flow(candidate);
-    apply(std::move(candidate), selection, selection);
+    const auto previous = selection;
+    auto result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) {
+        format_words_paragraphs(candidate, std::min(scope.anchor, scope.cursor), std::max(scope.anchor, scope.cursor), format);
+    });
+    if (!result)
+        return false;
+    selection = result->selection;
+    auto typing = typing_format_;
+    if (result->localized && typing) {
+        if (typing->position == previous.cursor)
+            typing->position = selection.cursor;
+        else
+            typing.reset();
+    }
+    apply(std::move(result->document), previous, selection);
+    typing_format_ = std::move(typing);
+    if (resolved)
+        *resolved = selection;
+    return true;
+} catch (...) {
+    cancel_edit();
+    throw;
+}
+bool TextDocument::format_tabs(TextSelection selection, const WordsTabsFormat& format,
+    uint64_t expected_revision, TextSelection* resolved)
+try {
+    if (edit_cancelled() || read_only())
+        fail("This document cannot be edited");
+    if (revision_ != expected_revision)
+        fail("The document changed while tab stops were being edited");
+    if (selection.anchor > text().size() || selection.cursor > text().size())
+        fail("Invalid text selection");
+    validate_words_tabs(format);
+    if (resolved)
+        *resolved = selection;
+    const auto previous = selection;
+    auto result = scoped_mutation(package_, selection, [&](auto& candidate, auto scope) { format_words_tabs(candidate, std::min(scope.anchor, scope.cursor), std::max(scope.anchor, scope.cursor), format); }, bool(format.stops) || format.inherit);
+    if (!result)
+        return false;
+    selection = result->selection;
+    auto typing = typing_format_;
+    if (result->localized && typing) {
+        if (typing->position == previous.cursor)
+            typing->position = selection.cursor;
+        else
+            typing.reset();
+    }
+    apply(std::move(result->document), previous, selection);
+    typing_format_ = std::move(typing);
+    if (resolved)
+        *resolved = selection;
     return true;
 } catch (...) {
     cancel_edit();
@@ -500,7 +590,7 @@ std::optional<Text> TextDocument::current_character_style(TextSelection selectio
     return words_current_character_style(package_, std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
 }
 bool TextDocument::commit_styles(OdfPackage candidate, TextSelection selection,
-    uint64_t expected_revision, std::optional<Text> paragraph, std::optional<Text> character)
+    uint64_t expected_revision, std::optional<Text> paragraph, std::optional<Text> character, TextSelection* resolved)
 try {
     if (edit_cancelled())
         fail("This text edit was cancelled");
@@ -513,15 +603,22 @@ try {
     auto before = text();
     if (selection.anchor > before.size() || selection.cursor > before.size())
         fail("Invalid text selection");
+    if (resolved)
+        *resolved = selection;
     candidate.xml = read_document_xml(candidate.xml.toByteArray());
-    if (paragraph)
-        apply_words_paragraph_style(candidate,
-            std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), *paragraph);
-    if (character)
-        apply_words_character_style(candidate,
-            std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), *character);
     if (joined(candidate.body()) != before)
         fail("Style editing would change document text");
+    const auto previous = selection;
+    if (paragraph || character)
+        if (auto result = scoped_mutation(candidate, selection, [&](auto& package, auto scope) {
+                if (paragraph)
+                    apply_words_paragraph_style(package, std::min(scope.anchor, scope.cursor), std::max(scope.anchor, scope.cursor), *paragraph);
+                if (character)
+                    apply_words_character_style(package, std::min(scope.anchor, scope.cursor), std::max(scope.anchor, scope.cursor), *character);
+            })) {
+            candidate = std::move(result->document);
+            selection = result->selection;
+        }
     (void)read_text_flow(candidate);
     auto typing = typing_format_;
     if (paragraph || (character && selection.anchor != selection.cursor))
@@ -536,8 +633,10 @@ try {
             typing.reset();
     }
     auto revision = revision_;
-    apply(std::move(candidate), selection, selection);
+    apply(std::move(candidate), previous, selection);
     typing_format_ = std::move(typing);
+    if (resolved)
+        *resolved = selection;
     return revision_ != revision;
 } catch (...) {
     cancel_edit();

@@ -21,8 +21,9 @@ std::optional<WordsStylesDialogResult>
 character_styles_dialog(Fl_Window &, OdfPackage, std::optional<Text> selected);
 std::optional<OdfPackage> page_setup_dialog(Fl_Window &, OdfPackage,
                                             const Text &page_style);
-std::optional<OdfPackage> tab_stops_dialog(Fl_Window &, OdfPackage,
-                                           size_t begin, size_t end);
+std::optional<WordsTabsFormat>
+tab_stops_dialog(Fl_Window &, OdfPackage, size_t begin, size_t end,
+                 const std::vector<TextCellAddress> &cells = {});
 std::optional<WordsTableEdit> insert_table_dialog(Fl_Window &, OdfPackage,
                                                   size_t position);
 } // namespace DomeOffice

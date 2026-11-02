@@ -1023,9 +1023,9 @@ std::optional<WordsTabStopSpec> edit_tab_stop(Fl_Window &window,
   return {};
 }
 } // namespace
-std::optional<OdfPackage> tab_stops_dialog(Fl_Window &window,
-                                           OdfPackage original, size_t begin,
-                                           size_t end) {
+std::optional<WordsTabsFormat>
+tab_stops_dialog(Fl_Window &window, OdfPackage original, size_t begin,
+                 size_t end, const std::vector<TextCellAddress> &cells) {
   constexpr double mm = 72 / 25.4;
   const auto initial = read_words_tabs(original, begin, end);
   auto current = initial.stops;
@@ -1199,13 +1199,22 @@ std::optional<OdfPackage> tab_stops_dialog(Fl_Window &window,
           bool(origin.value() == 0) != initial.relative)
         format.relative = origin.value() == 0;
       auto candidate = style_copy(original);
-      auto changed = format_words_tabs(candidate, begin, end, format);
+      auto preview_begin = begin, preview_end = end;
+      if (format.stops || format.inherit)
+        if (auto range =
+                materialize_words_table_range(original, cells, begin, end)) {
+          candidate = std::move(range->document);
+          preview_begin = range->begin;
+          preview_end = range->end;
+        }
+      auto changed =
+          format_words_tabs(candidate, preview_begin, preview_end, format);
       if (changed) {
         NativeTextShaper shaper(
             Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
         (void)paginate_text(read_text_flow(candidate), shaper);
       }
-      return candidate;
+      return format;
     } catch (const std::exception &error) {
       background.hint.copy_label(error.what());
       background.hint.labelcolor(FL_RED);

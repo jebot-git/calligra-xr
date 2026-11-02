@@ -698,6 +698,8 @@ materialize_words_table_range(const OdfPackage &original,
                count(cell.source, "number-columns-repeated") > 1;
     previous_cell = leaf = cell.source;
   }
+  if (!repeated)
+    return {};
   auto old_paragraphs = paragraphs(leaf);
   if (old_paragraphs.empty())
     fail("This table cell has no editable paragraph");
@@ -706,8 +708,6 @@ materialize_words_table_range(const OdfPackage &original,
                       plain_text(old_paragraphs.back()).size();
   if (begin < first || end > last)
     fail("The text selection crosses its table cell");
-  if (!repeated)
-    return {};
   auto p = original;
   p.xml = read_document_xml(original.xml.toByteArray());
   Names names(p);

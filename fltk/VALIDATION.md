@@ -1847,3 +1847,52 @@ Artifacts: `/home/blux/de-xr/artifacts/calligra-words-repeated-edit-20261102`.
 Per-instance formatting of existing repeated content, merge/split controls,
 formula reference adjustment and the broader Words layout/editing work remain;
 Sheets functions and then Stage retain their priority order.
+
+
+## Scoped formatting in repeated Words cells — 2026-11-02
+
+Character ranges, empty-paragraph character defaults, paragraph properties,
+local tab stops and named-style assignments now localize the selected repeated
+cell and its repeated ancestors before applying a change. The model returns a
+rebased selection so the frontend can refill its source buffer and retain the
+actual displayed cell. A probe detects source no-ops before materialization;
+changes are reapplied to an unmodified localized candidate so other copies keep
+their prior formatting. Source text is checked independently before and after
+formatting, and isolation plus formatting has one exact history operation.
+
+Nonempty caret character formats stay transient until typing. Pending formats
+follow paragraph/tab selection remapping. Named-definition-only edits remain
+global without body expansion, as do document tab defaults. Tab dialogs return
+staged format data; their preview and final model application use the selected
+cell scope. Named style assignment occurs after localization, while definition
+changes retain their document-wide meaning. Independent-cell ranges crossing
+body/table boundaries remain accepted. Repeated cross-cell ranges still need
+anchor-cell selection metadata and remain outside this increment.
+
+The new core suite verifies nine repeated copies and a 36-cell nested fixture,
+forward source/selection remapping, empty carets, pending formats, no-ops, stale
+tab revisions, named definition/assignment scope, global defaults and exact
+archive/history restoration. Release and ASan/UBSan with core leak checking pass
+all 44 suites applicable to the bitmap runtime. The three legacy outline-font
+assumption suites remain excluded and are not reported as passing.
+
+Flat and nested native Wayland UI runs pass direct character color, paragraph
+alignment, local tabs, global defaults, definition-only changes, character and
+paragraph named assignments, cancel/no-op and exact source/cell undo. The nested
+flow also passes ASan/UBSan Wayland and X11. The previous comprehensive tab UI
+regression still passes its scoped leaders, defaults, no-op/cancel and archive
+checks after the dialog/model interface change. GUI leak checking remains
+disabled for external runtime libraries.
+
+The focused print gate completes 23 actual private CUPS jobs (16 flat/core and
+seven nested UI cases), retaining package entries and unchanged inputs. ODF
+export/reopen and CUPS capture render identically; visible ink and blue formatted
+glyphs are checked. All 23 rendered cases were visually reviewed. A combined
+137 ODF packages pass version-matched content/styles schemas. The initial print
+attempt stopped because the geometry helper had not yet been built; the complete
+build and rerun passed.
+
+Artifacts: `/home/blux/de-xr/artifacts/calligra-words-repeated-format-20261102`.
+Cross-cell repeated selections, remaining list controls, table merge/split,
+formula references, sections/columns, headers/footers, notes, images/anchors and
+broader Words layout remain. Sheets functions follow Words; Stage remains last.

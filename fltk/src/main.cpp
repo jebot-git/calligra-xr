@@ -1054,16 +1054,18 @@ public:
         auto revision = words->revision();
         auto snapshot = words->style_snapshot();
         formatting_dialog = true;
-        std::optional<OdfPackage> result;
+        std::optional<WordsTabsFormat> result;
         try {
-            result = tab_stops_dialog(window, std::move(snapshot), std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor));
+            result = tab_stops_dialog(window, std::move(snapshot), std::min(selection.anchor, selection.cursor), std::max(selection.anchor, selection.cursor), selection.cells);
         } catch (...) {
             formatting_dialog = false;
             throw;
         }
         formatting_dialog = false;
         if (result)
-            words->commit_styles(std::move(*result), selection, revision);
+            words->format_tabs(selection, *result, revision, &selection);
+        if (Text(buffer_text()) != words->text())
+            fill_buffer(words->text());
         restore_word_selection(selection);
         modified = words->modified();
         title();
@@ -1142,7 +1144,9 @@ public:
         formatting_dialog = false;
         if (result)
             words->commit_styles(std::move(result->document), selection, revision,
-                character_styles ? std::nullopt : result->assignment, character_styles ? result->assignment : std::nullopt);
+                character_styles ? std::nullopt : result->assignment, character_styles ? result->assignment : std::nullopt, &selection);
+        if (Text(buffer_text()) != words->text())
+            fill_buffer(words->text());
         restore_word_selection(selection);
         modified = words->modified();
         title();
@@ -1154,6 +1158,8 @@ public:
     {
         if (kind != Kind::Words || !words)
             return;
+        cancel_word_composition();
+        finish_word_edit();
         auto selection = word_selection();
         auto info = words->format_info(selection);
         WordsCharacterFormat character;
@@ -1189,9 +1195,11 @@ public:
             formatting_dialog = false;
         }
         if (!character.empty())
-            words->format_characters(selection, character);
+            words->format_characters(selection, character, &selection);
         if (!paragraph.empty())
-            words->format_paragraphs(selection, paragraph);
+            words->format_paragraphs(selection, paragraph, &selection);
+        if (Text(buffer_text()) != words->text())
+            fill_buffer(words->text());
         restore_word_selection(selection);
         modified = words->modified();
         title();

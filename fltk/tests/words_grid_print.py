@@ -43,16 +43,27 @@ def main():
     parser.add_argument('--core-artifacts', type=Path)
     parser.add_argument('--edit-artifacts', type=Path, help='Preexisting repeated-cell editing UI snapshots')
     parser.add_argument('--edit-only', action='store_true', help='Run only repeated text-edit snapshots and optional nested core fixtures')
+    parser.add_argument('--format-artifacts', type=Path, help='Repeated-cell formatting UI snapshots')
+    parser.add_argument('--format-only', action='store_true', help='Run repeated formatting UI/core snapshots')
     parser.add_argument('--artifacts', type=Path, required=True)
     args = parser.parse_args()
+    if args.format_only and (args.edit_only or not args.format_artifacts):
+        parser.error('--format-only requires --format-artifacts and excludes --edit-only')
     if args.edit_only and not args.edit_artifacts:
         parser.error('--edit-only requires --edit-artifacts')
-    if not args.edit_only and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
+    if not (args.edit_only or args.format_only) and not all((args.grid_artifacts,args.repeat_artifacts,args.core_artifacts)):
         parser.error('Grid mode requires --grid-artifacts, --repeat-artifacts and --core-artifacts')
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=False)
     cases = []
-    if not args.edit_only:
+    if args.format_only:
+        cases=[('format-'+name,args.format_artifacts/('repeat-format-'+name+'.odt')) for name in (
+            'color','centered','tabs','defaults','definition','named-character','named-paragraph')]
+        if args.core_artifacts:
+            cases += [('core-'+name,args.core_artifacts/(name+'.odt')) for name in (
+                'range-blue','paragraph-centered','empty-blue','tabs-local','tabs-global-default',
+                'named-character','named-paragraph','named-global-definition','nested-blue')]
+    elif not args.edit_only:
         cases = [(name, args.grid_artifacts/('grid-'+name+'.odt'))
                  for name in ('expanded', 'row-deleted', 'column-deleted')]
         cases += [('repeat-'+name, args.repeat_artifacts/('grid-repeat-'+name+'.odt'))
@@ -104,7 +115,8 @@ def main():
             for page in pages:
                 picture = Image.open(page).convert('L')
                 assert sum(picture.histogram()[:80]) > 50, (name, 'blank page')
-            if name == 'nested-blue':
+            if name in ('nested-blue','core-nested-blue','core-range-blue','core-named-character',
+                         'format-color','format-named-character','format-named-paragraph'):
                 assert sum(color_count(Image.open(page), (22, 90, 167)) for page in pages) > 5
             if name in ('style-row', 'style-column'):
                 picture = Image.open(pages[0]).convert('RGB')

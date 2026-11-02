@@ -174,7 +174,12 @@ CUPS test queues.
   breaks also localize preexisting repeated cells, including nested ancestors,
   before changing text. Materialization and the text edit share one undo step;
   cancelled/empty events restore the original source and transient typing format.
-  Tables containing formulas reject these structural edits
+  Character/paragraph formats, named assignments and tab stops also localize a
+  selected repeated cell and return its remapped selection. Caret-only character
+  formatting stays transient on nonempty text; empty paragraph defaults persist
+  only in the selected copy. Named-definition edits and document tab defaults
+  keep their global scope. Cross-cell ranges in repeated source still need richer
+  selection metadata. Tables containing formulas reject these structural edits
   until reference adjustment is implemented. Direct placement in lists needs an
   anchored table or list splitting; merge/split controls remain pending.
   Format → Tabs adds, edits and deletes stops for the selected paragraphs.

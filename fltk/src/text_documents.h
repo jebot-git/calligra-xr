@@ -6,6 +6,7 @@
 #include "native_words_edit.h"
 #include "native_words_tables.h"
 #include "native_words_format.h"
+#include "native_words_tabs.h"
 namespace DomeOffice {
 struct TextSelection {
     size_t anchor = 0, cursor = 0;
@@ -40,12 +41,14 @@ public:
     // paragraph text. Keyboard Tab applies only at paragraph/range boundaries.
     bool list_action(TextSelection, WordsListAction, bool at_start_only = false);
     WordsFormatInfo format_info(TextSelection) const;
-    bool format_characters(TextSelection, const WordsCharacterFormat&);
-    bool format_paragraphs(TextSelection, const WordsParagraphFormat&);
+    // Receives the rebased selection when formatting localizes a repeated cell.
+    bool format_characters(TextSelection, const WordsCharacterFormat&, TextSelection* resolved = nullptr);
+    bool format_paragraphs(TextSelection, const WordsParagraphFormat&, TextSelection* resolved = nullptr);
+    bool format_tabs(TextSelection, const WordsTabsFormat&, uint64_t expected_revision, TextSelection* resolved = nullptr);
     OdfPackage style_snapshot() const;
     std::optional<Text> current_character_style(TextSelection) const;
     bool commit_styles(OdfPackage, TextSelection, uint64_t expected_revision,
-        std::optional<Text> apply_paragraph = { }, std::optional<Text> apply_character = { });
+        std::optional<Text> apply_paragraph = { }, std::optional<Text> apply_character = { }, TextSelection* resolved = nullptr);
     bool commit_structure(OdfPackage, TextSelection previous, TextSelection next,
         uint64_t expected_revision);
     void clear_typing_format() { typing_format_.reset(); }
