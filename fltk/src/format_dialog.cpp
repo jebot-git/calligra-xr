@@ -1726,3 +1726,105 @@ std::optional<WordsTableEdit> subdivide_cell_dialog(
                                 true, body_width);
 }
 } // namespace DomeOffice
+
+namespace DomeOffice {
+bool shape_geometry_dialog(
+    Fl_Window &window, const NativeShapeGeometry &initial,
+    const std::function<void(const NativeShapeGeometryEdit &)> &apply) {
+  constexpr double mm = 72 / 25.4;
+  const int width = 620, height = 370,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  struct GeometryPanel : Panel {
+    using Panel::Panel;
+    int handle(int event) override {
+      if (event == FL_KEYDOWN &&
+          (Fl::event_key() == FL_Enter || Fl::event_key() == FL_KP_Enter) &&
+          dynamic_cast<Fl_Input *>(Fl::focus())) {
+        accepted = done = true;
+        return 1;
+      }
+      return Panel::handle(event);
+    }
+  };
+  GeometryPanel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Position and size");
+  background.hint.copy_label("Blank fields keep their current value");
+  Fl_Input px(x + 155, y + 70, 125, 30, "X (mm):"),
+      py(x + 435, y + 70, 125, 30, "Y (mm):");
+  Fl_Input w(x + 155, y + 120, 125, 30,
+             initial.line ? "Length (mm):" : "Width (mm):"),
+      h(x + 435, y + 120, 125, 30, "Height (mm):"),
+      angle(x + 155, y + 170, 125, 30, "Rotation (°):");
+  if (!initial.position_enabled) {
+    px.deactivate();
+    py.deactivate();
+  }
+  if (!initial.width_enabled)
+    w.deactivate();
+  if (!initial.height_enabled)
+    h.deactivate();
+  if (initial.line)
+    h.hide();
+  if (!initial.rotation_enabled)
+    angle.deactivate();
+  std::array<Fl_Input *, 5> fields{&px, &py, &w, &h, &angle};
+  std::array<std::optional<double>, 5> values{
+      initial.origin.x / mm, initial.origin.y / mm, initial.width / mm,
+      initial.height / mm, initial.rotation};
+  std::array<Text, 5> originals;
+  for (size_t i = 0; i < fields.size(); ++i)
+    if (values[i]) {
+      originals[i] = Text::number(*values[i], 'g', 10);
+      fields[i]->value(originals[i].toUtf8().c_str());
+    }
+  Fl_Box hint(x + 20, y + 220, width - 40, 45,
+              initial.line ? "X/Y locate the start of the line. Rotation is "
+                             "measured on the slide."
+                           : "X/Y locate the shape origin on the slide.\nSize "
+                             "is measured before rotation and scaling.");
+  hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  Fl_Widget *focus = &buttons.cancel;
+  for (auto *field : fields)
+    if (field->active() && field->visible()) {
+      focus = field;
+      break;
+    }
+  while (panel.run(*focus)) {
+    try {
+      NativeShapeGeometryEdit edit;
+      std::array<std::optional<double> *, 5> output{
+          &edit.x, &edit.y, &edit.width, &edit.height, &edit.rotation};
+      for (size_t i = 0; i < fields.size(); ++i) {
+        if (!fields[i]->active() || !fields[i]->visible())
+          continue;
+        auto text = Text(fields[i]->value()).trimmed();
+        if (text.empty() || text == originals[i])
+          continue;
+        bool ok = false;
+        double value = text.toDouble(&ok);
+        if (!ok || !std::isfinite(value))
+          throw std::runtime_error(
+              "Enter a finite number, or leave the field unchanged");
+        bool old_ok = false;
+        double shown = originals[i].toDouble(&old_ok);
+        if (old_ok && shown == value)
+          continue;
+        *output[i] = i == 4 ? value : value * mm;
+      }
+      apply(edit);
+      return true;
+    } catch (const std::exception &error) {
+      background.hint.copy_label(error.what());
+      background.hint.labelcolor(FL_RED);
+      window.redraw();
+    }
+  }
+  return false;
+}
+} // namespace DomeOffice

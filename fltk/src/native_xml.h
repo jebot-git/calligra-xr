@@ -91,6 +91,10 @@ public:
     if (node_)
       xmlNodeSetContent(node_, BAD_CAST value.toUtf8().c_str());
   }
+  void renameLocal(const Text &name) {
+    if (node_)
+      xmlNodeSetName(node_, BAD_CAST name.toUtf8().c_str());
+  }
   Text text() const {
     if (!node_)
       return {};

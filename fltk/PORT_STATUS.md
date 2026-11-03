@@ -219,7 +219,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
 | Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, scoped header/footer editing and native rendering with dynamic page fields, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, remaining table styles/optimal sizing and reflow performance, complex paragraph-level list reparenting, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, advanced header/footer geometry and anchored content, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
-| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, resize/rotation, image insertion and stacking/group tools, animation/timing, transitions, speaker notes/view and export fidelity |
+| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, drag resize/rotation handles, image insertion and stacking/group tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
 | Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
@@ -1125,3 +1125,50 @@ The optimized stage verifies 29 artifacts, matching Release sections, system
 FLTK and no Qt/GTK ELF linkage. Installation remains separate evidence; the
 previous movement installer's authentication wait does not prove this build
 installed. No duplicate installer is launched while that handle is live.
+
+
+## Native Stage position, size and rotation — 2026-11-03
+
+The universal Format → Position and size panel edits an own-slide object's
+origin in slide coordinates, frame size before rotation/scaling, and absolute
+slide rotation. A line instead exposes its slide-space start, length and angle.
+Grouped and reflected/sheared objects retain their existing affine stretch,
+shear and reflection. Source geometry changes resize text frames without
+scaling fonts; paragraphs reflow and retain their runs and styles. Unchanged
+fields, blank fields and complete rotations preserve exact source and redo.
+Invalid input stays in the panel; Cancel/Escape have no source effect. Menu
+commands return their D-Bus reply before entering the native overlay loop.
+
+The native journal validates an isolated candidate scene before committing.
+Position/angle edits preserve dimensions and path data. Size edits preserve
+unmodified dimension units; center/radius ellipse aliases normalize only when
+resized. Existing viewports retain curve data. Unmapped paths/polygons gain a
+viewport where possible; degenerate or large extents use direct source geometry
+scaling, including elliptical arcs and Bézier controls. Degenerate path axes,
+singular parent transforms, signed documents and resource limits retain explicit
+failure/capability handling. Font sizes, identifiers, styles, image data, other
+objects and opaque archive parts remain unchanged.
+
+Stage remains active. Words stays paused with experimental columns preserved
+and uninstalled; further Sheets catalogue/settings work waits. Drag resize and
+rotation handles, archive-part transactions for image insertion, stacking/group
+tools, richer text layout/editing and relationship rewriting remain unfinished.
+Installation is separate from source, build and staged evidence. The previous
+movement installer terminated without installing; the installed manifest still
+matches Sheets build 930f2cc. Install the newest fully verified stage directly.
+
+Validation covers 71 applicable Release and 71 ASan/UBSan suites, with the same
+three outline-font exclusions. Native Wayland input checks the real universal
+menu/panel, Enter and Apply, Cancel/Escape, invalid values, unchanged history,
+text reflow from four to eight lines, no overflow in the final resized frame,
+and exact ODP source/save/reopen. GUI leak checking stays enabled with narrowly
+scoped suppressions for system Fontconfig font-registration/reinitialization
+and Mesa Wayland EGL initialization caches; native allocations are unsuppressed.
+Six independent SVG arc/Bézier cases compare 3,030 samples and unchanged source.
+Those deliberately non-conforming no-viewBox legacy inputs test extensions;
+they are separate from strict version-matched ODF schema evidence. Fourteen
+supported ODP/ODT/ODS packages pass their content/styles schemas. Five private
+CUPS jobs cover thirteen pages: original/edited Stage exports reopen identically,
+and all nine suite baseline pages match the preceding reviewed build. The
+optimized stage checks 29 artifacts, matching Release sections, system FLTK
+and no Qt/GTK ELF linkage. The installed build requires its own receipt.

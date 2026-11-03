@@ -762,6 +762,18 @@ std::optional<SceneTransform> SceneTransform::inverse() const {
   result.f = -result.b * e - result.d * f;
   return result;
 }
+double parse_scene_length(const Text &value, double fallback) {
+  return length(value, fallback);
+}
+Text format_scene_transform(const SceneTransform &m) {
+  TextList values;
+  for (double v : {m.a, m.b, m.c, m.d})
+    values << Text::number(v, 'g', 17);
+  values << "0" << "0";
+  return "matrix(" + values.join(' ') + ") translate(" +
+         Text::number(m.e, 'g', 17) + "pt " + Text::number(m.f, 'g', 17) +
+         "pt)";
+}
 SceneTransform parse_scene_transform(const Text &value) {
   if (value.size() > 65536)
     fail("Presentation transform exceeds the limit");

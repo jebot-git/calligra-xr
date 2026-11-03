@@ -75,6 +75,7 @@ enum Command {
     InsertLine,
     InsertTextBox,
     DeleteObject,
+    ObjectGeometry,
     Present,
     Next,
     Previous,
@@ -458,6 +459,7 @@ public:
             add("&Insert/&Line", 0, InsertLine);
             add("&Insert/&Text box", 0, InsertTextBox);
             add("&Edit/Delete &object", 0, DeleteObject);
+            add("&Format/&Position and size…", 0, ObjectGeometry);
             add("&Slide/&Add slide", FL_CTRL + 'm', AddSlide);
             add("&Slide/&Delete slide", 0, DeleteSlide);
             add("&Presentation/&Present", FL_F + 5, Present);
@@ -1025,6 +1027,32 @@ public:
         title();
         sync_pages();
     }
+    void stage_geometry()
+    {
+        if (kind != Kind::Stage) return;
+        if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
+        if (readonly()) throw std::runtime_error("This presentation is read-only");
+        if (canvas->selected_shape < 0) return;
+        commit_text();
+        int index = canvas->selected_shape;
+        auto initial = stage->shape_geometry(slide, index);
+        formatting_dialog = true;
+        bool applied = false;
+        try {
+            applied = shape_geometry_dialog(window, initial, [this, index](const NativeShapeGeometryEdit& edit) {
+                stage->set_shape_geometry(slide, index, edit);
+            });
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        if (applied) {
+            refresh_stage(index);
+            modified = stage->modified();
+            title();
+        }
+    }
     static void format_timeout(void* p)
     {
         auto* office = static_cast<Office*>(p);
@@ -1032,7 +1060,9 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell || action == CellFormat || action == TableSizing)
+                if (action == ObjectGeometry)
+                    office->stage_geometry();
+                else if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell || action == CellFormat || action == TableSizing)
                     office->word_grid(action);
                 else if (action == InsertTable || action == DeleteTable)
                     office->word_table(action == InsertTable);
@@ -1909,7 +1939,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
+            } else if (c == ObjectGeometry || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);
@@ -2314,6 +2344,14 @@ public:
                     { "transform", { t.a, t.b, t.c, t.d, t.e, t.f } },
                     { "bounds", { bounds.x, bounds.y, bounds.width, bounds.height } } });
                 if (shape.master) continue;
+                const auto geometry = native_shape_geometry(shape);
+                objects.back()["geometry"] = {
+                    { "origin", { geometry.origin.x, geometry.origin.y } },
+                    { "width", geometry.width }, { "height", geometry.height },
+                    { "rotation", geometry.rotation ? Json(*geometry.rotation) : Json(nullptr) },
+                    { "line", geometry.line }, { "position_enabled", geometry.position_enabled },
+                    { "width_enabled", geometry.width_enabled }, { "height_enabled", geometry.height_enabled },
+                    { "rotation_enabled", geometry.rotation_enabled } };
                 for (size_t j = 0; j < shape.handles.size(); ++j) {
                     const auto& handle = shape.handles[j];
                     auto point = shape.transform.map(handle.position);

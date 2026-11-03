@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Native Wayland GUI tests keep leak detection enabled. These system-library
+# process-lifetime caches are observed at bitmap-font and Wayland EGL startup.
+# Do not suppress native document, history, geometry or FLTK panel allocations.
+leak:FcConfigAppFontAddFile
+leak:FcInitReinitialize
+leak:dri2_initialize_wayland

@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_words_format.h"
+#include "native_stage_geometry.h"
 #include "native_words_page.h"
 #include "native_words_tabs.h"
 #include "native_words_tables.h"
 #include "native_words_story.h"
 #include <FL/Fl_Window.H>
+#include <functional>
 namespace DomeOffice {
+bool shape_geometry_dialog(
+    Fl_Window &, const NativeShapeGeometry &,
+    const std::function<void(const NativeShapeGeometryEdit &)> &apply);
 std::optional<WordsCharacterFormat>
 character_format_dialog(Fl_Window &, const WordsCharacterFormat &,
                         std::optional<bool> bold);

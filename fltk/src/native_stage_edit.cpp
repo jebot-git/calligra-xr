@@ -12,18 +12,6 @@ void point(ScenePoint p) {
       std::abs(p.y) > 1e9)
     throw std::runtime_error("Shape position exceeds the coordinate limit");
 }
-Text matrix(const SceneTransform &m) {
-  TextList values;
-  for (double v : {m.a, m.b, m.c, m.d})
-    values << Text::number(v, 'g', 17);
-  // Matrix parameters are doubles; translate explicitly carries length units.
-  // Keeping this canonical also bounds the transform list across repeated
-  // nudges.
-  values << "0" << "0";
-  return "matrix(" + values.join(' ') + ") translate(" +
-         Text::number(m.e, 'g', 17) + "pt " + Text::number(m.f, 'g', 17) +
-         "pt)";
-}
 } // namespace
 void Presentation::begin_shape_move(int slide, int shape_index,
                                     ScenePoint pointer) {
@@ -73,8 +61,9 @@ void Presentation::move_shape_to(int slide, int shape_index,
   translation.f = p.b * delta.x + p.d * delta.y;
   auto candidate = read_document_xml(drag_->before);
   auto source = stage_candidate_source(shape.source, candidate);
-  source.setAttributeNS(DRAW, "draw:transform",
-                        matrix(translation * drag_->original_transform));
+  source.setAttributeNS(
+      DRAW, "draw:transform",
+      format_scene_transform(translation * drag_->original_transform));
   if (source.localName() == "frame")
     source.setAttributeNS(PRESENTATION, "presentation:user-transformed",
                           "true");

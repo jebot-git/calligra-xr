@@ -343,8 +343,15 @@ CUPS test queues.
   Escape or loss of focus cancels a drag; returning to its starting point keeps
   the original XML and redo branch. Masters and read-only presentations cannot
   be moved. Complete candidate scenes are validated before changing live state.
-  Resize/rotate, image insertion, stacking and group editing controls remain
-  unfinished.
+  Format → Position and size edits the selected object's slide-space origin,
+  local frame width/height and absolute slide rotation. Lines expose start,
+  slide-space length and direction. Geometry changes preserve existing affine
+  stretch/shear/reflection, font sizes, rich text, image assets and unrelated XML;
+  text reflows within its resized frame. Blank/unchanged fields and complete
+  turns preserve history. Invalid geometry stays in the panel for correction;
+  Cancel/Escape leave the presentation unchanged. Masters, read-only files and
+  unavailable transform axes remain protected. Drag resize/rotation handles,
+  image insertion, stacking and group editing controls remain unfinished.
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.

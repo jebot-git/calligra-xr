@@ -17,6 +17,8 @@ struct SceneTransform {
   std::optional<SceneTransform> inverse() const;
 };
 SceneTransform parse_scene_transform(const Text &);
+double parse_scene_length(const Text &, double fallback = 0);
+Text format_scene_transform(const SceneTransform &);
 using SceneColor = TextColor;
 struct ScenePaint {
   bool fill = false, stroke = false;

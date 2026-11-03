@@ -3,6 +3,7 @@
 #include "native_text_layout.h"
 #include "odf_package.h"
 #include "native_presentation.h"
+#include "native_stage_geometry.h"
 #include "native_words_edit.h"
 #include "native_words_selection.h"
 #include "native_words_tables.h"
@@ -156,6 +157,9 @@ public:
     PresentationPosition insert_shape(int slide, NativeShapeKind, SceneRect,
         const Text& text = {}, PresentationPosition previous = {});
     PresentationPosition remove_shape(int slide, int shape);
+    NativeShapeGeometry shape_geometry(int slide, int shape) const;
+    void set_shape_geometry(int slide, int shape,
+                            const NativeShapeGeometryEdit &);
     void finish_handle_drag(bool cancel = false);
     bool dragging_handle() const { return bool(drag_); }
     bool can_undo() const { return history_index_ != 0 || (drag_ && drag_->changed); }
