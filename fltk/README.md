@@ -353,12 +353,22 @@ CUPS test queues.
   text reflows within its resized frame. Blank/unchanged fields and complete
   turns preserve history. Invalid geometry stays in the panel for correction;
   Cancel/Escape leave the presentation unchanged. Masters, read-only files and
-  unavailable transform axes remain protected. Drag resize/rotation handles,
-  stacking and group editing controls remain unfinished. The Image menu embeds
+  unavailable transform axes remain protected. Stacking and group editing
+  controls remain unfinished. The canvas now exposes
+  square frame resize handles, a circular rotation handle and line endpoints.
+  Resize keeps the opposite anchor fixed through affine transforms; crossing
+  the anchor mirrors the object while retaining positive ODF dimensions.
+  Shift preserves frame aspect ratio or snaps rotation/line direction to 15°.
+  Rotation keeps the frame center fixed. Font sizes, rich text and encoded
+  image data remain unchanged; text reflows within the resized frame.
+  Each completed gesture is one undo command. Escape, canvas focus loss or
+  returning to the starting geometry restores exact source and the redo branch.
+  Custom modifier diamonds retain priority where handles overlap.
+  The Image menu embeds
   validated PNG/JPEG/SVG/GIF/BMP source bytes with package/manifest undo.
   The original encoded image and manifest additions undo together.
   A cancelled chooser preserves history, and inserted images can be moved,
-  resized/rotated numerically and deleted through ordinary object commands.
+  resized/rotated through handles or numerically and deleted through ordinary object commands.
   The text editor exposes Font (Ctrl+D), Bold/Italic/Underline (Ctrl+B/I/U),
   strikethrough and paragraph alignment/margins/indent/spacing through the
   universal Format menu. Character controls apply to the selected Unicode

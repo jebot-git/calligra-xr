@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
 #include "native_stage_source.h"
+#include "native_stage_geometry_source.h"
 #include "native_path.h"
 #include <cmath>
 #include <numbers>
@@ -210,18 +211,17 @@ NativeShapeGeometry native_shape_geometry(const SceneShape &s) {
 NativeShapeGeometry Presentation::shape_geometry(int slide, int index) const {
   return native_shape_geometry(scene(slide).shapes.at(index));
 }
-void Presentation::set_shape_geometry(int slide, int index,
-                                      const NativeShapeGeometryEdit &edit) {
-  if (!edit.x && !edit.y && !edit.width && !edit.height && !edit.rotation)
-    return;
+bool apply_native_shape_geometry(const SceneShape &shape, XmlElement source,
+                                 const NativeShapeGeometryEdit &edit,
+                                 std::optional<SceneTransform> action) {
   for (const auto &v : {edit.x, edit.y, edit.width, edit.height, edit.rotation})
     if (v)
       finite(*v, 1e9);
-  finish_handle_drag();
-  end_text_edit();
-  if (read_only())
-    fail("This presentation is read-only");
-  const auto &shape = scene(slide).shapes.at(index);
+  if (action)
+    for (double value :
+         {action->a, action->b, action->c, action->d, action->e, action->f})
+      if (!std::isfinite(value))
+        fail("Invalid slide-space geometry action");
   auto old = native_shape_geometry(shape);
   double x = edit.x.value_or(old.origin.x), y = edit.y.value_or(old.origin.y),
          w = edit.width.value_or(old.width),
@@ -233,12 +233,11 @@ void Presentation::set_shape_geometry(int slide, int index,
       delta = std::remainder(*edit.rotation - *old.rotation, 360.);
   }
   bool moved = x != old.origin.x || y != old.origin.y, rotated = delta != 0;
-  if (!moved && !rotated && w == old.width && h == old.height)
-    return;
-  auto before = package_.xml.toByteArray();
-  auto candidate = read_document_xml(before);
-  auto source = stage_candidate_source(shape.source, candidate);
+  if (!moved && !rotated && w == old.width && h == old.height && !action)
+    return false;
   if (old.line) {
+    if (action)
+      fail("Line gestures require endpoint coordinates");
     if (h != 0)
       fail("Lines use length and rotation, rather than height");
     if (w < 0 || w > 1e9 || (w == 0 && old.width > 0))
@@ -274,29 +273,48 @@ void Presentation::set_shape_geometry(int slide, int index,
     source.setAttributeNS(SVG, "svg:y2", pt(last.y));
   } else {
     resize(source, shape, old, w, h);
-    if (moved || rotated) {
+    if (moved || rotated || action) {
       auto inverse = shape.parent_transform.inverse();
       if (!inverse)
         fail("The containing group transform is singular");
       auto radians = delta / degrees;
       double c = std::cos(radians), s = std::sin(radians);
-      SceneTransform action{c,
-                            s,
-                            -s,
-                            c,
-                            x - c * old.origin.x + s * old.origin.y,
-                            y - s * old.origin.x - c * old.origin.y};
+      SceneTransform numerical{c,
+                               s,
+                               -s,
+                               c,
+                               x - c * old.origin.x + s * old.origin.y,
+                               y - s * old.origin.x - c * old.origin.y};
       auto own =
           parse_scene_transform(shape.source.attributeNS(DRAW, "transform"));
       source.setAttributeNS(
           DRAW, "draw:transform",
-          format_scene_transform(*inverse * action * shape.parent_transform *
-                                 own));
+          format_scene_transform(*inverse * action.value_or(numerical) *
+                                 shape.parent_transform * own));
     }
     if (shape.kind == SceneShape::Frame)
       source.setAttributeNS(PRESENTATION, "presentation:user-transformed",
                             "true");
   }
+  return true;
+}
+void Presentation::set_shape_geometry(int slide, int index,
+                                      const NativeShapeGeometryEdit &edit) {
+  if (!edit.x && !edit.y && !edit.width && !edit.height && !edit.rotation)
+    return;
+  for (const auto &v : {edit.x, edit.y, edit.width, edit.height, edit.rotation})
+    if (v)
+      finite(*v, 1e9);
+  finish_handle_drag();
+  end_text_edit();
+  if (read_only())
+    fail("This presentation is read-only");
+  const auto &shape = scene(slide).shapes.at(index);
+  auto before = package_.xml.toByteArray();
+  auto candidate = read_document_xml(before);
+  auto source = stage_candidate_source(shape.source, candidate);
+  if (!apply_native_shape_geometry(shape, source, edit))
+    return;
   PresentationPosition at{slide, shape.editor_index, index};
   restore_content(candidate.toByteArray());
   remember(before, at, at);

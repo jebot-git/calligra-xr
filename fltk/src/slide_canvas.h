@@ -2,6 +2,7 @@
 #pragma once
 #include "gpu_image.h"
 #include "gpu_text.h"
+#include "native_shape_drag.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 struct SceneTextStats {
@@ -45,6 +46,12 @@ public:
   size_t geometry_points() const;
   const SceneTextStats &text_stats() const;
   int handle(int) override;
+  struct TransformHandle {
+    NativeShapeHandle kind;
+    ScenePoint point;
+    std::optional<ScenePoint> stem;
+  };
+  std::vector<TransformHandle> transform_handles() const;
   bool dragging() const { return drag_shape_ >= 0; }
   void finish_drag(bool cancel = false);
 

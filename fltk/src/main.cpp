@@ -590,10 +590,12 @@ public:
                 try {
                     if (event == SlideCanvas::Begin) {
                         commit_text();
-                        if (handle < 0) stage->begin_shape_move(slide, shape, point);
+                        if (handle == -1) stage->begin_shape_move(slide, shape, point);
+                        else if (handle < -1) stage->begin_shape_transform(slide, shape, NativeShapeHandle(-handle - 2), point);
                         else stage->begin_handle_drag(slide, shape, handle);
                     } else if (event == SlideCanvas::Move) {
-                        if (handle < 0) stage->move_shape_to(slide, shape, point);
+                        if (handle == -1) stage->move_shape_to(slide, shape, point);
+                        else if (handle < -1) stage->transform_shape_to(slide, shape, point, Fl::event_state(FL_SHIFT));
                         else stage->move_handle(slide, shape, handle, point);
                     } else {
                         stage->finish_handle_drag(event == SlideCanvas::Cancel);
@@ -2553,6 +2555,9 @@ public:
                 const auto& c = cell.source;
                 cells.push_back({ { "table", c.table }, { "row", c.row }, { "column", c.column }, { "rows", c.rows }, { "columns", c.columns }, { "header", c.header }, { "corners", corners } });
             }
+            Json transform_handles = Json::array();
+            for (const auto &handle : canvas->transform_handles())
+                transform_handles.push_back({ { "kind", int(handle.kind) }, { "x", handle.point.x }, { "y", handle.point.y } });
             data["scene"] = { { "page", slide + 1 },
                 { "width", model.width },
                 { "height", model.height },
@@ -2563,7 +2568,10 @@ public:
                 { "can_undo", stage->can_undo() },
                 { "can_redo", stage->can_redo() },
                 { "selected_shape", canvas->selected_shape },
+                { "event_pointer", { Fl::event_x(), Fl::event_y() } },
+                { "dragging", canvas->dragging() },
                 { "adjustments", adjustments },
+                { "transform_handles", transform_handles },
                 { "objects", objects },
                 { "revision", stage->revision() },
                 { "slides", stage->count() },

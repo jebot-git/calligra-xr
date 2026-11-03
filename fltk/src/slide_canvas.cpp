@@ -238,10 +238,10 @@ struct SlideCanvas::Impl {
             text_stats.missing_glyphs += line.shaped->missing_glyphs;
             if (line.label && line.label->image)
               ++text_stats.image_labels;
-            if(line.label&&line.label->shaped) {
+            if (line.label && line.label->shaped) {
               ++text_stats.labels;
-              text_stats.glyphs+=line.label->shaped->glyphs.size();
-              text_stats.missing_glyphs+=line.label->shaped->missing_glyphs;
+              text_stats.glyphs += line.label->shaped->glyphs.size();
+              text_stats.missing_glyphs += line.label->shaped->missing_glyphs;
             }
           }
         double extra =
@@ -367,8 +367,8 @@ struct SlideCanvas::Impl {
             glyphs.draw_tabs(
                 line.tabs, transform * baseline, {r, g, b}, *window,
                 relative_text_clip(line.clip, line.x, line.baseline));
-            if(line.label&&line.label->shaped) {
-              baseline.e=line.label->x;
+            if (line.label && line.label->shaped) {
+              baseline.e = line.label->x;
               glyphs.draw(
                   *line.label->shaped, transform * baseline, {r, g, b}, *window,
                   relative_text_clip(line.clip, line.label->x, line.baseline));
@@ -405,6 +405,41 @@ struct SlideCanvas::Impl {
       const auto &shape = model.shapes[canvas.selected_shape];
       unsigned char r, g, b;
       Fl::get_color(FL_SELECTION_COLOR, r, g, b);
+      // Generic handles stay under custom modifier diamonds, matching their
+      // hit-test priority. All handle sizes are logical screen pixels.
+      for (const auto &handle : canvas.transform_handles()) {
+        auto p = screen.map(handle.point);
+        if (handle.stem) {
+          glLineWidth(1);
+          glBegin(GL_LINES);
+          vertex(screen.map(*handle.stem));
+          vertex(p);
+          glEnd();
+        }
+        bool rotation = handle.kind == NativeShapeHandle::Rotate;
+        auto outline = [&](GLenum mode) {
+          glBegin(mode);
+          if (rotation) {
+            for (int j = 0; j < 24; ++j) {
+              double angle = j * 2 * std::acos(-1.) / 24;
+              vertex({p.x + 5 * std::cos(angle), p.y + 5 * std::sin(angle)});
+            }
+          } else {
+            vertex({p.x - 3, p.y - 3});
+            vertex({p.x + 3, p.y - 3});
+            vertex({p.x + 3, p.y + 3});
+            vertex({p.x - 3, p.y + 3});
+          }
+          glEnd();
+        };
+        glColor4ub(r, g, b, 255);
+        outline(GL_POLYGON);
+        Fl::get_color(FL_FOREGROUND_COLOR, r, g, b);
+        glColor4ub(r, g, b, 255);
+        glLineWidth(1);
+        outline(GL_LINE_LOOP);
+        Fl::get_color(FL_SELECTION_COLOR, r, g, b);
+      }
       for (const auto &handle : shape.handles)
         if (handle.editable) {
           auto p = (screen * shape.transform).map(handle.position);
@@ -457,6 +492,65 @@ SceneTransform SlideCanvas::screen_transform(const SlideScene &model) const {
           x() + (w() - model.width * scale) / 2,
           y() + (h() - model.height * scale) / 2};
 }
+std::vector<SlideCanvas::TransformHandle>
+SlideCanvas::transform_handles() const {
+  std::vector<TransformHandle> out;
+  if (!selection_visible || !adjustable || selected_shape < 0 || !scene)
+    return out;
+  const auto &model = scene();
+  if (size_t(selected_shape) >= model.shapes.size())
+    return out;
+  const auto &shape = model.shapes[selected_shape];
+  if (shape.master || shape.source.isNull())
+    return out;
+  const auto geometry = native_shape_geometry(shape);
+  if (geometry.line) {
+    if (geometry.position_enabled) {
+      out.push_back({NativeShapeHandle::LineStart,
+                     shape.transform.map(shape.contours.at(0).points.at(0)),
+                     {}});
+      out.push_back({NativeShapeHandle::LineEnd,
+                     shape.transform.map(shape.contours.at(0).points.at(1)),
+                     {}});
+    }
+    return out;
+  }
+  if (geometry.position_enabled && shape.transform.inverse()) {
+    const std::array<ScenePoint, 8> fractions{
+        {{0, 0}, {.5, 0}, {1, 0}, {1, .5}, {1, 1}, {.5, 1}, {0, 1}, {0, .5}}};
+    for (size_t i = 0; i < fractions.size(); ++i) {
+      const auto f = fractions[i];
+      if ((f.x != .5 && !geometry.width_enabled) ||
+          (f.y != .5 && !geometry.height_enabled))
+        continue;
+      out.push_back(
+          {NativeShapeHandle(i),
+           shape.transform.map({f.x * geometry.width, f.y * geometry.height}),
+           {}});
+    }
+  }
+  if (geometry.rotation_enabled && geometry.rotation) {
+    const auto screen = screen_transform(model);
+    auto inverse = screen.inverse();
+    if (!inverse)
+      return out;
+    const auto transform = screen * shape.transform;
+    auto top = transform.map({geometry.width / 2, 0});
+    auto center = transform.map({geometry.width / 2, geometry.height / 2});
+    ScenePoint outward{top.x - center.x, top.y - center.y};
+    if (std::hypot(outward.x, outward.y) < 1e-12)
+      outward = {-transform.c, -transform.d};
+    if (std::hypot(outward.x, outward.y) < 1e-12)
+      outward = {transform.b, -transform.a};
+    auto length = std::hypot(outward.x, outward.y);
+    if (length > 0)
+      out.push_back({NativeShapeHandle::Rotate,
+                     inverse->map({top.x + 24 * outward.x / length,
+                                   top.y + 24 * outward.y / length}),
+                     shape.transform.map({geometry.width / 2, 0})});
+  }
+  return out;
+}
 void SlideCanvas::draw() {
   fl_push_clip(x(), y(), w(), h());
   fl_color(FL_BACKGROUND_COLOR);
@@ -495,7 +589,7 @@ int SlideCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_DRAG && dragging()) {
-    if (drag_handle_ == -1 && !drag_moved_) {
+    if (drag_handle_ < 0 && !drag_moved_) {
       if (std::hypot(Fl::event_x() - drag_screen_start_.x,
                      Fl::event_y() - drag_screen_start_.y) < 4)
         return 1;
@@ -510,7 +604,7 @@ int SlideCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_RELEASE && dragging()) {
-    if (drag_handle_ == -1 && !drag_moved_) {
+    if (drag_handle_ < 0 && !drag_moved_) {
       finish_drag(true);
       return 1;
     }
@@ -554,6 +648,23 @@ int SlideCanvas::handle(int event) {
             }
           }
       }
+      if (adjustable && adjustment && selected_shape >= 0) {
+        const auto screen = screen_transform(model);
+        for (const auto &handle : transform_handles()) {
+          auto p = screen.map(handle.point);
+          if (std::hypot(p.x - Fl::event_x(), p.y - Fl::event_y()) <= 8) {
+            drag_shape_ = selected_shape;
+            drag_handle_ = -2 - int(handle.kind);
+            drag_screen_inverse_ = *inverse;
+            drag_screen_start_ = {double(Fl::event_x()), double(Fl::event_y())};
+            drag_moved_ = false;
+            if (!adjustment(Begin, drag_shape_, drag_handle_,
+                            inverse->map(drag_screen_start_)))
+              drag_shape_ = drag_handle_ = -1;
+            return 1;
+          }
+        }
+      }
       int i = model.hit_test(
           inverse->map({double(Fl::event_x()), double(Fl::event_y())}));
       if (i >= 0) {
@@ -573,15 +684,25 @@ int SlideCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_KEYDOWN && !dragging() && adjustable && adjustment &&
-      selected_shape >= 0 && !(Fl::event_state() & (FL_CTRL | FL_ALT | FL_META))) {
+      selected_shape >= 0 &&
+      !(Fl::event_state() & (FL_CTRL | FL_ALT | FL_META))) {
     ScenePoint delta;
     double step = Fl::event_state(FL_SHIFT) ? 10 : 1;
     switch (Fl::event_key()) {
-    case FL_Left: delta.x = -step; break;
-    case FL_Right: delta.x = step; break;
-    case FL_Up: delta.y = -step; break;
-    case FL_Down: delta.y = step; break;
-    default: return Fl_Widget::handle(event);
+    case FL_Left:
+      delta.x = -step;
+      break;
+    case FL_Right:
+      delta.x = step;
+      break;
+    case FL_Up:
+      delta.y = -step;
+      break;
+    case FL_Down:
+      delta.y = step;
+      break;
+    default:
+      return Fl_Widget::handle(event);
     }
     if (adjustment(Begin, selected_shape, -1, {})) {
       if (adjustment(Move, selected_shape, -1, delta))

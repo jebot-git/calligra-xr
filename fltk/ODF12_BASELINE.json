@@ -98,7 +98,7 @@
         "Stage"
       ],
       "status": "partial",
-      "evidence": "Stage shapes, transforms, paths, masters, editable text and verified embedded image insertion with archive-part history.",
+      "evidence": "Stage shapes, transforms, paths, masters, embedded images and text; direct affine resize/center-rotation/line-endpoint gestures with exact source/history and raster checks.",
       "remaining": "Complete connectors/groups/stacking, custom geometry, fills/strokes, charts/3D/OLE/embedded content, Word anchors and authoring tools remain."
     },
     {

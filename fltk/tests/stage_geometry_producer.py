@@ -63,7 +63,10 @@ def close(a, b):
     assert math.isclose(a, b, rel_tol=1e-10, abs_tol=1e-7), (a, b)
 
 
-def verify_saved(source, saved, edits=UI):
+def verify_saved(source, saved, edits=UI, tolerance=1e-7):
+    def close(a, b, absolute=tolerance):
+        assert math.isclose(a, b, rel_tol=1e-10, abs_tol=absolute), (a, b)
+
     a, b = entries(source), entries(saved)
     assert a.keys() == b.keys()
     for name in a:
@@ -97,7 +100,7 @@ def verify_saved(source, saved, edits=UI):
             m = list(map(float, matrix[1].split()))
             assert len(m) == 6
             for got, want in zip(m, [c, s, -s, c, 0, 0]):
-                close(got, want)
+                close(got, want, 1e-8)
             ox, oy = length(old.get(V + "x", "0")), length(old.get(V + "y", "0"))
             close(float(matrix[2]) + c * ox - s * oy, x)
             close(float(matrix[3]) + s * ox + c * oy, y)

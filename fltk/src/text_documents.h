@@ -4,6 +4,7 @@
 #include "odf_package.h"
 #include "native_presentation.h"
 #include "native_stage_geometry.h"
+#include "native_shape_drag.h"
 #include "native_words_edit.h"
 #include "native_words_selection.h"
 #include "native_words_tables.h"
@@ -166,6 +167,8 @@ public:
     void begin_handle_drag(int slide, int shape, int handle);
     void move_handle(int slide, int shape, int handle, ScenePoint target);
     void begin_shape_move(int slide, int shape, ScenePoint pointer);
+    void begin_shape_transform(int slide, int shape, NativeShapeHandle, ScenePoint pointer);
+    void transform_shape_to(int slide, int shape, ScenePoint pointer, bool constrain = false);
     void move_shape_to(int slide, int shape, ScenePoint pointer);
     void move_shape(int slide, int shape, ScenePoint delta);
     PresentationPosition insert_shape(int slide, NativeShapeKind, SceneRect,
@@ -227,6 +230,8 @@ private:
         bool changed = false;
         ScenePoint pointer;
         SceneTransform parent_inverse, original_transform;
+        std::optional<NativeShapeDrag> transform_gesture;
+        std::optional<SceneShape> original_shape;
     };
     std::optional<HandleDrag> drag_;
     void clear_history();

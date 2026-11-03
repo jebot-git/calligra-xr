@@ -2757,3 +2757,48 @@ cache replace them. Final source builds, runtime tests, optimized stage sections
 and installed checks require their own receipts. No session is restarted.
 Source preservation, schema validity and the tested cases do not establish full
 ODF 1.2 functionality or general layout/interoperability parity.
+
+
+## Stage direct resize/rotation gestures — 2026-11-03
+
+Artifact root: `/home/blux/de-xr/artifacts/calligra-stage-transform-20261103`.
+
+- The native immutable solver passes132 independent affine point/anchor cases:
+  all eight frame handles, shear/stretch/existing reflection, opposite anchors,
+  crossing both axes, aspect constraints, center rotation,15degree snapping,
+  line endpoints, limits and exact return-to-start.
+- The native transaction test verifies frame/image/circle preview, nested legacy
+  affine groups, mirroring with positive dimensions, invariant font/text/asset
+  data, stable repeated previews, exact cancellation, one-command undo, saved
+  points, preserved redo branches, save/reopen, endpoint anchors and read-only
+  guards. The existing numeric geometry test passes after sharing its candidate
+  mutation with the new gesture path. Legacy transformed-group/radius probes
+  remain separate from strict ODF1.2 corpus evidence.
+- All76 selected Release and76 ASan/UBSan tests pass, retaining the same three
+  bitmap-font policy exclusions. Real Wayland input tests the visible square,
+  circular and endpoint handles, Shift constraints, center rotation, image
+  mirroring/save/undo, Escape, focus loss, return-to-start, one-gesture history,
+  reopening and independent source preservation. Existing movement/custom
+  modifiers/nudges/master protection also retain their native UI regression.
+- A precision-fixture failure was traced to decorated nested-host extents:
+  requested client814,136 was delivered819,144. Cage's documented `-d` makes
+  rendered/client input extents agree without widening application hit regions
+  or changing the user's desktop. Requested/delivered coordinates are recorded;
+  geometry checks allow one output pixel of pointer quantization, propagated
+  through center rotation, while affine coefficients retain1e-8 checks.
+- Four Stage CUPS jobs cover eight pages: original, resized/rotated text, saved
+  mirrored image, and the existing independent numeric model. Exported ODPs
+  reopen with exact raster output; unrelated second-slide pixels remain equal.
+  A separate color-mask/corner oracle verifies the printed image's actual bounds
+  against authored poses for all four cases, within two raster pixels. Raw XML
+  preserves styles, text runs, IDs, other objects/slides and archive bytes.
+- Three suite baseline CUPS jobs add nine reviewed pages, all pixel-identical to
+  installed5531fb7. Eighteen selected packages pass version-matched content/styles
+  schemas; fifteen selected packages pass the manifest and implemented plain
+  package checks. The three original legacy baseline inputs lacking manifest
+  versions remain separate from their repaired exports.
+
+All software builds/staging run as the ordinary user with optimized Release and
+system FLTK. Stage/installed hashes, ownership, runtime dependencies and installed
+native input/CUPS are separate gates. No desktop/display session is restarted.
+ODF1.2 functionality beyond these verified cases remains incomplete.
