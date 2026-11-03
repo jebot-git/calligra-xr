@@ -2972,3 +2972,30 @@ three suite baseline jobs cover nine pages matching installed 8ef6848 exactly.
 Thirty staged artifacts preserve optimized Release sections, use system FLTK
 and have no Qt/GTK ELF dependency. Installation requires its own independent
 receipt; these counts do not establish full ODF 1.2 functionality.
+
+## Native Stage paint editing — 2026-11-03
+
+`native-stage-paint` verifies no/solid fill and stroke, colors, independent
+opacity, width and fill rule; common/automatic/presentation-style isolation;
+retained text, padding, geometry and archive data; hidden group members;
+protected and read-only rejection; no-op/failed redo preservation; reserved
+unresolved names; and exact content/object/caret-selection history.
+`stage_paint_producer.py` authors strict ODF1.2 input and independently constructs
+expected style/reference changes. Explicit API fields and the panel's changed
+fields have separate raw-source expectations. The native Wayland panel test
+uses actual menu/keyboard/pointer input, invalid input and protected controls,
+GPU opacity pixels, minimum-window controls, cancellation/history and save/reopen.
+`stage_paint_print.py` exercises independent fill/stroke/opacity pixels, unchanged
+other pages, exact reopened rasters and actual private CUPS capture. Per-build
+counts and the independent installed receipt remain separate evidence. No check
+here establishes full ODF1.2 functionality or physical-printer compatibility.
+
+The final paint build passes 83 selected Release and 83 ASan/UBSan suites,
+retaining the existing three outline-font exclusions. Both actual native Wayland
+panel runs pass, including intrinsic image alpha and nonzero/even-odd hole
+pixels. Forty-four packages pass version-matched content/styles schemas;
+41 selected packages pass the manifest schema and implemented Part 3 checks.
+Twelve paint CUPS cases cover 36 reviewed pages and exact reopened rasters;
+three suite baseline jobs cover nine pages matching installed 8ef6848 exactly.
+The minimum-window panel and all 36 paint pages have visual review. Source,
+stage and independent installed receipts remain separate acceptance gates.

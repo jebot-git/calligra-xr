@@ -190,7 +190,7 @@ struct GpuImageCache::Impl {
   }
   bool draw(const std::shared_ptr<const ImageAsset> &asset,
             const SceneTransform &transform, double width, double height,
-            Fl_Gl_Window &host, std::optional<TextRect> clip) {
+            Fl_Gl_Window &host, std::optional<TextRect> clip, double opacity) {
     if (width <= 0 || height <= 0 ||
         (clip && (clip->width <= 0 || clip->height <= 0)))
       return true;
@@ -229,7 +229,7 @@ struct GpuImageCache::Impl {
     if (texture) {
       glEnable(GL_TEXTURE_2D);
       glBindTexture(GL_TEXTURE_2D, texture);
-      glColor4d(1, 1, 1, 1);
+      glColor4d(1, 1, 1, opacity);
       glBegin(GL_QUADS);
       glTexCoord2d(left / width, top / height);
       vertex(left, top);
@@ -287,8 +287,9 @@ void GpuImageCache::begin_frame(Fl_Gl_Window &host) {
 }
 bool GpuImageCache::draw(const std::shared_ptr<const ImageAsset> &asset,
                          const SceneTransform &t, double w, double h,
-                         Fl_Gl_Window &host, std::optional<TextRect> clip) {
-  return impl_->draw(asset, t, w, h, host, clip);
+                         Fl_Gl_Window &host, std::optional<TextRect> clip,
+                         double opacity) {
+  return impl_->draw(asset, t, w, h, host, clip, opacity);
 }
 void GpuImageCache::clear() { impl_->clear(); }
 uint64_t GpuImageCache::decodes() const { return impl_->decodes; }

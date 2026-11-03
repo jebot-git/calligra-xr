@@ -1491,3 +1491,54 @@ rasters and CUPS jobs provide separate evidence. Source/build/stage and installe
 receipts remain separate gates. Full ODF1.2 functionality, broader group/style/
 connector/frame/presentation semantics and object clipboard workflows remain
 unfinished. Stage stays active, Words paused, and further Sheets work waits.
+
+## Native Stage fill and stroke authoring — 2026-11-03
+
+The universal Format menu exposes a native FLTK Fill and stroke panel for the
+current object selection. It edits no/solid fill and stroke, RGB colors, fill
+and stroke opacity, stroke width and the nonzero/even-odd fill rule. Blank or
+mixed fields remain unchanged; unchanged displayed values do not materialize
+new source formatting. Changes apply together, while cancellation and rejected
+values preserve source, saved state and redo. Protected selections are available
+for inspection with disabled controls. The panel fits the minimum application
+window and returns the universal-menu reply before entering its modal loop.
+
+Selected groups apply the requested properties to drawable members, including
+hidden members. Source guards reject the whole edit if any selected subtree
+contains protected content. Unsupported member kinds reject atomically. Group
+geometry/identity, object order, source text, assets and unrelated styles remain
+in place. This does not implement group-level effects or inherited group paint.
+
+Automatic styles are cloned with their untouched attributes and child properties;
+common styles get an automatic child with the existing common style as parent.
+Presentation objects retain presentation-family references. New names reserve
+existing definitions and unresolved references across content and styles so
+unrelated objects cannot acquire a formerly missing style. Shared common and
+automatic styles, other slides, text properties, padding and opaque archive parts
+are preserved. Parent styles must be defined common styles as ODF1.2 requires.
+Missing style definitions, style class lists and uniform opacity over an opacity
+gradient are explicit pending authoring cases. Existing advanced source data is
+retained; this increment does not complete gradients, bitmap/hatch fills,
+dashes, joins/caps, markers, shadows or group/style-class rendering.
+
+Both screen and print scenes and archive limits validate before publication.
+Each accepted action records complete source and selected-object history;
+single-leaf caret/text selection is retained across undo/redo. No-op edits leave
+revision and future typing/history unchanged. Independent source/model/Wayland,
+GPU pixels, schema/package and CUPS evidence are required separately from stage
+and installed receipts. Stage stays active, Words paused and further Sheets
+catalogue/settings work waits. Full ODF1.2 functionality remains incomplete.
+
+Actual Wayland opacity pixels reproduced an older shape-rendering defect. The
+slide GL state used the source alpha factor for alpha itself, leaving a partially
+transparent window over an opaque page. The separate RGB/alpha blending already
+used by native text/images is required for shape paint too. The independent
+pixel oracle retains the mathematically expected page composite; the desktop
+background must not affect the document color. Reference:
+https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBlendFuncSeparate.xhtml.
+
+Uniform frame/image opacity now multiplies the encoded image's intrinsic alpha
+in native GPU rendering and PDF/CUPS output. It does not rewrite image bytes or
+substitute a flattened raster. The independent corpus contains an RGBA image
+with partial intrinsic transparency and checks both the original composite and
+an additional 50% ODF opacity, alongside unchanged archive assets.

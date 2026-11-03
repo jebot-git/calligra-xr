@@ -1173,3 +1173,9 @@ are explicitly outside the current milestone.
 
 Calligra-derived source retains its GPL/LGPL attribution and licenses; native
 port code is GPL-2.0-or-later and the shared appearance helpers retain MIT.
+
+Stage's native Format → Fill and stroke panel edits solid/no fill and stroke,
+colors, independent opacity, width and fill rule for selected objects/groups.
+It isolates shared styles and retains unrelated source data. Advanced paint,
+style class lists, group effects and broader ODF1.2 functionality remain partial.
+Installation status is recorded separately in the verified artifact receipt.

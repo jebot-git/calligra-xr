@@ -27,7 +27,9 @@ def main():
     cache = (build / 'CMakeCache.txt').read_text()
     if 'CMAKE_BUILD_TYPE:STRING=Release' not in cache: raise SystemExit('Use a Release build')
     stage.mkdir(parents=True)
-    subprocess.run(['cmake', '--install', str(build)],
+    # The stage layout is fixed even when a developer configured CMake with
+    # its default prefix. Keep application ELF files separate from wrappers.
+    subprocess.run(['cmake', '--install', str(build), '--prefix', str(Path('/') / PREFIX)],
                    env={**os.environ, 'DESTDIR': str(stage)}, check=True)
     for app, (name, generic, category, mime) in APPS.items():
         wrapper = stage / ('usr/local/bin/calligra-' + app + '-fltk')

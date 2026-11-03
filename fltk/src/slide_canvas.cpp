@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#ifndef GL_GLEXT_PROTOTYPES
+#define GL_GLEXT_PROTOTYPES
+#endif
 #include "slide_canvas.h"
 #include "gpu_clip.h"
 #include "gpu_image.h"
@@ -32,7 +35,10 @@ struct State {
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_TEXTURE_RECTANGLE_ARB);
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    // The page is opaque. Preserve its alpha while compositing translucent
+    // shape ink, so the Wayland compositor cannot add the desktop behind it.
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
+                        GL_ONE_MINUS_SRC_ALPHA);
   }
   ~State() {
     glPopMatrix();
@@ -350,7 +356,7 @@ struct SlideCanvas::Impl {
       }
       if (!shape.image.empty())
         pictures.draw(shape.raster, transform, shape.width, shape.height,
-                      *window);
+                      *window, {}, shape.paint.fill_color.alpha);
       if (!cached.text.lines.empty() || !cached.text.paints.empty()) {
         glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT);
         SceneTransform origin;

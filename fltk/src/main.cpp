@@ -78,7 +78,7 @@ enum Command {
     InsertTextBox,
     InsertImage,
     DeleteObject,
-    ObjectGeometry, StageLayers,
+    ObjectGeometry, StageLayers, ObjectPaint,
     ObjectBack, ObjectBackward, ObjectForward, ObjectFront,
     GroupBack, GroupBackward, GroupForward, GroupFront,
     GroupObjects, UngroupObjects, SelectParentGroup, SelectLeafObject,
@@ -470,6 +470,7 @@ public:
             add("&Insert/&Image…", 0, InsertImage);
             add("&Edit/Delete &object", 0, DeleteObject);
             add("&Format/&Position and size…", 0, ObjectGeometry);
+            add("&Format/Fill and &stroke…", 0, ObjectPaint);
             add("&Arrange/Send to &back", 0, ObjectBack);
             add("&Arrange/Move &backward", 0, ObjectBackward);
             add("&Arrange/Move &forward", 0, ObjectForward);
@@ -1139,6 +1140,29 @@ public:
         title();
         sync_pages();
     }
+    void stage_paint()
+    {
+        if (kind != Kind::Stage) return;
+        if (presenting) throw std::runtime_error("Exit presentation mode to format objects");
+        commit_text();
+        const auto refs = canvas->selected_objects;
+        const auto initial = stage->object_paint(slide, refs);
+        if (!initial.objects) throw std::runtime_error("Select objects to format");
+        const auto caret = word_selection(false);
+        formatting_dialog = true;
+        std::optional<PresentationPosition> result;
+        try {
+            object_paint_dialog(window, initial, [this, &result, &refs, &caret](const NativePaintFormat &patch) {
+                result = stage->set_object_paint(slide, refs, patch, caret);
+            });
+        } catch (...) { formatting_dialog = false; throw; }
+        formatting_dialog = false;
+        if (result) {
+            refresh_stage(result->shape < 0 ? -2 : result->shape, result->objects);
+            if (result->selection && result->box >= 0) restore_stage_selection(*result->selection);
+            modified = stage->modified(); title();
+        }
+    }
     void stage_layers()
     {
         if (kind != Kind::Stage) return;
@@ -1225,6 +1249,8 @@ public:
             office->guard([&] {
                 if (action == InsertImage)
                     office->stage_image();
+                else if (action == ObjectPaint)
+                    office->stage_paint();
                 else if (action == StageLayers)
                     office->stage_layers();
                 else if (action == ObjectGeometry)
@@ -2197,7 +2223,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == InsertImage || c == ObjectGeometry || c == StageLayers || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
+            } else if (c == InsertImage || c == ObjectGeometry || c == StageLayers || c == ObjectPaint || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

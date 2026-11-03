@@ -118,7 +118,7 @@ public:
       throw std::runtime_error("Cannot replace print document");
   }
   void image(const std::shared_ptr<const ImageAsset> &asset, double width,
-             double height) {
+             double height, double opacity = 1) {
     if (!asset || width <= 0 || height <= 0) {
       color(cr_, {180, 40, 40});
       cairo_rectangle(cr_, 0, 0, std::max(0., width), std::max(0., height));
@@ -157,7 +157,7 @@ public:
     Save save(cr_);
     cairo_scale(cr_, width / w, height / h);
     cairo_set_source_surface(cr_, surface, 0, 0);
-    cairo_paint(cr_);
+    cairo_paint_with_alpha(cr_, opacity);
     check(cairo_surface_status(surface));
     cairo_surface_destroy(surface);
   }
@@ -429,7 +429,8 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
         }
       }
       if (!shape.image.empty())
-        pdf.image(shape.raster, shape.width, shape.height);
+        pdf.image(shape.raster, shape.width, shape.height,
+                  shape.paint.fill_color.alpha);
       auto area =
           shape.text_area.value_or(SceneRect{0, 0, shape.width, shape.height});
       double width =

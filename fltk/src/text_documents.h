@@ -144,6 +144,8 @@ struct PresentationPosition {
 class NativeImageInput;
 enum class NativeShapeKind { Rectangle, Ellipse, Line, TextBox, Image };
 class NativeStageLayerEdit;
+struct NativePaintFormat;
+struct NativePaintInfo;
 class Presentation {
 public:
     Presentation();
@@ -155,6 +157,8 @@ public:
     std::vector<SlideScene> print_scenes() const;
     NativeStageLayerEdit edit_layers(int slide, const std::vector<NativeObjectRef> & = {});
     std::optional<PresentationPosition> commit_layers(NativeStageLayerEdit, std::optional<TextSelection> = {});
+    NativePaintInfo object_paint(int slide, const std::vector<NativeObjectRef> &) const;
+    std::optional<PresentationPosition> set_object_paint(int slide, const std::vector<NativeObjectRef> &, const NativePaintFormat &, std::optional<TextSelection> = {});
     uint64_t revision() const { return revision_; }
     void add_slide(const Text& title = "New slide", PresentationPosition previous = {});
     void remove_slide(int index, int selectedBox = 0, int selectedShape = -1);

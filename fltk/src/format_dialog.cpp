@@ -2114,3 +2114,107 @@ stage_layers_dialog(Fl_Window &window, NativeStageLayerEdit draft) {
   return {};
 }
 } // namespace DomeOffice
+
+namespace DomeOffice {
+bool object_paint_dialog(Fl_Window &window,const NativePaintInfo &initial,const std::function<void(const NativePaintFormat &)> &apply) {
+  const int width=660,height=450,x=std::max(0,(window.w()-width)/2),y=std::max(0,(window.h()-height)/2);
+  auto previous=Fl_Group::current();window.begin();Panel panel(window,previous);Fl_Group::current(&panel);
+  Background background(window,x,y,width,height,"Fill and stroke");
+  Fl_Choice fill(x + 160, y + 65, 160, 30, "Fill:"),
+      stroke(x + 460, y + 65, 160, 30, "Stroke:");
+  Fl_Input fill_color(x + 160, y + 115, 160, 30, "Fill color:"),
+      stroke_color(x + 460, y + 115, 160, 30, "Stroke color:");
+  Fl_Input fill_opacity(x + 160, y + 165, 125, 30, "Opacity (%):"),
+      stroke_opacity(x + 460, y + 165, 125, 30, "Opacity (%):");
+  Fl_Input stroke_width(x + 460, y + 215, 125, 30, "Width (pt):");
+  Fl_Choice rule(x + 160, y + 215, 160, 30, "Fill rule:");
+  rule.add("Keep current|Nonzero|Even-odd");
+  if (initial.values.even_odd)
+    rule.value(*initial.values.even_odd ? 2 : 1);
+  else
+    rule.value(0);
+  auto mode = [](Fl_Choice &field, const std::optional<Text> &value) {
+    field.add("Keep current|None|Solid");
+    field.value(value == "none" ? 1 : value == "solid" ? 2 : 0);
+  };
+  mode(fill, initial.values.fill);
+  mode(stroke, initial.values.stroke);
+  if (initial.values.fill_color)
+    fill_color.value(initial.values.fill_color->toUtf8().c_str());
+  if (initial.values.stroke_color)
+    stroke_color.value(initial.values.stroke_color->toUtf8().c_str());
+  fill_color.tooltip("#RRGGBB; blank keeps each object's current color");
+  stroke_color.tooltip(fill_color.tooltip());
+  auto percent = [](std::optional<double> value) {
+    return value ? std::optional<double>(*value * 100) : std::nullopt;
+  };
+  number(fill_opacity, percent(initial.values.fill_opacity));
+  number(stroke_opacity, percent(initial.values.stroke_opacity));
+  number(stroke_width, initial.values.stroke_width);
+  Fl_Box summary(x + 20, y + 265, width - 40, 50);
+  auto label = Text::number(initial.objects) +
+               (initial.objects == 1 ? " object. " : " objects. ") +
+               "Selected groups include hidden members.\nShared styles and "
+               "other objects keep their formatting.";
+  summary.copy_label(label.toUtf8().c_str());
+  summary.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  if (!initial.editable) {
+    for (auto *widget : std::initializer_list<Fl_Widget *>{
+             &fill, &stroke, &fill_color, &stroke_color, &fill_opacity,
+             &stroke_opacity, &stroke_width, &rule, &buttons.apply})
+      widget->deactivate();
+    background.hint.copy_label(
+        "This selection is read-only or contains protected objects");
+  }
+  Fl_Group::current(previous);
+  while (panel.run(initial.editable
+                       ? static_cast<Fl_Widget &>(fill)
+                       : static_cast<Fl_Widget &>(buttons.cancel))) {
+    try {
+      if (!initial.editable)
+        continue;
+      NativePaintFormat result;
+      auto changed_mode = [](Fl_Choice &field, const std::optional<Text> &old,
+                             std::optional<Text> &out) {
+        if (field.value()) {
+          Text value = field.value() == 1 ? "none" : "solid";
+          if (!old || *old != value)
+            out = value;
+        }
+      };
+      changed_mode(fill, initial.values.fill, result.fill);
+      changed_mode(stroke, initial.values.stroke, result.stroke);
+      auto changed_color = [](Fl_Input &field, const std::optional<Text> &old,
+                              std::optional<Text> &out) {
+        auto value = Text(field.value()).trimmed();
+        if (!value.empty() && (!old || *old != value))
+          out = value;
+      };
+      changed_color(fill_color, initial.values.fill_color, result.fill_color);
+      changed_color(stroke_color, initial.values.stroke_color,
+                    result.stroke_color);
+      changed_number(fill_opacity, percent(initial.values.fill_opacity),
+                     result.fill_opacity);
+      if (result.fill_opacity)
+        *result.fill_opacity /= 100;
+      changed_number(stroke_opacity, percent(initial.values.stroke_opacity),
+                     result.stroke_opacity);
+      if (result.stroke_opacity)
+        *result.stroke_opacity /= 100;
+      changed_number(stroke_width, initial.values.stroke_width,
+                     result.stroke_width);
+      if (rule.value() && (!initial.values.even_odd ||
+                           *initial.values.even_odd != (rule.value() == 2)))
+        result.even_odd = rule.value() == 2;
+      apply(result);
+      return true;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      window.redraw();
+    }
+  }
+  return false;
+}
+} // namespace DomeOffice
