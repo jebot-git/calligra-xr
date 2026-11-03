@@ -627,7 +627,7 @@ return `#DIV/0!`; nonpositive observations or nonrepresentable results return
 `#NUM!`. Collected inputs are bounded to one million records. ODS save supplies required
 column declarations and a blank row for newly created/empty sheets and imports
 that lack them, preserving existing column groups and source caches. A function-name
-inventory is catalogue coverage only; database and other retained groups remain unfinished.
+inventory is catalogue coverage only; other retained groups remain unfinished.
 
 Conditional aggregates now include `COUNTIF`/`COUNTIFS`, `SUMIF`/`SUMIFS` and
 `AVERAGEIF`/`AVERAGEIFS`. Criteria support comparisons, numeric text, logical
@@ -694,7 +694,7 @@ reference unions and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
---test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution`, `inference`, `regression` and `log_regression`
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution`, `inference`, `regression`, `log_regression` and `database`
 are also supported. A test-only input helper, Cage's headless backend and nested
 DomeD provide private virtual keyboard/pointer input and render captures. The
 fixture uses no X server and never directs input to the user's desktop. It
@@ -720,7 +720,7 @@ no additional runtime math library or UI toolkit is introduced. Collection and
 integer-work budgets preserve incomplete `#LIMIT!` provenance for excessive
 work. A standalone one-million-observation exact-regression benchmark takes
 about 0.09 seconds in the local Release build; this excludes workbook loading
-and rendering. Other statistical, database and calculation-model work remain unfinished.
+and rendering. Other statistical and calculation-model work remain unfinished.
 
 Probability distributions now cover beta, binomial (including interval and
 critical probabilities), chi-square, exponential, F, Gamma, hypergeometric,
@@ -753,8 +753,8 @@ Incomplete calculations preserve imported caches even through `IFERROR`.
 cases, four fixed-matrix padding differences from Calc, five boundary-convention
 cache differences and one independently resolved inaccurate old chi-square
 inverse cache. Original fixtures are unchanged. Distribution support is broader
-coverage, not complete spreadsheet interoperability. Database functions and full
-calculation-model/settings fidelity remain unfinished.
+coverage, not complete spreadsheet interoperability. Full calculation-model/settings
+fidelity remains unfinished.
 
 Dataset probability/frequency and hypothesis tests include `PROB`, `FREQUENCY`,
 `FTEST`/`F.TEST`, `TTEST`/`T.TEST`, `ZTEST`/`Z.TEST` and
@@ -860,8 +860,82 @@ Miller-Rabin bases is covered by an exact-zero-residual native test.
 `log_regression_producer.py` provides ODS/XLSX matrices for export, native Wayland
 editing/history/save/reopen, opaque data, raw saved caches and CUPS verification.
 
-The current inventory dispatches 444 of 641 retained names, including aliases,
-with 197 remaining. Database and the remaining catalogue,
+Database aggregation includes `DAVERAGE`, `DCOUNT`, `DCOUNTA`, `DGET`, `DMAX`,
+`DMIN`, `DPRODUCT`, `DSTDEV`, `DSTDEVP`, `DSUM`, `DVAR` and `DVARP`. Database
+ranges, named ranges, dynamic references and explicit arrays retain full geometry.
+Field names match case-insensitively; numeric selectors are one-based and truncate
+fractional parts. Invalid fields are errors. DCOUNT/DCOUNTA accept an empty Field
+parameter, a blank reference or zero to count records; other functions require a
+field. Explicit field arrays produce matching result shapes. Ordinary scalar
+field references intersect outside array context; fixed matrices retain arrays.
+
+Criteria within a row combine with AND; rows combine with OR, and repeated
+headings impose multiple conditions on the same field. Physical blank and empty-
+string criteria are ignored. Unused OR rows are ignored when other rows contain
+conditions; a wholly blank criteria area selects all records. Use the explicit
+text criterion `=` for blank data and `<>` for nonblank data; numeric zero does
+not match an absent field. Criteria searches are case-insensitive and share the
+workbook wildcard/regular-expression, whole-cell and date-epoch settings.
+Numeric text in data is converted for numeric database criteria, including ordered
+comparisons. Numeric comparison remains numeric when whole-cell matching is off;
+the existing conditional-aggregate matching rules remain unchanged.
+
+Calculated criteria under a heading absent from the database use an actual
+criterion-cell formula as a row-relative predicate. The expression is copied
+virtually from the first database record, preserving absolute references and
+quoted text; it must return a logical or numeric result. Predicate errors and
+unavailable calculations propagate. This is an extension beyond ODF field-only
+criteria. A prepared selection, including a failed selection, is reused for all
+field-array results; partial selections are discarded on failure. Predicate node
+visits, cell reads and nested conditional/database work share a 50-million-unit
+budget. Sparse unused database rows are counted by multiplicity where possible.
+
+Selected numeric values include logical 0/1 and date/duration numbers, following
+Calc's database convention. Text values are excluded from numeric aggregation;
+DCOUNTA counts nonempty text, logical values and errors. DCOUNT ignores ordinary
+errors, while unavailable values retain incomplete provenance. Numeric aggregates
+propagate selected errors. DGET preserves the selected scalar's type, reports
+`#VALUE!` for no result or an absent result cell and `#NUM!` for multiple records.
+Empty numeric sums/products/minima/maxima are zero; averages and insufficient
+variance samples retain the native `#DIV/0!` convention. Complex numeric aggregation
+is incomplete rather than silently discarded.
+
+Sums, means and variance numerators use exact binary integer accumulation.
+Standard deviations take their square root before binary64 conversion, permitting
+finite deviations when the variance overflows. Products multiply exact odd
+mantissas and combine binary exponents before final normalization; intermediate
+binary64 overflow/underflow does not destroy a representable result. Numeric
+samples and output arrays are limited to one million entries and weighted
+arithmetic shares the work budget. `N` now supplies explicit numeric conversion,
+including array inputs and error/incomplete propagation.
+
+The loader imports ODF named database ranges and named expressions as formula
+names. XLSX global names carry their required ODF base-cell anchors; reference
+unions become named expressions using the reference-union operator, instead of
+invalid multi-range attributes. Constants and qualified absolute expressions can
+be calculated; relative or unqualified reference expressions remain incomplete
+until their base/caller semantics are implemented. Sparse XLSX gaps, formatting-only
+rows and new rows created beyond existing data contain the blank cell required by
+ODF. Unsupported named reference lists retain an incomplete binding and their raw
+package declarations,
+so they no longer prevent unrelated workbook calculations from loading. Formula
+cells whose result is an empty reference produce numeric zero; functions that
+inspect a blank reference directly retain its empty-cell type. Number-locale
+parsing and reference-list evaluation remain unfinished. Ambiguous decimal/grouping
+commas in numeric database comparisons produce incomplete `#VALUE!` and preserve
+source caches, including through IFERROR; they are not compared lexically with
+numeric data or guessed from the machine locale.
+
+`database_reference.py` checks 1,938 independent formulas/1,968 result cells using
+Python typed predicates, exact Fraction arithmetic and 110-digit square roots.
+Of 121 retained database results, 103 agree, one is an error-label convention and
+17 remain explicitly unavailable: 15 locale-dependent criteria and two named
+reference unions. `database_producer.py` checks independent editable ODS/XLSX
+fixtures, named database metadata, matrix outputs, row-relative criteria, blank
+references and raw source caches for unavailable names, locales and N inputs.
+
+The current inventory dispatches 457 of 641 retained names, including aliases,
+with 184 remaining. The remaining catalogue,
 reference unions/omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
 Words pause and Stage-last priorities remain in force.

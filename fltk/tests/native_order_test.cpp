@@ -4,6 +4,7 @@
 #include "native_distribution.h"
 #include "native_inference.h"
 #include "native_regression.h"
+#include "native_database.h"
 #include "workbook.h"
 #include <cassert>
 #include <iostream>
@@ -39,7 +40,8 @@ void near(const V &v, double expected) {
 } // namespace
 int main(int argc, char **argv) {
   std::cout << std::unitbuf;
-  if (argc >= 3 && (std::string(argv[1]) == "--regression-fods" ||
+  if (argc >= 3 && (std::string(argv[1]) == "--database-fods" ||
+                    std::string(argv[1]) == "--regression-fods" ||
                     std::string(argv[1]) == "--inference-fods" ||
                     std::string(argv[1]) == "--distribution-fods" ||
                     std::string(argv[1]) == "--fods" ||
@@ -101,7 +103,12 @@ int main(int argc, char **argv) {
             bool selected = false;
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
-              if (std::string(argv[1]) == "--regression-fods") {
+              if (std::string(argv[1]) == "--database-fods") {
+                auto end = decoded.indexOf('(');
+                selected =
+                    end > 1 && database_signatures().contains(
+                                   database_name(decoded.mid(1, end - 1)));
+              } else if (std::string(argv[1]) == "--regression-fods") {
                 auto end = decoded.indexOf('(');
                 selected =
                     end > 1 && regression_signatures().contains(
@@ -194,7 +201,8 @@ int main(int argc, char **argv) {
                       {"actual",
                        encode(
                            book.value(sheet, column + c, row + r).scalar())}};
-                  if (cached == "float")
+                  if (cached == "float" || cached == "currency" ||
+                      cached == "percentage")
                     record["expected_value"] =
                         cell.attributeNS(OFFICE, "value").toDouble();
                   records.push_back(std::move(record));

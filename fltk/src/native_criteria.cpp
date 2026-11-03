@@ -47,6 +47,17 @@ Text wildcard_pattern(const Text &input) {
   }
   return pattern;
 }
+bool unresolved_number_locale(const Text &text) {
+  if (!text.contains(','))
+    return false;
+  Text decimal = text;
+  decimal.replace(",", ".");
+  Text grouped = text;
+  grouped.remove(",");
+  bool decimal_ok = false, grouped_ok = false;
+  double d = decimal.toDouble(&decimal_ok), g = grouped.toDouble(&grouped_ok);
+  return (decimal_ok && std::isfinite(d)) || (grouped_ok && std::isfinite(g));
+}
 } // namespace
 void CriteriaBudget::charge(uint64_t amount) {
   if (amount > remaining) {
@@ -74,7 +85,8 @@ Text conditional_name(const Text &name) {
 }
 struct NativeCriterion::Impl {
   Compare op = Equal;
-  bool numeric = false, empty = false, text_criterion = false;
+  bool numeric = false, empty = false, text_criterion = false,
+       unresolved_locale = false;
   double number = 0;
   Text operand;
   NativeCriteriaSettings settings;
@@ -135,6 +147,9 @@ NativeCriterion::NativeCriterion(const V &value,
     bool valid = false;
     p.number = p.operand.toDouble(&valid);
     p.numeric = valid && std::isfinite(p.number);
+    // The native calculation context has no number locale. Database matching
+    // must preserve caches for ambiguous decimal/grouping separators.
+    p.unresolved_locale = !p.numeric && unresolved_number_locale(p.operand);
     // Deterministic ISO and US English civil-date criteria, using the same
     // workbook epoch as date cells. General locale parsing remains separate.
     auto parts = p.operand.split(p.operand.contains('/') ? '/' : '-');
@@ -187,9 +202,15 @@ NativeCriterion::~NativeCriterion() = default;
 NativeCriterion::NativeCriterion(NativeCriterion &&) noexcept = default;
 NativeCriterion &
 NativeCriterion::operator=(NativeCriterion &&) noexcept = default;
-bool NativeCriterion::matches(const V &value) const {
+bool NativeCriterion::matches(const V &value, bool numeric_text) const {
   auto &p = *impl_;
   p.budget.charge(1);
+  if (numeric_text && p.unresolved_locale &&
+      (value.isNumber() || value.isBoolean()))
+    throw V::error("#VALUE!", true);
+  if (numeric_text && p.numeric && value.kind == V::String &&
+      unresolved_number_locale(value.string))
+    throw V::error("#VALUE!", true);
   if (value.isError()) {
     bool same = p.text_criterion && p.operand == value.string;
     return p.op == Equal ? same : p.op == NotEqual && !same;
@@ -203,9 +224,10 @@ bool NativeCriterion::matches(const V &value) const {
     double number = value.isBoolean() ? (value.boolean ? 1 : 0) : value.number;
     if (value.kind == V::String) {
       p.budget.charge(value.string.size());
-      if (!p.text_criterion || (p.op != Equal && p.op != NotEqual))
+      if (!numeric_text &&
+          (!p.text_criterion || (p.op != Equal && p.op != NotEqual)))
         return p.op == NotEqual;
-      if (p.text_criterion && !p.settings.whole_cell &&
+      if (!numeric_text && p.text_criterion && !p.settings.whole_cell &&
           (p.op == Equal || p.op == NotEqual)) {
         bool found = value.string.contains(p.operand, p.settings.case_sensitive
                                                           ? CaseSensitive

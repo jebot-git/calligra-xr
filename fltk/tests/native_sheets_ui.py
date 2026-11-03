@@ -32,6 +32,7 @@ parser.add_argument(
         "inference",
         "regression",
         "log_regression",
+        "database",
     ),
     required=True,
 )

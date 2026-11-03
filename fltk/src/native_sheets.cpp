@@ -10,6 +10,8 @@
 #include "native_distribution.h"
 #include "native_inference.h"
 #include "native_regression.h"
+#include "native_database.h"
+#include "native_formula.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -37,6 +39,14 @@ struct FlagScope {
     slot = enabled;
   }
   ~FlagScope() { slot = previous; }
+};
+struct CriteriaScope {
+  CriteriaBudget *&slot, *previous;
+  CriteriaScope(CriteriaBudget *&slot, CriteriaBudget *next)
+      : slot(slot), previous(slot) {
+    slot = next;
+  }
+  ~CriteriaScope() { slot = previous; }
 };
 using Value = NativeValue;
 struct Node {
@@ -561,6 +571,7 @@ struct SheetEngine::Impl {
   mutable Address current{0, 1, 1};
   mutable bool array_context = false;
   mutable bool calculation_incomplete = false;
+  mutable CriteriaBudget *active_database_budget = nullptr;
   explicit Impl(SheetEngine *p, NativeCalculationSettings context)
       : owner(p), settings(context) {}
   int sheet_index(const Text &name) const {
@@ -574,6 +585,8 @@ struct SheetEngine::Impl {
         .run();
   }
   Value value(Address pos) const {
+    if (active_database_budget)
+      active_database_budget->charge(1);
     if (auto owner = matrix_owners.find(pos); owner != matrix_owners.end()) {
       auto result = calculate(owner->second);
       if (!result.isArray())
@@ -610,6 +623,11 @@ struct SheetEngine::Impl {
       out = e;
     } catch (const std::exception &) {
       out = Value::error("#VALUE!", true);
+    }
+    if (out.kind == Value::Empty) {
+      bool incomplete = out.incomplete;
+      out = numeric(0);
+      out.incomplete = incomplete;
     }
     out.incomplete = out.incomplete || calculation_incomplete;
     visiting.erase(pos);
@@ -705,6 +723,8 @@ struct SheetEngine::Impl {
   Value evaluate_node(const Expr &e) const;
   Value function(const Expr &e) const;
   Value conditional(const Expr &e, const Text &name, bool array_caller) const;
+  NativeDatabaseSource database_source(const Expr &, CriteriaBudget &) const;
+  Value database(const Expr &, const Text &, bool array_caller) const;
   Value paired(const Expr &e, const Text &name, bool array_caller) const;
   struct PairedValues {
     size_t rows, columns;
@@ -830,6 +850,8 @@ Value SheetEngine::Impl::evaluate(const Expr &e) const {
   return result;
 }
 Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
+  if (active_database_budget)
+    active_database_budget->charge(1);
   DepthGuard guard(eval_depth);
   switch (e->kind) {
   case Node::Literal:
@@ -963,7 +985,9 @@ Value SheetEngine::Impl::conditional(const Expr &e, const Text &name,
       result_columns = condition.criterion.columns;
       array = true;
     }
-  CriteriaBudget budget;
+  CriteriaBudget local_budget;
+  auto &budget =
+      active_database_budget ? *active_database_budget : local_budget;
   std::set<size_t> offsets;
   auto collect = [&](const Input &source) {
     const auto &region = source.geometry;
@@ -1378,10 +1402,143 @@ Value SheetEngine::Impl::regression(const Expr &e, const Text &name,
     query = regression_matrix(e->args[2]);
   return model.predict(query);
 }
+NativeDatabaseSource
+SheetEngine::Impl::database_source(const Expr &source,
+                                   CriteriaBudget &budget) const {
+  NativeDatabaseSource out;
+  if (auto region = area(source)) {
+    out.rows = region->rows;
+    out.columns = region->columns;
+    out.read = [this, region, &budget](size_t row, size_t column) {
+      budget.charge(1);
+      auto v = value({region->sheet, region->row + int(row),
+                      region->column + int(column)});
+      calculation_incomplete = calculation_incomplete || v.incomplete;
+      return v.scalar();
+    };
+    out.blank = [this, region](size_t row, size_t column) {
+      Address pos{region->sheet, region->row + int(row),
+                  region->column + int(column)};
+      if (matrix_owners.contains(pos))
+        return false;
+      auto p = cells.find(pos);
+      return p == cells.end() ||
+             (!p->second.expression && p->second.scalar.kind == Value::Empty);
+    };
+    out.occupied_rows = [this, region, &budget] {
+      std::set<size_t> rows;
+      int bottom = region->row + region->rows - 1;
+      auto cell = cells.lower_bound({region->sheet, region->row + 1, 0});
+      auto matrix =
+          matrix_owners.lower_bound({region->sheet, region->row + 1, 0});
+      auto eligible = [&](auto it, const auto &map) {
+        return it != map.end() && std::get<0>(it->first) == region->sheet &&
+               std::get<1>(it->first) <= bottom;
+      };
+      while (eligible(cell, cells) || eligible(matrix, matrix_owners)) {
+        budget.charge(1);
+        Address at;
+        if (!eligible(matrix, matrix_owners) ||
+            (eligible(cell, cells) && cell->first < matrix->first)) {
+          at = cell->first;
+          ++cell;
+        } else if (!eligible(cell, cells) || matrix->first < cell->first) {
+          at = matrix->first;
+          ++matrix;
+        } else {
+          at = cell->first;
+          ++cell;
+          ++matrix;
+        }
+        int c = std::get<2>(at);
+        if (c >= region->column && c < region->column + region->columns)
+          rows.insert(size_t(std::get<1>(at) - region->row));
+      }
+      return std::vector<size_t>(rows.begin(), rows.end());
+    };
+    out.predicate = [this, region, &budget](
+                        size_t row,
+                        size_t column) -> NativeDatabaseSource::Predicate {
+      Address pos{region->sheet, region->row + int(row),
+                  region->column + int(column)};
+      auto found = cells.find(pos);
+      if (found == cells.end() || !found->second.expression)
+        return {};
+      Text original = found->second.input;
+      return [this, original, pos, &budget](size_t data_row) {
+        budget.charge(original.size() + 1);
+        CriteriaScope work(active_database_budget, &budget);
+        auto shifted = Formula::shift(original, 0, int(data_row - 1));
+        auto parsed = parse(shifted, std::get<0>(pos));
+        CurrentCell current_cell(current, {std::get<0>(pos),
+                                           std::get<1>(pos) + int(data_row - 1),
+                                           std::get<2>(pos)});
+        FlagScope mode(array_context, false);
+        auto v = evaluate(parsed);
+        calculation_incomplete = calculation_incomplete || v.incomplete;
+        if (v.isArray())
+          return Value::error("#VALUE!", true);
+        return v;
+      };
+    };
+  } else {
+    auto data = std::make_shared<Value>(evaluate(source));
+    calculation_incomplete = calculation_incomplete || data->incomplete;
+    if (data->isError())
+      throw *data;
+    out.rows = data->isArray() ? data->rows : 1;
+    out.columns = data->isArray() ? data->columns : 1;
+    out.read = [data, &budget](size_t r, size_t c) {
+      budget.charge(1);
+      return data->at(r, c);
+    };
+    out.blank = [](size_t, size_t) { return false; };
+    out.occupied_rows = [data, &budget] {
+      std::vector<size_t> rows;
+      if (!data->isArray())
+        return rows;
+      for (size_t r = 1; r < data->rows; ++r) {
+        bool occupied = false;
+        for (size_t c = 0; c < data->columns; ++c) {
+          budget.charge(1);
+          occupied = (data->at(r, c).kind != Value::Empty) || occupied;
+        }
+        if (occupied)
+          rows.push_back(r);
+      }
+      return rows;
+    };
+  }
+  return out;
+}
+Value SheetEngine::Impl::database(const Expr &e, const Text &name,
+                                  bool array_caller) const {
+  CriteriaBudget local_budget;
+  auto &budget =
+      active_database_budget ? *active_database_budget : local_budget;
+  auto db = database_source(e->args[0], budget),
+       criteria = database_source(e->args[2], budget);
+  NativeDatabaseModel model(std::move(db), std::move(criteria), settings,
+                            budget);
+  bool omitted = e->args[1]->kind == Node::Omitted;
+  Value selector;
+  if (!omitted) {
+    if (auto region = area(e->args[1]);
+        region && region->size() != 1 && !array_caller)
+      selector = intersect(*region);
+    else
+      selector = evaluate(e->args[1]);
+    calculation_incomplete = calculation_incomplete || selector.incomplete;
+  }
+  return map_values(selector, Value{}, [&](const Value &field, const Value &) {
+    return model.calculate(name, field, omitted);
+  });
+}
+
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = regression_name(inference_name(
+  const auto name = database_name(regression_name(inference_name(
       distribution_name(paired_name(statistics_name(order_name(conditional_name(
-          calendar_name(financial_name(engineering_name(e->name))))))))));
+          calendar_name(financial_name(engineering_name(e->name)))))))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1390,7 +1547,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         out[name] = {low, high};
     };
     add("TRUE FALSE NA PI", 0, 0);
-    add("ABS SQRT EXP LN LOG10 SIN COS TAN ASIN ACOS ATAN SINH COSH TANH "
+    add("N ABS SQRT EXP LN LOG10 SIN COS TAN ASIN ACOS ATAN SINH COSH TANH "
         "DEGREES RADIANS INT SIGN FACT LEN LOWER UPPER TRIM VALUE NOT ISERROR "
         "ISERR ISNA ISNUMBER ISTEXT ISLOGICAL ISBLANK YEAR MONTH DAY HOUR "
         "MINUTE SECOND",
@@ -1434,6 +1591,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : inference_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : database_signatures())
+      out[name] = arity;
     for (const auto &[name, arity] : regression_signatures())
       out[name] = arity;
     return out;
@@ -1466,7 +1625,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
                                  statistics_signatures().contains(name) ||
                                  paired_signatures().contains(name) ||
                                  inference_signatures().contains(name) ||
-                                 regression_signatures().contains(name));
+                                 regression_signatures().contains(name) ||
+                                 database_signatures().contains(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1575,6 +1735,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
 
   if (conditional_function(name))
     return conditional(e, name, caller_array_context);
+  if (database_signatures().contains(name))
+    return database(e, name, caller_array_context);
   if (regression_signatures().contains(name))
     return regression(e, name, caller_array_context);
   if (inference_signatures().contains(name))
@@ -2165,6 +2327,16 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     double variance = squares / (numbers.size() - (population ? 0 : 1));
     return numeric(name.startsWith("STDEV") ? std::sqrt(variance) : variance);
   }
+  if (name == "N") {
+    auto v = arg(0);
+    if (v.isError() || v.kind == Value::Complex)
+      return v;
+    auto out = numeric(v.isNumber()    ? v.number
+                       : v.isBoolean() ? double(v.boolean)
+                                       : 0);
+    out.incomplete = v.incomplete;
+    return out;
+  }
   if (name == "ABS")
     return numeric(std::abs(n(0)));
   if (name == "SQRT")
@@ -2452,10 +2624,35 @@ void SheetEngine::recalculate() {
 }
 void SheetEngine::addNamedRange(const Text &reference, const Text &name) {
   try {
-    impl_->names[name.toCaseFolded()] = impl_->parse(reference, 0);
+    bool expression = reference.indexOf(":=") >= 0;
+    Text decoded = expression ? Formula::decode(reference) : reference;
+    if (expression && Formula::shift(decoded, 1, 1) != decoded)
+      throw Value::error("#VALUE!", true);
+    auto parsed = impl_->parse(decoded, 0);
+    if (expression) {
+      std::vector<Expr> pending{parsed};
+      while (!pending.empty()) {
+        auto current = pending.back();
+        pending.pop_back();
+        if ((current->kind == Node::Reference ||
+             current->kind == Node::Range) &&
+            !current->explicit_sheet)
+          throw Value::error("#VALUE!", true);
+        for (const auto &child : current->args)
+          pending.push_back(child);
+      }
+    }
+    impl_->names[name.toCaseFolded()] = std::move(parsed);
     impl_->cache.clear();
-  } catch (const Value &) {
-    throw std::runtime_error("Invalid named range");
+  } catch (const Value &failure) {
+    // A valid ODF name may contain unsupported reference-list syntax. Keep its
+    // raw declaration in the package and bind an unavailable value, so
+    // unrelated calculations can proceed and dependent imported caches remain
+    // untouched.
+    auto literal = node(Node::Literal);
+    literal->literal = Value::error(failure.string, true);
+    impl_->names[name.toCaseFolded()] = literal;
+    impl_->cache.clear();
   }
 }
 bool SheetEngine::matrix_child(int sheet, int column, int row) const {

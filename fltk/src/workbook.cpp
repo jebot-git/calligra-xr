@@ -48,9 +48,11 @@ namespace {
         if (desired > at) {
             auto gap = doc.createElementNS(TABLE, "table:table-row");
             gap.setAttributeNS(TABLE, "table:number-rows-repeated", desired - at);
+            gap.appendChild(doc.createElementNS(TABLE, "table:table-cell"));
             table.appendChild(gap);
         }
         auto e = doc.createElementNS(TABLE, "table:table-row");
+        e.appendChild(doc.createElementNS(TABLE, "table:table-cell"));
         table.appendChild(e);
         return e;
     }
@@ -281,12 +283,20 @@ void Workbook::load_package(OdfPackage candidate)
                 fail("Too many worksheet rows");
         }
     }
-    auto ranges = candidate.body().elementsByTagNameNS(TABLE, "named-range");
-    for (int i = 0; i < ranges.size(); ++i) {
+    for (const char *kind : {"named-range", "database-range"}) {
+      auto ranges = candidate.body().elementsByTagNameNS(TABLE, kind);
+      for (int i = 0; i < ranges.size(); ++i) {
         auto e = ranges.at(i).toElement();
-        auto ref = Formula::load_region(e.attributeNS(TABLE, "cell-range-address"));
+        auto ref = Formula::load_region(e.attributeNS(
+            TABLE, Text(kind) == "named-range" ? "cell-range-address"
+                                               : "target-range-address"));
         map_->addNamedRange(ref, e.attributeNS(TABLE, "name"));
+      }
     }
+    for (auto element : children(candidate.body(), TABLE, "named-expressions"))
+      for (auto expression : children(element, TABLE, "named-expression"))
+        map_->addNamedRange(expression.attributeNS(TABLE, "expression"),
+                            expression.attributeNS(TABLE, "name"));
     for (const auto& matrix : matrices)
         map_->define_matrix(matrix.sheet, matrix.column, matrix.row, matrix.columns, matrix.rows);
 

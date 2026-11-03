@@ -17,6 +17,44 @@ namespace {
     {
         throw std::runtime_error(("XLSX import: " + message).toStdString());
     }
+    Text defined_expression(const Text &formula) {
+      Text out;
+      std::vector<bool> calls;
+      char32_t quote = 0;
+      int arrays = 0;
+      for (size_t i = 0; i < formula.size(); ++i) {
+        auto c = formula[i];
+        if (quote) {
+          out += c;
+          if (c == quote) {
+            if (i + 1 < formula.size() && formula[i + 1] == quote)
+              out += formula[++i];
+            else
+              quote = 0;
+          }
+          continue;
+        }
+        if (c == '\'' || c == '"')
+          quote = c;
+        else if (c == '{')
+          ++arrays;
+        else if (c == '}')
+          --arrays;
+        else if (c == '(') {
+          size_t before = i;
+          while (before && g_unichar_isspace(formula[before - 1]))
+            --before;
+          auto previous = before ? formula[before - 1] : char32_t(0);
+          calls.push_back(g_unichar_isalnum(previous) || previous == '_' ||
+                          previous == '.');
+        } else if (c == ')' && !calls.empty())
+          calls.pop_back();
+        else if (c == ',' && !arrays && (calls.empty() || !calls.back()))
+          c = '~';
+        out += c;
+      }
+      return out;
+    }
     struct Link {
         Text type, target;
         bool external;
@@ -255,9 +293,12 @@ OdfPackage import_xlsx(const Text& path)
             int r = row.attribute("r", Text::number(lastRow + 1)).toInt(&ok);
             if (!ok || r <= lastRow || r > 1048576)
                 fail("Invalid worksheet row order");
-            if (r > lastRow + 1)
-                append(table, TABLE, "table:table-row")
-                    .setAttributeNS(TABLE, "table:number-rows-repeated", r - lastRow - 1);
+            if (r > lastRow + 1) {
+              auto gap = append(table, TABLE, "table:table-row");
+              gap.setAttributeNS(TABLE, "table:number-rows-repeated",
+                                 r - lastRow - 1);
+              append(gap, TABLE, "table:table-cell");
+            }
             auto odfRow = append(table, TABLE, "table:table-row");
             lastRow = r;
             int lastCol = 0;
@@ -378,21 +419,40 @@ OdfPackage import_xlsx(const Text& path)
                 } else
                     fail("Unsupported cell type: " + type);
             }
+            if (!lastCol)
+              append(odfRow, TABLE, "table:table-cell");
         }
+        if (!lastRow)
+          append(append(table, TABLE, "table:table-row"), TABLE,
+                 "table:table-cell");
     }
-    // Map workbook-global defined ranges using the same formula translator.
+    // Keep global ranges and expressions with the required ODF anchor. Excel
+    // reference unions are named expressions, not invalid multi-range
+    // attributes.
+    auto firstSheet =
+        child(output.body(), TABLE, "table").attributeNS(TABLE, "name");
+    Text quotedSheet = firstSheet;
+    quotedSheet.replace("'", "''");
+    Text base = Formula::save_region("'" + quotedSheet + "'!$A$1");
     for (auto e : children(child(root, ns, "definedNames"), ns, "definedName")) {
         if (e.hasAttribute("localSheetId") || e.attribute("name").startsWith("_xlnm."))
             continue;
-        Text formula = Formula::from_excel(e.text());
-        if (!Regex("^='?[^=+*/()]+![\\$A-Z0-9:]+$").match(formula).hasMatch())
-            continue;
-        auto range = append(child(output.body(), TABLE, "named-expressions").isNull()
-                ? append(output.body(), TABLE, "table:named-expressions")
-                : child(output.body(), TABLE, "named-expressions"),
-            TABLE, "table:named-range");
-        range.setAttributeNS(TABLE, "table:name", e.attribute("name"));
-        range.setAttributeNS(TABLE, "table:cell-range-address", Formula::save_region(formula.mid(1)));
+        Text formula = defined_expression(Formula::from_excel(e.text()));
+        bool range =
+            !formula.contains('~') &&
+            Regex("^='?[^=+*/(),]+![\\$A-Z0-9:]+$").match(formula).hasMatch();
+        auto names = child(output.body(), TABLE, "named-expressions");
+        if (names.isNull())
+          names = append(output.body(), TABLE, "table:named-expressions");
+        auto definition =
+            append(names, TABLE,
+                   range ? "table:named-range" : "table:named-expression");
+        definition.setAttributeNS(TABLE, "table:name", e.attribute("name"));
+        definition.setAttributeNS(TABLE, "table:base-cell-address", base);
+        definition.setAttributeNS(
+            TABLE, range ? "table:cell-range-address" : "table:expression",
+            range ? Formula::save_region(formula.mid(1))
+                  : "of:" + Formula::encode(formula));
     }
     return output;
 }

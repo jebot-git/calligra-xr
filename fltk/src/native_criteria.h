@@ -19,7 +19,7 @@ public:
   ~NativeCriterion();
   NativeCriterion(NativeCriterion &&) noexcept;
   NativeCriterion &operator=(NativeCriterion &&) noexcept;
-  bool matches(const NativeValue &) const;
+  bool matches(const NativeValue &, bool numeric_text = false) const;
 };
 bool conditional_function(const Text &name);
 Text conditional_name(const Text &name);

@@ -31,6 +31,7 @@ def main():
             "inference",
             "regression",
             "log_regression",
+            "database",
         ),
         default="criteria",
     )
