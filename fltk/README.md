@@ -359,6 +359,19 @@ CUPS test queues.
   The original encoded image and manifest additions undo together.
   A cancelled chooser preserves history, and inserted images can be moved,
   resized/rotated numerically and deleted through ordinary object commands.
+  The text editor exposes Font (Ctrl+D), Bold/Italic/Underline (Ctrl+B/I/U),
+  strikethrough and paragraph alignment/margins/indent/spacing through the
+  universal Format menu. Character controls apply to the selected Unicode
+  range; at a caret they set future typing, while empty-frame defaults persist.
+  The lower editor displays plain text; the slide preview and PDF show the
+  document's rich formatting. Formatting and undo/redo retain the text selection.
+  Typing supplies exact scalar replacement offsets, preserving styled runs,
+  links and paragraph structures even among repeated characters. Paragraph
+  splits/joins use the shared native text editor and reject unsupported joins
+  across containers. Slide paragraphs have continuous layout, so page-break,
+  widow/orphan and keep pagination controls are inactive in their dialog.
+  Mixed or blank dialog fields stay unchanged; invalid values stay available
+  for correction, and Cancel or an unchanged Apply preserves history.
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.

@@ -791,7 +791,20 @@ bool change_words_lists(OdfPackage &package,
 void replace_words_text(OdfPackage &package, size_t begin, size_t count,
                         const Text &inserted, bool paragraph_breaks,
                         bool retain_empty_format) {
-  auto all = blocks(package.body());
+  replace_scoped_text(package, package.body(), begin, count, inserted,
+                      paragraph_breaks, retain_empty_format);
+}
+void replace_scoped_text(OdfPackage &package, XmlElement scope, size_t begin,
+                         size_t count, const Text &inserted,
+                         bool paragraph_breaks, bool retain_empty_format) {
+  // Document APIs enforce write permission before publishing a candidate.
+  // Format inspection also uses this low-level operation on a private clone,
+  // including when the original package is signed/read-only.
+  if (scope.isNull() ||
+      scope.ownerDocument().documentElement() !=
+          package.xml.documentElement())
+    fail("This text container cannot be edited");
+  auto all = blocks(scope);
   size_t size = all.empty() ? 0 : all.back().start + all.back().text.size();
   if (begin > size || count > size - begin ||
       inserted.size() > 16 * 1024 * 1024 ||
@@ -800,11 +813,11 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
   if (!count && inserted.empty())
     return;
   if (all.empty()) {
-    if (package.body().isNull())
+    if (scope.isNull())
       fail("This document has no text body");
     auto paragraph = package.xml.createElementNS(TEXT, "text:p");
-    package.body().appendChild(paragraph);
-    all = blocks(package.body());
+    scope.appendChild(paragraph);
+    all = blocks(scope);
   }
   auto locate = [&](size_t position) {
     for (size_t i = 0; i < all.size(); ++i)
@@ -894,8 +907,12 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     split_items(parent, replacements);
     // A new item can overflow a continued/consecutive counter elsewhere in
     // the document. Validate the candidate before TextDocument commits it.
-    if (changed_list || replacements.size() > 1)
-      (void)read_text_flow(package);
+    if (changed_list || replacements.size() > 1) {
+      if (package.kind() == Kind::Words)
+        (void)read_text_flow(package);
+      else
+        (void)OdfTextReader(package).frame(scope, {});
+    }
   }
 }
 void insert_words_page_field(OdfPackage &package, size_t begin, size_t count,

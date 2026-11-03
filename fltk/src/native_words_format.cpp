@@ -3,6 +3,7 @@
 #include "native_words_edit.h"
 #include "native_words_tabs.h"
 #include "native_font_family.h"
+#include "native_xml_source.h"
 #include <functional>
 namespace DomeOffice {
 namespace {
@@ -15,7 +16,7 @@ struct Block {
   Text text;
   size_t start;
 };
-std::vector<Block> blocks(const OdfPackage &package) {
+std::vector<Block> blocks(const XmlElement &scope) {
   std::vector<Block> result;
   size_t offset = 0;
   std::function<void(XmlElement, size_t)> walk = [&](XmlElement parent,
@@ -33,8 +34,16 @@ std::vector<Block> blocks(const OdfPackage &package) {
           walk(n, depth + 1);
       }
   };
-  walk(package.body(), 0);
+  walk(scope, 0);
   return result;
+}
+std::vector<Block> blocks(const OdfPackage &package) {
+  return blocks(package.body());
+}
+void scope_valid(const OdfPackage &package, const XmlElement &scope) {
+  if (scope.isNull() ||
+      scope.ownerDocument().documentElement() != package.xml.documentElement())
+    fail("Text formatting requires an original source container");
 }
 bool touches(const Block &b, size_t begin, size_t end) {
   return begin == end ? begin >= b.start && begin <= b.start + b.text.size()
@@ -198,6 +207,29 @@ class Catalogue {
 public:
   explicit Catalogue(OdfPackage &p) : package(p) {
     auto scan = [&](const XmlDocument &doc, bool content) {
+      size_t visited = 0;
+      std::function<void(XmlNode)> reserve = [&](XmlNode node) {
+        if (++visited > 1000000)
+          fail("Style reference scan exceeds the limit");
+        if (node.isElement())
+          for (const auto &a : node.attributes()) {
+            auto key = a.name.mid(a.name.indexOf(':') + 1);
+            if (key == "name" || key == "id" || key.endsWith("-name") ||
+                key.endsWith("-id"))
+              names.insert(a.value);
+            if (key.endsWith("-names")) {
+              std::istringstream input(a.value.toStdString());
+              std::string name;
+              while (input >> name)
+                names.insert(Text(name));
+            }
+          }
+        for (auto child = node.firstChild(); !child.isNull();
+             child = child.nextSibling())
+          reserve(child);
+      };
+      if (!doc.documentElement().isNull())
+        reserve(doc.documentElement());
       for (auto node : doc.elementsByTagNameNS(STYLE, "default-style"))
         if (node.attributeNS(STYLE, "family") == "paragraph")
           paragraph_default = node;
@@ -1584,15 +1616,23 @@ void validate_words_format(const WordsParagraphFormat &f) {
 }
 bool format_words_characters(OdfPackage &package, size_t begin, size_t end,
                              const WordsCharacterFormat &format) {
+  return format_scoped_characters(package, package.body(), begin, end, format);
+}
+bool format_scoped_characters(OdfPackage &package, XmlElement scope,
+                              size_t begin, size_t end,
+                              const WordsCharacterFormat &format) {
+  scope_valid(package, scope);
+  if (package.read_only())
+    fail("This document is read-only");
   validate_words_format(format);
-  auto all = blocks(package);
+  auto all = blocks(scope);
   check_range(all, begin, end);
   if (format.empty())
     return false;
   auto before = package.xml.toByteArray();
   if (all.empty()) {
     auto paragraph = package.xml.createElementNS(TEXT, "text:p");
-    package.body().appendChild(paragraph);
+    scope.appendChild(paragraph);
     all.push_back({paragraph, {}, 0});
   }
   Catalogue styles(package);
@@ -1609,15 +1649,23 @@ bool format_words_characters(OdfPackage &package, size_t begin, size_t end,
 }
 bool format_words_paragraphs(OdfPackage &package, size_t begin, size_t end,
                              const WordsParagraphFormat &format) {
+  return format_scoped_paragraphs(package, package.body(), begin, end, format);
+}
+bool format_scoped_paragraphs(OdfPackage &package, XmlElement scope,
+                              size_t begin, size_t end,
+                              const WordsParagraphFormat &format) {
+  scope_valid(package, scope);
+  if (package.read_only())
+    fail("This document is read-only");
   validate_words_format(format);
-  auto all = blocks(package);
+  auto all = blocks(scope);
   check_range(all, begin, end);
   if (format.empty())
     return false;
   auto before = package.xml.toByteArray();
   if (all.empty()) {
     auto paragraph = package.xml.createElementNS(TEXT, "text:p");
-    package.body().appendChild(paragraph);
+    scope.appendChild(paragraph);
     all.push_back({paragraph, {}, 0});
   }
   Catalogue styles(package);
@@ -1627,29 +1675,11 @@ bool format_words_paragraphs(OdfPackage &package, size_t begin, size_t end,
                             styles.paragraph_style(b.node, &format, nullptr));
   return package.xml.toByteArray() != before;
 }
-WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
-                                  size_t end) {
-  auto all = blocks(package);
-  check_range(all, begin, end);
-  // An empty insertion span/link still determines the next character's format.
-  // Resolve it with the same insertion path used by real typing, on a copy.
-  if (begin == end)
-    for (const auto &block : all)
-      if (touches(block, begin, end) && block.text.empty()) {
-        auto first = block.node.firstChild();
-        if (first.namespaceURI() == TEXT &&
-            TextList{"span", "a"}.contains(first.localName())) {
-          auto copy = package;
-          copy.xml = read_document_xml(package.xml.toByteArray());
-          replace_words_text(copy, begin, 0, "X", false);
-          return read_words_format(copy, begin, begin + 1);
-        }
-      }
-  // The layout reader supplies a virtual default paragraph for empty text.
-  if (all.empty())
-    all.push_back({{}, {}, 0});
-  auto flow = read_text_flow(package);
-  if (flow.paragraphs.size() != all.size())
+namespace {
+WordsFormatInfo text_format_info(const TextFlow &flow,
+                                 const std::vector<Block> &all, size_t begin,
+                                 size_t end) {
+  if (flow.paragraphs.size() < all.size())
     fail("Source formatting does not match the layout model");
   std::vector<const TextParagraph *> paragraphs;
   for (auto &p : flow.paragraphs)
@@ -1723,5 +1753,62 @@ WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
         }
     }
   return result;
+}
+} // namespace
+WordsFormatInfo read_words_format(const OdfPackage &package, size_t begin,
+                                  size_t end) {
+  auto all = blocks(package);
+  check_range(all, begin, end);
+  // An empty insertion span/link still determines the next character's format.
+  // Resolve it with the same insertion path used by real typing, on a copy.
+  if (begin == end)
+    for (const auto &block : all)
+      if (touches(block, begin, end) && block.text.empty()) {
+        auto first = block.node.firstChild();
+        if (first.namespaceURI() == TEXT &&
+            TextList{"span", "a"}.contains(first.localName())) {
+          auto copy = package;
+          copy.xml = read_document_xml(package.xml.toByteArray());
+          replace_words_text(copy, begin, 0, "X", false);
+          return read_words_format(copy, begin, begin + 1);
+        }
+      }
+  // The layout reader supplies a virtual default paragraph for empty text.
+  if (all.empty())
+    all.push_back({{}, {}, 0});
+  auto flow = read_text_flow(package);
+  return text_format_info(flow, all, begin, end);
+}
+WordsFormatInfo read_scoped_text_format(const OdfPackage &package,
+                                        const XmlElement &scope, size_t begin,
+                                        size_t end, const TextParagraph &base,
+                                        const Text &paragraph_style) {
+  scope_valid(package, scope);
+  auto all = blocks(scope);
+  check_range(all, begin, end);
+  if (begin == end)
+    for (const auto &block : all)
+      if (touches(block, begin, end) && block.text.empty()) {
+        auto first = block.node.firstChild();
+        if (first.namespaceURI() == TEXT &&
+            TextList{"span", "a"}.contains(first.localName())) {
+          auto copy = package;
+          copy.xml = read_document_xml(package.xml.toByteArray());
+          auto target = document_source_clone(scope, copy.xml);
+          replace_scoped_text(copy, target, begin, 0, "X", false);
+          return read_scoped_text_format(copy, target, begin, begin + 1, base,
+                                         paragraph_style);
+        }
+      }
+  if (all.empty()) {
+    auto copy = package;
+    copy.xml = read_document_xml(package.xml.toByteArray());
+    auto target = document_source_clone(scope, copy.xml);
+    target.appendChild(copy.xml.createElementNS(TEXT, "text:p"));
+    return read_scoped_text_format(copy, target, begin, end, base,
+                                   paragraph_style);
+  }
+  auto flow = OdfTextReader(package).frame(scope, base, paragraph_style);
+  return text_format_info(flow, all, begin, end);
 }
 } // namespace DomeOffice

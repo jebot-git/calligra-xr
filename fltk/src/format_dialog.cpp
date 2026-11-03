@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "format_dialog.h"
+#include <array>
 #include "native_text_shaper.h"
 #include "native_words_geometry.h"
 #include "suite/fltk_appearance.h"
@@ -205,8 +206,8 @@ character_format_dialog(Fl_Window &window, const WordsCharacterFormat &initial,
   return {};
 }
 std::optional<WordsParagraphFormat>
-paragraph_format_dialog(Fl_Window &window,
-                        const WordsParagraphFormat &initial) {
+paragraph_format_dialog(Fl_Window &window, const WordsParagraphFormat &initial,
+                        bool paginated) {
   int width = 700, height = 470, x = std::max(0, (window.w() - width) / 2),
       y = std::max(0, (window.h() - height) / 2);
   auto previous = Fl_Group::current();
@@ -245,6 +246,10 @@ paragraph_format_dialog(Fl_Window &window,
   boolean(next, initial.keep_next);
   Fl_Choice page(x + 145, y + 320, 180, 30, "Page before:");
   boolean(page, initial.break_before);
+  if (!paginated)
+    for (Fl_Widget *control :
+         std::array<Fl_Widget *, 5>{&orphans, &widows, &keep, &next, &page})
+      control->deactivate();
   Buttons buttons(panel, x + width - 225, y + height - 50);
   Fl_Group::current(previous);
   while (panel.run(align)) {
@@ -259,11 +264,13 @@ paragraph_format_dialog(Fl_Window &window,
       changed_number(lines, initial.line_factor, result.line_factor);
       changed_number(before, initial.before, result.before);
       changed_number(after, initial.after, result.after);
-      changed_integer(orphans, initial.orphans, result.orphans);
-      changed_integer(widows, initial.widows, result.widows);
-      changed_boolean(keep, initial.keep_together, result.keep_together);
-      changed_boolean(next, initial.keep_next, result.keep_next);
-      changed_boolean(page, initial.break_before, result.break_before);
+      if (paginated) {
+        changed_integer(orphans, initial.orphans, result.orphans);
+        changed_integer(widows, initial.widows, result.widows);
+        changed_boolean(keep, initial.keep_together, result.keep_together);
+        changed_boolean(next, initial.keep_next, result.keep_next);
+        changed_boolean(page, initial.break_before, result.break_before);
+      }
       validate_words_format(result);
       return result;
     } catch (const std::exception &e) {

@@ -17,7 +17,7 @@ Bytes content(const Presentation &p) {
   return p.scene(0).editable_sources.at(0).ownerDocument().toByteArray();
 }
 void position(std::optional<PresentationPosition> actual, int slide, int box) {
-  assert(actual && (*actual == PresentationPosition{slide, box}));
+  assert(actual && actual->slide == slide && actual->box == box);
 }
 OdfPackage fixture() {
   OdfPackage p(Kind::Stage);

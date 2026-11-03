@@ -53,7 +53,7 @@
         "Stage"
       ],
       "status": "partial",
-      "evidence": "Native paragraphs/runs/styles, shaping/bidi, lists, tabs and editing/history.",
+      "evidence": "Native paragraphs/runs/styles, shaping/bidi, lists, tabs and editing/history; Stage scoped character/paragraph formatting, transient typing and exact replacement ranges.",
       "remaining": "Complete text/frame/anchor layout, section/column flow, vertical/ruby/embedded/color fonts and broader editing behavior remain."
     },
     {
@@ -98,7 +98,7 @@
         "Stage"
       ],
       "status": "partial",
-      "evidence": "Stage shapes, transforms, paths, masters, editable text and basic images; embedded image insertion under verification.",
+      "evidence": "Stage shapes, transforms, paths, masters, editable text and verified embedded image insertion with archive-part history.",
       "remaining": "Complete connectors/groups/stacking, custom geometry, fills/strokes, charts/3D/OLE/embedded content, Word anchors and authoring tools remain."
     },
     {

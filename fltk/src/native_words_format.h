@@ -86,4 +86,13 @@ bool format_words_characters(OdfPackage &, size_t begin, size_t end,
                              const WordsCharacterFormat &);
 bool format_words_paragraphs(OdfPackage &, size_t begin, size_t end,
                              const WordsParagraphFormat &);
+// Frame-local variants share ODF styles and inline/source handling with Words.
+WordsFormatInfo read_scoped_text_format(const OdfPackage &, const XmlElement &,
+                                        size_t begin, size_t end,
+                                        const TextParagraph &base = {},
+                                        const Text &paragraph_style = {});
+bool format_scoped_characters(OdfPackage &, XmlElement, size_t begin,
+                              size_t end, const WordsCharacterFormat &);
+bool format_scoped_paragraphs(OdfPackage &, XmlElement, size_t begin,
+                              size_t end, const WordsParagraphFormat &);
 } // namespace DomeOffice

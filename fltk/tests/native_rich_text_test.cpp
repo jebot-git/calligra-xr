@@ -168,7 +168,7 @@ int main(int argc, char **argv) {
   assert(master.font.family == "Noto Sans" && master.color->red == 255);
   near(master.font.size, 18);
   const auto &rich = scene.shapes[scene.editor_shapes[0]];
-  const auto &flow = rich.text_flow;
+  const auto flow = rich.text_flow;
   assert(flow.paragraphs.size() == 4);
   assert(flow.paragraphs[0].alignment == TextParagraph::Center &&
          flow.paragraphs[0].font.bold);

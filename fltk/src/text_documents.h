@@ -133,6 +133,7 @@ struct Slide {
 struct PresentationPosition {
     int slide = 0, box = 0;
     int shape = -1;
+    std::optional<TextSelection> selection = std::nullopt;
     bool operator==(const PresentationPosition&) const = default;
 };
 class NativeImageInput;
@@ -149,7 +150,19 @@ public:
     void add_slide(const Text& title = "New slide", PresentationPosition previous = {});
     void remove_slide(int index, int selectedBox = 0, int selectedShape = -1);
     void set_box_text(int slide, int box, const Text& text, bool merge = false);
-    void end_text_edit() { merge_text_ = false; }
+    void replace_box_text(int slide, int box, size_t begin, size_t count,
+                          const Text &inserted, bool merge = false);
+    WordsFormatInfo box_format_info(int slide, int box, TextSelection) const;
+    bool format_box_characters(int slide, int box, TextSelection,
+                               const WordsCharacterFormat &);
+    bool format_box_paragraphs(int slide, int box, TextSelection,
+                               const WordsParagraphFormat &);
+    void clear_typing_format() { typing_format_.reset(); }
+    bool has_typing_format() const { return bool(typing_format_); }
+    void end_text_edit() {
+        merge_text_ = false;
+        clear_typing_format();
+    }
     void begin_handle_drag(int slide, int shape, int handle);
     void move_handle(int slide, int shape, int handle, ScenePoint target);
     void begin_shape_move(int slide, int shape, ScenePoint pointer);
@@ -200,6 +213,12 @@ private:
     size_t history_index_ = 0, history_bytes_ = 0;
     uint64_t state_ = 0, next_state_ = 1, saved_state_ = 0;
     bool merge_text_ = false;
+    struct TypingFormat {
+        int slide, box;
+        size_t position;
+        WordsCharacterFormat format;
+    };
+    std::optional<TypingFormat> typing_format_;
     struct HandleDrag {
         Bytes before;
         PresentationPosition position;

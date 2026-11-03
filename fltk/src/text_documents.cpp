@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
+#include "native_stage_source.h"
 #include "native_words_edit.h"
 #include "ooxml_text_import.h"
 #include "native_enhanced_geometry.h"
@@ -919,17 +920,22 @@ void Presentation::clear_history()
     state_ = saved_state_ = 0;
     next_state_ = 1;
     merge_text_ = false;
+    typing_format_.reset();
     drag_.reset();
 }
 void Presentation::remember(Bytes before, PresentationPosition previous, PresentationPosition next, bool merge, std::vector<ArchivePartChange> parts)
 {
     const auto after = package_.xml.toByteArray();
     if (before == after && parts.empty()) return;
-    if (merge && parts.empty() && merge_text_ && history_index_ && history_index_ == history_.size()
-        && history_.back().parts.empty() && history_.back().previous == previous && history_.back().next == next) {
+    if (merge && parts.empty() && merge_text_ && history_index_ &&
+        history_index_ == history_.size() && history_.back().parts.empty() &&
+        history_.back().next.slide == previous.slide &&
+        history_.back().next.box == previous.box &&
+        history_.back().next.shape == previous.shape) {
         const auto& last = history_.back();
         before.std::string::replace(last.offset, last.after.size(), last.before);
         state_ = last.before_state;
+        previous = last.previous;
         history_bytes_ -= last.bytes();
         history_.pop_back();
         --history_index_;
@@ -1094,34 +1100,94 @@ void Presentation::remove_slide(int index, int selectedBox, int selectedShape)
     scenes_.clear(); ++revision_;
     remember(before, { index, selectedBox, selectedShape }, { std::min(index, count() - 1), 0 });
 }
-void Presentation::set_box_text(int slideIndex, int boxIndex, const Text& text, bool merge)
-{
+void Presentation::set_box_text(int slideIndex, int boxIndex, const Text &text,
+                                bool merge) {
     finish_handle_drag();
     if (read_only())
         fail("This presentation is read-only");
-    if (text.size() > 4000000) fail("Text frame exceeds native layout text limit");
-    size_t length = 0, paragraphs = 1;
-    for (auto character : text) {
-        if (character == '\n') { length = 0; if (++paragraphs > 100000) fail("Too many text paragraphs"); }
-        else if (++length > 1000000) fail("Paragraph exceeds layout text limit");
-    }
-    const auto& current = scene(slideIndex);
-    auto frame = current.editable_sources.at(boxIndex);
+    if (text.size() > 4000000)
+        fail("Text frame exceeds native layout text limit");
+    auto frame = scene(slideIndex).editable_sources.at(boxIndex);
     auto box = child(frame, DRAW, "text-box");
-    if(box.isNull()&&(!children(frame,TEXT,"p").empty()||!children(frame,TEXT,"h").empty()))box=frame;
+    if (box.isNull() && (!children(frame, TEXT, "p").empty() ||
+                         !children(frame, TEXT, "h").empty()))
+        box = frame;
     if (box.isNull())
         fail("This frame is not an editable text box");
-    if (joined(box) == text)
+    const auto original = joined(box);
+    if (original == text)
         return;
+    size_t prefix = 0, suffix = 0;
+    while (prefix < original.size() && prefix < text.size() &&
+           original[prefix] == text[prefix])
+        ++prefix;
+    while (suffix < original.size() - prefix && suffix < text.size() - prefix &&
+           original[original.size() - 1 - suffix] ==
+               text[text.size() - 1 - suffix])
+        ++suffix;
+    replace_box_text(slideIndex, boxIndex, prefix,
+                     original.size() - prefix - suffix,
+                     text.mid(prefix, text.size() - prefix - suffix), merge);
+}
+void Presentation::replace_box_text(int slideIndex, int boxIndex, size_t begin,
+                                    size_t count, const Text &inserted,
+                                    bool merge) {
+    finish_handle_drag();
+    if (read_only())
+        fail("This presentation is read-only");
+    const auto &current = scene(slideIndex);
+    auto frame = current.editable_sources.at(boxIndex);
+    auto box = child(frame, DRAW, "text-box");
+    if (box.isNull() && (!children(frame, TEXT, "p").empty() ||
+                         !children(frame, TEXT, "h").empty()))
+        box = frame;
+    if (box.isNull())
+        fail("This frame is not an editable text box");
+    const auto original = joined(box);
+    if (begin > original.size() || count > original.size() - begin)
+        fail("Invalid slide text replacement range");
+    if (inserted.size() > 4000000 ||
+        original.size() - count > 4000000 - inserted.size())
+        fail("Text frame exceeds native layout text limit");
+    const auto text =
+        original.left(begin) + inserted + original.mid(begin + count);
+    if (original == text)
+        return;
+    size_t length = 0, paragraphs = 1;
+    for (auto character : text) {
+        if (character == '\n') {
+            length = 0;
+            if (++paragraphs > 100000)
+                fail("Too many text paragraphs");
+        } else if (++length > 1000000)
+            fail("Paragraph exceeds layout text limit");
+    }
+    auto typing = typing_format_;
+    if (typing &&
+        (typing->slide != slideIndex || typing->box != boxIndex ||
+         typing->position < begin || typing->position > begin + count))
+        typing.reset();
     const auto before = package_.xml.toByteArray();
-    set_paragraphs(box, text, true);
-    auto& shape = scenes_.at(slideIndex).shapes.at(current.editor_shapes.at(boxIndex));
-    shape.text = joined(frame);
-    TextParagraph base; base.font = shape.paint.font;
-    if (!shape.paint.use_window_text_color) base.color = shape.paint.text_color;
-    shape.text_flow = text_reader_->frame(box,base,shape.paragraph_style);
-    ++revision_;
-    remember(before, { slideIndex, boxIndex }, { slideIndex, boxIndex }, merge);
+    auto candidate = package_;
+    candidate.xml = read_document_xml(before);
+    auto target = stage_candidate_source(box, candidate.xml);
+    replace_scoped_text(candidate, target, begin, count, inserted, true);
+    if (typing) {
+        if (!inserted.empty() || text.empty())
+            format_scoped_characters(candidate, target, begin,
+                                     begin + inserted.size(), typing->format);
+        typing->position = begin + inserted.size();
+    }
+    const int shapeIndex = int(current.editor_shapes.at(boxIndex));
+    PresentationPosition previous{slideIndex, boxIndex, shapeIndex,
+                                  TextSelection{begin, begin + count}};
+    PresentationPosition next{
+        slideIndex, boxIndex, shapeIndex,
+        TextSelection{begin + inserted.size(), begin + inserted.size()}};
+    candidate.validate_archive_limits();
+    restore_package(std::move(candidate));
+    remember(before, previous, next, merge);
+    typing_format_ = std::move(typing);
 }
 void Presentation::begin_handle_drag(int slideIndex, int shapeIndex, int handleIndex)
 {

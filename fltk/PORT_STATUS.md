@@ -13,9 +13,9 @@ output need feature-appropriate independent checks.
 
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
-uninstalled. Further Sheets catalogue/settings work waits. The installed geometry
-build is fa12ec5; subsequent source/build/stage/installation claims require their
-own evidence. Historical sections retain their earlier priorities and baseline.
+uninstalled. Further Sheets catalogue/settings work waits. The installed image/ODF
+foundation build is c5216a3; subsequent source/build/stage/installation claims
+require their own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
 styled paragraph splits/joins in the body, sections and individual table cells,
@@ -222,7 +222,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
 | Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, scoped header/footer editing and native rendering with dynamic page fields, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, remaining table styles/optimal sizing and reflow performance, complex paragraph-level list reparenting, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, advanced header/footer geometry and anchored content, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
-| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, drag resize/rotation handles, image insertion and stacking/group tools, animation/timing, transitions, speaker notes/view and export fidelity |
+| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, embedded image insertion, scoped character/paragraph controls with future typing and selection history, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, drag resize/rotation handles and stacking/group tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
 | Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
@@ -262,8 +262,8 @@ page-column worktree is uninstalled and preserved.
 
 1. Work on native Stage layout/editing, preserving OpenDocument export and CUPS
    printing. Native movement and primitive/text creation/deletion are available;
-   numeric position/size/rotation is installed; image insertion is being verified,
-   and drag resize/rotation and stacking/group tools remain unfinished.
+   numeric position/size/rotation and embedded images are installed; richer text
+   formatting is the current increment, and drag resize/rotation and stacking/group tools remain unfinished.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1237,3 +1237,34 @@ Newly generated ODF fixtures include the required manifest version. Thirty
 staged artifacts include the installed initial coverage inventory; optimized
 Release sections and system-FLTK/no-Qt/GTK ELF linkage are verified. Installation
 requires a separate installed receipt. Full ODF 1.2 functionality remains open.
+
+
+## Native Stage scoped text formatting — 2026-11-03
+
+Stage now shares the native source-aware character/paragraph formatter with
+Words. The universal Format menu exposes font family/size/weight, italic,
+underline, strike, foreground/highlight, alignment, margins, first-line indent
+and before/after/line spacing. Only changed fields are written. Effective
+format queries include graphic/frame paragraph inheritance, inline runs,
+empty styled insertion spans and formatted table text. Name allocation reserves
+unresolved foreign style references in both content and styles parts.
+
+Selections use Unicode scalar positions. Character formatting at a nonempty
+caret sets transient future typing; empty-frame defaults are a persistent source
+edit. Typing updates the exact replacement range supplied by FLTK, rather than
+inferring the caret from identical text prefixes. The shared paragraph editor
+preserves source runs, hyperlinks, IDs and paragraph/list structures on supported
+splits/joins. Cross-container or unsupported embedded-content edits reject on a
+candidate document. Candidate scenes validate before publication. Formatting and
+text undo/redo restore the source frame, selection/caret and saved state; merged
+typing keeps its original cursor and final insertion position.
+
+The lower editor remains a plain-text editing surface with rich formatting
+shown in the native GPU preview and printing. Stage's continuous text frames do
+not paginate internally, so page break, keep and widow/orphan controls are
+inactive and rejected by its formatting API. Full in-canvas rich-text editing,
+vertical/column/automatic-fit layout, structural table/list controls and broader
+IME transactions remain unfinished. This increment is partial ODF 1.2 text
+functionality, not suite conformance. Strict schema coverage uses an independently
+produced ODF 1.2 fixture; legacy opaque attributes in model fixtures are separate
+compatibility probes. Installation needs its own verified receipt.

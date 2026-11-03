@@ -2710,3 +2710,50 @@ not a numerical-parity percentage. Matrix regression, database and remaining
 functions, omitted arguments/reference unions, duration precision and full model/
 settings remain unfinished. Words stays paused at rudimentary compliance, columns
 uninstalled, Stage last. No desktop session or global printer defaults are changed.
+
+
+## Stage scoped text formatting — 2026-11-03
+
+Artifact root: `/home/blux/de-xr/artifacts/calligra-stage-text-format-20261103`.
+The native Stage model and shared scoped source helpers add character/paragraph
+formatting, effective frame/style inheritance queries, future typing, exact
+Unicode replacement ranges and selection-aware history. The model regression
+covers mixed runs, empty frames/spans, formatted table text, style-name collisions,
+source IDs/links, package preservation, saved points, partial atomic fields,
+invalid ranges and read-only sources. A separate assertion reproduces and fixes
+read-only empty-span format inspection while keeping writes rejected.
+
+The selected Release and ASan/UBSan suites each contain 74 tests. The three
+existing outline-font exclusions remain `native-text-editing`, `native-text-hit`
+and `native-text-shaping` under the system bitmap-font policy. Independent odfpy
+production and a raw XML/style oracle check the actual native UI saves, including
+font size/color/highlight/underline, paragraph alignment/margins/spacing,
+unchanged neighboring runs/frames/slides, links/IDs and opaque package bytes.
+The source fixture passes strict ODF 1.2 content/styles and manifest checks.
+Legacy group-transform and span-ID probes in the C++ fixture are extension
+compatibility cases and do not contribute to strict ODF 1.2 schema coverage.
+
+A private Cage/nested-DomeD host drives real Wayland input. The suite exercises
+the universal menu, Font/Paragraph panels, validation, Cancel/Escape, unchanged
+Apply preserving redo, Ctrl+B/I/U/E, Unicode scalar selections, future typing,
+empty-frame defaults and selection/caret restoration on undo/redo. Inserting an
+identical following letter verifies that formatting and history use the actual
+editor replacement range. Reopen resets history and retains formatting. GUI leak
+checking uses only the existing narrowly scoped Fontconfig/Mesa startup-cache
+suppressions; native model/panel allocations remain unsuppressed.
+
+Five Stage CUPS jobs cover ten pages: original, formatted, typed, repeated-letter
+and independent model output. Red ink, yellow highlights, unaffected second-slide
+pixels and exact reopened rendering are checked. Three suite baseline CUPS jobs
+cover nine more pages, all matching reviewed installed c5216a3 output. The 21
+selected packages pass version-matched content/styles schemas, and 18 selected
+packages pass the manifest schema and implemented plain-package checks. The
+three original legacy baseline packages lacking manifest versions remain separate
+from their repaired exports, as in the prior increment.
+
+The Release dependency cache was damaged during overlapping verification builds.
+Those overlapping results were discarded; a full rebuild and fresh dependency
+cache replace them. Final source builds, runtime tests, optimized stage sections
+and installed checks require their own receipts. No session is restarted.
+Source preservation, schema validity and the tested cases do not establish full
+ODF 1.2 functionality or general layout/interoperability parity.

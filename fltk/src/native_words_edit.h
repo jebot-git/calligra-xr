@@ -7,6 +7,11 @@ enum class WordsListAction { Indent, Outdent, ExitEmpty };
 void replace_words_text(OdfPackage &, size_t begin, size_t count,
                         const Text &inserted, bool paragraph_breaks,
                         bool retain_empty_format = false);
+// The same source edit scoped to one container, with local Unicode offsets.
+void replace_scoped_text(OdfPackage &, XmlElement container, size_t begin,
+                         size_t count, const Text &inserted,
+                         bool paragraph_breaks,
+                         bool retain_empty_format = false);
 // Inserts an atomic dynamic field with a one-character editing cache.
 void insert_words_page_field(OdfPackage &, size_t begin, size_t count,
                              bool page_count);

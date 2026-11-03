@@ -16,7 +16,8 @@ std::optional<WordsCharacterFormat>
 character_format_dialog(Fl_Window &, const WordsCharacterFormat &,
                         std::optional<bool> bold);
 std::optional<WordsParagraphFormat>
-paragraph_format_dialog(Fl_Window &, const WordsParagraphFormat &);
+paragraph_format_dialog(Fl_Window &, const WordsParagraphFormat &,
+                        bool paginated = true);
 struct WordsStylesDialogResult {
   OdfPackage document;
   std::optional<Text> assignment;
