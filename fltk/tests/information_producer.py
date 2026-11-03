@@ -135,16 +135,16 @@ def cell(value=None, formula=None):
     return c
 
 
-def produce(directory):
+def produce(directory, formulas=FORMULAS, second_formulas=SECOND):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     doc = OpenDocumentSpreadsheet()
     table = Table(name="Information")
     table.addElement(TableColumn(numbercolumnsrepeated=21))
     grid = {(1, 1): cell(2), (1, 2): cell(4)}
-    for col, f in enumerate(FORMULAS, 3):
+    for col, f in enumerate(formulas, 3):
         grid[1, col] = cell(901, f)
-    for col, f in enumerate(SECOND, 1):
+    for col, f in enumerate(second_formulas, 1):
         grid[2, col] = cell({1: 903, 2: 904, 3: 905, 6: 906}.get(col, 901), f)
     grid[3, 1] = cell(901, "[.$A$1]*2")
     grid[3, 2] = cell("anchor")
@@ -179,9 +179,9 @@ def produce(directory):
     ws.title = "Information"
     ws.cell(1, 1, 2)
     ws.cell(1, 2, 4)
-    for col, f in enumerate(FORMULAS, 3):
+    for col, f in enumerate(formulas, 3):
         ws.cell(1, col, excel(f))
-    for col, f in enumerate(SECOND, 1):
+    for col, f in enumerate(second_formulas, 1):
         ws.cell(2, col, excel(f))
     ws.cell(3, 1, "=$A$1*2")
     ws.cell(3, 2, "anchor")

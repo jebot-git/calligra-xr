@@ -8,6 +8,29 @@
 
 namespace DomeOffice {
 namespace {
+    Text absolute_document_path(const Text& path)
+    {
+        return Text(std::filesystem::absolute(path.toStdString()).lexically_normal().string());
+    }
+    class DocumentIdentity {
+        SheetEngine& engine;
+        Text previous;
+        bool committed = false;
+    public:
+        DocumentIdentity(SheetEngine& e, Text target)
+            : engine(e), previous(e.document_path())
+        {
+            engine.set_document_path(std::move(target));
+        }
+        DocumentIdentity(const DocumentIdentity&) = delete;
+        DocumentIdentity& operator=(const DocumentIdentity&) = delete;
+        ~DocumentIdentity()
+        {
+            if (!committed)
+                engine.set_document_path(std::move(previous));
+        }
+        void commit() noexcept { committed = true; }
+    };
     [[noreturn]] void fail(const char* error) { throw std::runtime_error(error); }
     int repeated(const XmlElement& e, const Text& name)
     {
@@ -153,11 +176,11 @@ void Workbook::load(const Text& path)
     else
         candidate.load(path);
     Workbook next;
-    next.load_package(candidate);
+    next.load_package(candidate, absolute_document_path(path));
     next.imported_xlsx_ = xlsx;
     *this = std::move(next);
 }
-void Workbook::load_package(OdfPackage candidate)
+void Workbook::load_package(OdfPackage candidate, const Text& document_path)
 {
     auto tables = children(candidate.body(), TABLE, "table");
     if (tables.isEmpty())
@@ -196,6 +219,7 @@ void Workbook::load_package(OdfPackage candidate)
         settings.set_criteria(criteria);
     }
     initialize(settings);
+    map_->set_document_path(document_path);
     tables_.clear();
     changed_.clear();
     formulas_.clear();
@@ -311,6 +335,7 @@ void Workbook::save(const Text& path)
              "filename");
     if (read_only())
         fail("This workbook is read-only");
+    DocumentIdentity identity(*map_, absolute_document_path(path));
     auto values = changed_;
     for (const auto& key : formulas_) {
         auto indexes = key.split(':');
@@ -405,5 +430,6 @@ void Workbook::save(const Text& path)
     }
     package_.save(path);
     changed_.clear();
+    identity.commit();
 }
 } // namespace DomeOffice

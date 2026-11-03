@@ -34,6 +34,7 @@ parser.add_argument(
         "log_regression",
         "database",
         "information",
+        "context",
     ),
     required=True,
 )
@@ -183,6 +184,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         codes = {
             "Left": 105,
             "Right": 106,
+            "Down": 108,
             "Return": 28,
             "Control_L": 29,
             "q": 16,
@@ -299,6 +301,58 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
 
         start()
         cells(2)
+        if args.suite == "context":
+            first()
+            key("Right")
+            key("Down")
+            records = []
+
+            def check_origin():
+                snapshot = data()
+                view = snapshot["viewport"]
+                cell = snapshot["cell"]
+                column = view["column"]
+                label = ""
+                while column:
+                    column, digit = divmod(column - 1, 26)
+                    label = chr(65 + digit) + label
+                wanted = f"$A:${label}${view['row']}"
+                return (
+                    snapshot
+                    if cell["row"] == 2
+                    and cell["column"] == 2
+                    and cell["value"] == wanted
+                    else False
+                )
+
+            records.append(wait(check_origin))
+            window = native_window()["desktop"]
+            move(window["x"] + 500, window["y"] + 300)
+            for steps, axis in [
+                ([0, 12], "row"),
+                ([0, -12], None),
+                ([8, 0], "column"),
+                ([-8, 0], None),
+            ]:
+                send({"scroll": steps})
+                if axis:
+                    wait(lambda: data()["viewport"][axis] > 1)
+                else:
+                    wait(
+                        lambda: (
+                            data()["viewport"]["row"] == 1
+                            and data()["viewport"]["column"] == 1
+                        )
+                    )
+                records.append(wait(check_origin))
+            assert all(
+                s["document_path"] == str(doc.resolve()) and not s["modified"]
+                for s in records
+            )
+            (art / "context-viewports.json").write_text(
+                json.dumps(records, indent=2) + "\n"
+            )
+            first()
         (art / "initial-scene.json").write_text(json.dumps(scene(), indent=2) + "\n")
         Image.open(art / "live.ppm").transpose(Image.Transpose.FLIP_TOP_BOTTOM).save(
             art / "initial.png"
@@ -365,6 +419,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
                     "save_reopen": True,
                     "opaque_data": True,
                     "runtime_libraries": libraries,
+                    "live_viewport_context": args.suite == "context",
                 },
                 indent=2,
             )

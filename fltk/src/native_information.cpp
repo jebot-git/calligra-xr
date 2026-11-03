@@ -3,9 +3,10 @@
 namespace DomeOffice {
 const NativeSignatures &information_signatures() {
   static const NativeSignatures names = {
-      {"ERROR.TYPE", {1, 1}}, {"FORMULA", {1, 1}}, {"ISFORMULA", {1, 1}},
-      {"ISNONTEXT", {1, 1}},  {"ISEVEN", {1, 1}},  {"ISODD", {1, 1}},
-      {"ISDATE", {1, 1}},     {"ISTIME", {1, 1}},  {"TYPE", {1, 1}}};
+      {"FILENAME", {0, 0}}, {"INFO", {1, 1}},      {"ERROR.TYPE", {1, 1}},
+      {"FORMULA", {1, 1}},  {"ISFORMULA", {1, 1}}, {"ISNONTEXT", {1, 1}},
+      {"ISEVEN", {1, 1}},   {"ISODD", {1, 1}},     {"ISDATE", {1, 1}},
+      {"ISTIME", {1, 1}},   {"TYPE", {1, 1}}};
   return names;
 }
 Text information_name(const Text &name) {

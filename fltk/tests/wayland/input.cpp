@@ -92,6 +92,20 @@ int main(int argc, char **argv) try {
       zwlr_virtual_pointer_v1_motion_absolute(pointer, time, p.at(0), p.at(1),
                                               extent.at(0), extent.at(1));
       zwlr_virtual_pointer_v1_frame(pointer);
+    } else if (action.contains("scroll")) {
+      auto steps = action.at("scroll");
+      zwlr_virtual_pointer_v1_axis_source(pointer,
+                                          WL_POINTER_AXIS_SOURCE_WHEEL);
+      for (int i = 0; i < 2; ++i) {
+        int step = steps.at(i);
+        if (step)
+          zwlr_virtual_pointer_v1_axis_discrete(
+              pointer, time,
+              i == 0 ? WL_POINTER_AXIS_HORIZONTAL_SCROLL
+                     : WL_POINTER_AXIS_VERTICAL_SCROLL,
+              wl_fixed_from_double(step * 10.), step);
+      }
+      zwlr_virtual_pointer_v1_frame(pointer);
     } else if (action.contains("button")) {
       zwlr_virtual_pointer_v1_button(pointer, time, action.at("button"),
                                      action.at("state"));

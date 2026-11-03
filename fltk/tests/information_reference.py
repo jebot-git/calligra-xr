@@ -83,27 +83,38 @@ def retained_units(binary):
     unavailable = []
     conventions = []
     for (formula, expected), actual in zip(cases, values):
-        if re.fullmatch(
-            r'ISTEXT\(INFO\("(?:system|directory|osversion|recalc|release)"\)\)',
-            formula,
-        ):
-            assert actual["incomplete"], (formula, actual)
-            unavailable.append(dict(formula=formula, actual=actual))
-            continue
         if formula == "ISREF(NA())":
             assert matches(actual, False), (formula, actual)
             conventions.append(dict(formula=formula, legacy=expected, native=False))
             continue
         if not matches(actual, expected):
             failures.append(dict(formula=formula, expected=expected, actual=actual))
-    assert len(unavailable) == 5 and len(conventions) == 1
+    assert len(unavailable) == 0 and len(conventions) == 1
     assert not failures, failures
     return dict(
         cases=len(cases),
-        agreeing=77,
+        agreeing=82,
         unavailable_INFO=unavailable,
         ISREF_error_convention=conventions,
     )
+
+
+def host_values():
+    version = (ROOT / "CMakeLists.txt").read_text()
+    parts = [
+        re.search(r"set\(RELEASE_SERVICE_VERSION_" + part + r' "([0-9]+)"\)', version)[
+            1
+        ]
+        for part in ["MAJOR", "MINOR", "MICRO"]
+    ]
+    system = os.uname()
+    return {
+        "directory": str(Path.cwd()) + os.sep,
+        "system": system.sysname,
+        "osversion": f"{system.sysname} {system.release} ({system.machine})",
+        "release": ".".join(parts),
+        "recalc": "Automatic",
+    }
 
 
 def independent(binary):
@@ -198,6 +209,14 @@ def independent(binary):
         ("ISFORMULA(B3)", False),
         ("ISFORMULA(B1:B3)", False),
         ("TYPE(Z999)", 1),
+    ]
+    cases += [(f'INFO("{key}")', value) for key, value in host_values().items()]
+    cases += [
+        ("FILENAME()", ""),
+        ('INFO("numfile")', 3),
+        ('TYPE(INFO("memused"))', 1),
+        ('TYPE(INFO("totmem"))', 1),
+        ('TYPE(INFO("memavail"))', 1),
     ]
     values = evaluate(binary, [f for f, _ in cases])
     failures = [
@@ -334,8 +353,7 @@ def retained_fods(binary):
         )
     )
     allowed = (
-        {("info", 1, r, 6) for r in range(2, 7)}
-        | {(f, 1, r, 1) for f in ["iserr", "iserror"] for r in [2, 3, 4, 8, 9, 10]}
+        {(f, 1, r, 1) for f in ["iserr", "iserror"] for r in [2, 3, 4, 8, 9, 10]}
         | {("isref", 1, r, 1) for r in [4, 7]}
         | {("errortype", 1, r, 3) for r in [10, 15]}
     )
@@ -345,6 +363,8 @@ def retained_fods(binary):
     failures = []
     agreements = 0
     raw = {}
+    live_context = []
+    host = host_values()
     for record in records:
         a = record["actual"]
         key = (
@@ -357,7 +377,19 @@ def retained_fods(binary):
             assert key in allowed, record
             unavailable.append(record)
             continue
-        if record["formula"].startswith("of:=FORMULA("):
+        if record["formula"].startswith("of:=INFO("):
+            match = re.fullmatch(r'of:=INFO\("([^"\n]+)"\)', record["formula"])
+            assert match, record
+            category = match[1].lower()
+            if category == "numfile":
+                if record["file"] not in raw:
+                    raw[record["file"]] = RawMetadata(record["file"])
+                want = len(raw[record["file"]].tables)
+            else:
+                want = host[category]
+            assert matches(a, want), (record, want)
+            live_context.append(record)
+        elif record["formula"].startswith("of:=FORMULA("):
             if record["file"] not in raw:
                 raw[record["file"]] = RawMetadata(record["file"])
             want = raw[record["file"]].formula(record)
@@ -385,7 +417,7 @@ def retained_fods(binary):
             else:
                 failures.append(record)
     assert (
-        len(records) == 395
+        len(records) == 400
         and {
             (Path(r["file"]).stem, r["sheet"], r["row"], r["column"])
             for r in unavailable
@@ -398,6 +430,7 @@ def retained_fods(binary):
         cases=len(records),
         agreeing_caches=agreements,
         source_verified_metadata_presentations=metadata,
+        live_context_values=live_context,
         type_conventions=conventions,
         unavailable=unavailable,
         source_unchanged=True,

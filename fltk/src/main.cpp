@@ -120,6 +120,7 @@ public:
     std::function<void(int, int)> select;
     std::function<void(const std::string&)> paste;
     std::function<void()> edit;
+    std::function<void(int, int)> viewport;
     int selected_row = 0, selected_col = 0;
     std::optional<std::string> painted_value(int row, int col) const
     {
@@ -175,6 +176,11 @@ public:
     void draw_cell(TableContext context, int row, int col, int x, int y, int w, int h) override
     {
         if (context == CONTEXT_STARTPAGE) {
+          if (viewport) {
+            int top, bottom, left, right;
+            visible_cells(top, bottom, left, right);
+            viewport(std::max(0, top), std::max(0, left));
+          }
             painted.clear();
             fl_font(dx::font, dx::size);
             return;
@@ -495,6 +501,10 @@ public:
                 },
                 this);
             grid = new Grid(12, 98, 1076, 638);
+            grid->viewport = [this](int row, int col) {
+              if (workbook)
+                workbook->set_viewport(sheet, col + 1, row + 1);
+            };
             grid->text = [this](int r, int c) { return utf8(workbook->display(sheet, c + 1, r + 1)); };
             grid->value = [this](int r, int c) { return workbook->value(sheet, c + 1, r + 1); };
             grid->select = [this](int r, int c) { guard([&] { select_cell(r, c); }); };
@@ -2089,11 +2099,21 @@ public:
         }
         data["window_size"] = { window.w(), window.h() };
         if (kind == Kind::Sheets) {
-            data["cell"] = { { "sheet", sheet }, { "row", grid->selected_row + 1 },
-                { "column", grid->selected_col + 1 }, { "input", formula->value() },
-                { "value", utf8(workbook->display(sheet, grid->selected_col + 1, grid->selected_row + 1)) } };
-            if (auto painted = grid->painted_value(grid->selected_row, grid->selected_col))
-                data["cell"]["painted_value"] = *painted;
+          int top, bottom, left, right;
+          grid->visible_cells(top, bottom, left, right);
+          data["viewport"] = {{"row", std::max(0, top) + 1},
+                              {"column", std::max(0, left) + 1}};
+          data["document_path"] = utf8(workbook->document_path());
+          data["cell"] = {
+              {"sheet", sheet},
+              {"row", grid->selected_row + 1},
+              {"column", grid->selected_col + 1},
+              {"input", formula->value()},
+              {"value", utf8(workbook->display(sheet, grid->selected_col + 1,
+                                               grid->selected_row + 1))}};
+          if (auto painted =
+                  grid->painted_value(grid->selected_row, grid->selected_col))
+            data["cell"]["painted_value"] = *painted;
         } else
             data["text"] = buffer_text();
         if (kind == Kind::Words) {

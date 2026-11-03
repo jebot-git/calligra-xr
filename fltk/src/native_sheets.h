@@ -141,6 +141,9 @@ public:
   NativeValue value(int s, int c, int r) const;
   void set(int s, int c, int r, const Text &text, bool literal = false);
   void recalculate();
+  void set_document_path(Text) noexcept;
+  Text document_path() const;
+  void set_viewport(int sheet, int column, int row);
   void addNamedRange(const Text &reference, const Text &name);
   void define_matrix(int sheet, int column, int row, int columns, int rows);
   bool matrix_child(int sheet, int column, int row) const;

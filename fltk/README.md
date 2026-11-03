@@ -13,9 +13,11 @@ and full upstream spreadsheet function catalogue are not reimplemented here.
 The original Qt/KDE source remains available only through the opt-in frontend
 build. See [PORT_STATUS.md](PORT_STATUS.md).
 
-Sheets functions are the current focus. Words is paused at its rudimentary
-layout/editing milestone; its experimental columns remain uninstalled. Stage is last. OpenDocument export and CUPS printing remain the
-acceptance floor while this work proceeds.
+Finish and verify the current Sheets build, then switch implementation focus to
+Stage, as requested on 2026-11-03. Further Sheets catalogue work waits. Words is
+paused at its rudimentary layout/editing milestone; its experimental columns
+remain uninstalled. OpenDocument export and CUPS printing remain the acceptance
+floor while this work proceeds.
 
 ## Build and install
 
@@ -54,8 +56,8 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 ## Export and printing baseline
 
 The accepted baseline is OpenDocument export and CUPS printing in Words, Sheets
-and Stage. Sheets functions are the active development focus; the remaining
-scope and subsequent priorities are documented in PORT_STATUS.md.
+and Stage. The current Sheets increment is being finished before the requested
+switch to Stage; remaining scope and priorities are documented in PORT_STATUS.md.
 
 Save or Save as writes ODT, ODS or ODP through the native package/model paths.
 Imported DOCX/XLSX/PPTX content can be saved in the corresponding OpenDocument
@@ -960,8 +962,8 @@ Native information functions now include FORMULA, ISFORMULA, TYPE, ERROR.TYPE
 (the Calligra ERRORTYPE alias), ISNONTEXT/ISNOTTEXT, ISNUM, ISEVEN/ISODD and
 ISDATE/ISTIME. The long analysis-addin parity aliases and Excel FORMULATEXT
 spelling are supported; XLSX FORMULATEXT calls translate to OpenFormula FORMULA.
-INFO/FILENAME context and the distinct ORG.OPENOFFICE.ERRORTYPE numeric error-code
-extension remain unavailable.
+INFO and FILENAME now use native document/application/host context. The distinct
+ORG.OPENOFFICE.ERRORTYPE numeric error-code extension remains unavailable.
 
 FORMULA/ISFORMULA inspect stored expressions without calculating referenced
 values. This includes error/unsupported/self formulas and unparsed source syntax;
@@ -984,23 +986,51 @@ does not implement full upstream formatting fidelity. XLSX ISO clock times in
 HH:MM[:SS[.milliseconds]] form convert to ODF time cells with their fractions intact;
 invalid hours/minutes/seconds and trailing data are rejected.
 
-`information_reference.py` checks 1,043 independent typed predicates and parity
-cases, 83 retained unit cases (77 matches, five unavailable INFO dependencies and
-one ISREF error convention), and 395 retained FODS results. Of those, 317 agree
+FILENAME returns the absolute, lexically normalized document path, or empty text
+for an untitled workbook. Save As calculates caches against the target path;
+failed load/save operations retain the previous runtime identity. INFO reports
+the real working directory, OS/version, application release, active worksheet
+count across live native engines and the engine's actual Automatic policy.
+Imported manual calculation settings are not implemented. The native grid
+supplies its actual top-left viewport for INFO("origin"); headless operation has
+no view and retains an explicit incomplete result/cache instead of guessing A1.
+INFO supports category arrays. Query epochs refresh volatile functions and their
+dependents on each public value query while sharing repeated references within
+one query and retaining unrelated cached calculations.
+
+Linux memory categories use MemTotal+SwapTotal, MemAvailable+SwapFree and process
+RssAnon for total, available and used data bytes respectively. These are host OS
+estimates, not cgroup limits or allocation promises. RssAnon excludes file-backed
+and shared mappings; unavailable host facts remain incomplete. The measurements
+follow the [Linux proc documentation](https://docs.kernel.org/filesystems/proc.html).
+The category contract follows
+[OpenFormula INFO](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part4-formula/OpenDocument-v1.3-os-part4-formula.html).
+
+`information_reference.py` checks 1,053 independent typed predicates, parity and
+context cases, 83 retained unit cases (82 matches and one ISREF error convention),
+and 400 retained FODS results. Of those, 322 agree
 with caches, 55 formula-text presentations are independently verified against
-source XML and matrix ownership, two TYPE conventions retain the native distinct
-Logical/Text types, and 21 existing unavailable contexts remain explicit. Original
+source XML and matrix ownership, five context values match current host/application
+facts, two TYPE conventions retain the native distinct Logical/Text types, and
+16 existing unavailable contexts remain explicit. Original
 fixtures are unchanged. `information_producer.py` checks editable ODS/XLSX metadata,
 array results and raw caches: metadata on an unavailable formula is complete while
 value-dependent information preserves the source cache. The former unavailable
 LINEST predictor containing FORMULA text now reports a known #VALUE! error;
 log-regression retained tests require zero unavailable cases.
 
-The current inventory dispatches 472 of 641 retained names, including aliases,
-with 169 remaining. The remaining catalogue,
+`native-context` checks live worksheet lifetimes, working-directory failures,
+memory updates, dependent cache refresh, viewport limits and failed Save As/load
+identity rollback. `context_producer.py` checks real ODS/XLSX filename caches,
+unavailable headless viewport preservation and opaque data. Native Wayland tests
+scroll the actual grid vertically/horizontally and compare INFO origin with the
+visible cells without modifying the document.
+
+The current inventory dispatches 474 of 641 retained names, including aliases,
+with 167 remaining. The remaining catalogue,
 omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
-Words pause and Stage-last priorities remain in force.
+Words pause and the requested switch to Stage after this Sheets build remain in force.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

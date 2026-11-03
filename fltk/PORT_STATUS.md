@@ -8,8 +8,10 @@ Words prints native pages, Stage prints slide scenes, and Sheets prints a
 paginated calculated-value grid with all/current worksheet selection. Copies,
 page ranges, cancellation and CUPS submission errors have explicit handling.
 That baseline remains the minimum acceptance floor. The current implementation
-priority is **Sheets functions first, with Words paused at its rudimentary
-compliance milestone and Stage last**. The remaining-work inventory records the unfinished scope; the baseline
+priority is **finish and verify the current Sheets build, then switch to Stage**,
+following the user's 2026-11-03 steering. Words remains paused at its rudimentary
+compliance milestone; further Sheets catalogue work waits. Historical increment
+entries below retain their priorities at the time. The remaining-work inventory records the unfinished scope; the baseline
 does not imply that Words or the full suite is finished.
 
 The first Words editing increment adds immediate native document transactions,
@@ -248,21 +250,20 @@ and vertical alignment position continuous text within each frame. Unknown
 objects and extension data remain in the saved package, but preservation does
 not imply correct display or editing support.
 
-## Implementation priorities — Sheets now, Stage last
+## Implementation priorities — finish current Sheets build, then Stage
 
 The user switched focus to Sheets on 2026-11-03 after the installed Words build
-reached rudimentary compliance. Broader Words layout/editing remains unfinished;
-the separate experimental page-column worktree is uninstalled and preserved.
+reached rudimentary compliance, then requested Stage after the current Sheets
+build. Broader Words layout/editing remains unfinished; the separate experimental
+page-column worktree is uninstalled and preserved.
 
-1. Complete Sheets functions and calculation settings. Use retained upstream
-   registrations/corpora and independent numerical references to identify and
-   validate missing behavior. Preserve unsupported source caches until their
-   calculations are implemented. Begin with descriptive statistics, then address
-   the remaining statistical, conditional, database and other function groups.
-2. Keep the verified Words build available. Resume its broader layout/editing
-   backlog when requested; it does not gate current Sheets work.
-3. Leave Stage implementation last. Shared-engine changes still require suite
-   regression checks, OpenDocument round trips and CUPS printing.
+1. Finish, commit, push, stage, install and independently verify the current
+   Sheets context increment, including OpenDocument export and CUPS printing.
+2. Switch implementation focus to Stage. Evaluate the native slide model,
+   layout/editing and export/printing behavior before choosing the next change.
+3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
+   Do not extend Sheets before the requested Stage work. Shared-engine changes
+   still require suite regression checks, OpenDocument round trips and CUPS printing.
 
 Keep native document/geometry/persistence interfaces independent of the toolkit,
 and use system FLTK for input and display. Qt6 frontends remain explicit opt-ins.
@@ -993,3 +994,37 @@ omitted arguments, duration precision and full model/settings fidelity remain.
 Words remains paused at rudimentary compliance, its columns preserved/uninstalled;
 Stage remains last. Export, CUPS, staging and installed evidence are recorded
 separately; this section does not claim an unverified installation.
+
+## Native Sheets live context — 2026-11-03
+
+The current Sheets build adds real INFO/FILENAME context after the committed
+matrix regression, database, reference-union and formula-metadata increments.
+FILENAME follows document load/Save As identity, exports caches against the
+actual target path and rolls runtime identity back on failed load/save. INFO
+uses the real host facts, live worksheet count, native Automatic calculation
+policy and grid viewport. Headless origin remains unavailable rather than
+inventing a viewport. Linux memory values are estimates with their exact
+measurement conventions documented in README.md. Lazy query epochs refresh
+volatile dependencies without scanning the entire cache for each displayed cell.
+
+All 68 applicable Release and ASan/UBSan suites pass with the established three
+outline-font exclusions. Independent information checks cover 1,053 cases, 83
+retained unit cases and 400 retained FODS results, with known conventions and
+unavailable cases reported explicitly. Native Wayland Release/sanitizer checks
+cover real vertical/horizontal scrolling, origin updates without document
+modification, editing/history, raw filename/cache preservation and save/reopen.
+Five private CUPS jobs cover 21 reviewed pages; the nine three-application
+baseline pages match the previous reviewed release. Nineteen current fixture,
+UI and export packages pass version-matched schemas; reference-union packages
+are separately schema-validated. The optimized stage verifies 29 artifacts,
+system FLTK and matching code sections without Qt/GTK ELF linkage. Installation
+and independent installed behavior remain separate evidence recorded in the
+artifact directory; passing staging does not claim installation.
+
+Catalogue dispatch is 474/641 retained names including aliases, with 167 names
+remaining. This is not a whole-suite completion percentage. Manual calculation
+settings, locale/format inheritance, relative named-expression semantics,
+reference intersection/range/3D and other catalogue functions remain unfinished.
+Per the latest user steering, finish this Sheets build and switch to Stage;
+further Sheets catalogue work waits. Words stays paused, and experimental
+columns remain preserved and uninstalled.

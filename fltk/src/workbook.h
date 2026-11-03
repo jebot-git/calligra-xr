@@ -23,6 +23,10 @@ public:
     const NativeCalculationSettings &calculation_settings() const {
       return map_->calculation_settings();
     }
+    Text document_path() const { return map_->document_path(); }
+    void set_viewport(int sheet, int col, int row) {
+      map_->set_viewport(sheet, col, row);
+    }
     bool imported_xlsx() const { return imported_xlsx_; }
     bool read_only() const { return package_.read_only() || protected_; }
 
@@ -34,7 +38,7 @@ private:
     Set<Text> formulas_;
     bool protected_ = false;
     bool imported_xlsx_ = false;
-    void load_package(OdfPackage candidate);
+    void load_package(OdfPackage candidate, const Text &document_path);
     void initialize(NativeCalculationSettings settings = {});
     void recalculate();
 };

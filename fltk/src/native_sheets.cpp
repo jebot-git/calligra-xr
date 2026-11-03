@@ -12,6 +12,8 @@
 #include "native_regression.h"
 #include "native_database.h"
 #include "native_information.h"
+#include "native_environment.h"
+#include <atomic>
 #include "native_formula.h"
 #include "native_time.h"
 #include <functional>
@@ -50,6 +52,7 @@ struct CriteriaScope {
   ~CriteriaScope() { slot = previous; }
 };
 using Value = NativeValue;
+std::atomic<size_t> active_worksheets{0};
 struct Node {
   enum Kind {
     Literal,
@@ -568,7 +571,25 @@ struct SheetEngine::Impl {
   std::map<Text, Expr> names;
   std::vector<MatrixBlock> matrices;
   std::map<Address, Address> matrix_owners;
-  mutable std::map<Address, Value> cache;
+  struct Cached {
+    Value value;
+    bool volatile_result = false;
+    uint64_t epoch = 0;
+  };
+  mutable std::map<Address, Cached> cache;
+  mutable uint64_t query_epoch = 0;
+  Text document_path;
+  std::optional<Address> viewport;
+  mutable bool calculation_volatile = false;
+  void begin_query() const {
+    // Expire volatile entries lazily. A repeated reference within one query
+    // shares its value; unrelated cached calculations keep their normal cost.
+    if (++query_epoch == 0) {
+      cache.clear();
+      query_epoch = 1;
+    }
+    calculation_volatile = false;
+  }
   mutable std::set<Address> visiting;
   mutable std::set<Text> visiting_names;
   mutable unsigned eval_depth = 0;
@@ -592,23 +613,35 @@ struct SheetEngine::Impl {
   Value value(Address pos) const {
     if (active_database_budget)
       active_database_budget->charge(1);
-    if (auto owner = matrix_owners.find(pos); owner != matrix_owners.end()) {
-      auto result = calculate(owner->second);
-      if (!result.isArray())
-        return result;
-      size_t row = std::get<1>(pos) - std::get<1>(owner->second),
-             column = std::get<2>(pos) - std::get<2>(owner->second);
-      auto cell = row < result.rows && column < result.columns
-                      ? result.at(row, column)
-                      : Value::error("#N/A");
-      cell.incomplete = cell.incomplete || result.incomplete;
-      return cell;
-    }
-    return calculate(pos);
+    auto resolve = [&]() -> Value {
+      if (auto owner = matrix_owners.find(pos); owner != matrix_owners.end()) {
+        auto result = calculate(owner->second);
+        if (!result.isArray())
+          return result;
+        size_t row = std::get<1>(pos) - std::get<1>(owner->second),
+               column = std::get<2>(pos) - std::get<2>(owner->second);
+        auto cell = row < result.rows && column < result.columns
+                        ? result.at(row, column)
+                        : Value::error("#N/A");
+        cell.incomplete = cell.incomplete || result.incomplete;
+        return cell;
+      }
+      return calculate(pos);
+    };
+    auto result = resolve();
+    auto owner = matrix_owners.find(pos);
+    auto cached =
+        cache.find(owner == matrix_owners.end() ? pos : owner->second);
+    calculation_volatile =
+        calculation_volatile ||
+        (cached != cache.end() && cached->second.volatile_result);
+    return result;
   }
   Value calculate(Address pos) const {
-    if (auto p = cache.find(pos); p != cache.end())
-      return p->second;
+    if (auto p = cache.find(pos);
+        p != cache.end() &&
+        (!p->second.volatile_result || p->second.epoch == query_epoch))
+      return p->second.value;
     auto p = cells.find(pos);
     if (p == cells.end())
       return {};
@@ -620,6 +653,7 @@ struct SheetEngine::Impl {
     CurrentCell context(current, pos);
     FlagScope mode(array_context, matrix_owners.contains(pos));
     FlagScope status(calculation_incomplete, false);
+    FlagScope volatility(calculation_volatile, false);
     try {
       if (visiting.size() > 512)
         throw error("#DEPTH!");
@@ -636,7 +670,7 @@ struct SheetEngine::Impl {
     }
     out.incomplete = out.incomplete || calculation_incomplete;
     visiting.erase(pos);
-    cache[pos] = out;
+    cache[pos] = {out, calculation_volatile, query_epoch};
     return out;
   }
   Expr expanded(const Expr &expr) const {
@@ -1717,6 +1751,32 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       throw error("#NUM!");
     return int(v);
   };
+  if (name == "FILENAME" || name == "INFO") {
+    calculation_volatile = true;
+    if (name == "FILENAME")
+      return Value(document_path);
+    return map_values(
+        arg(0), Value{}, [&](const Value &category, const Value &) -> Value {
+          auto key = text(category).toLower();
+          if (key == "numfile")
+            return numeric(active_worksheets.load());
+          // This reports the native engine's actual policy. Imported
+          // manual-mode settings are not implemented, and are not falsely
+          // reported as active.
+          if (key == "recalc")
+            return Value(Text("Automatic"));
+          if (key == "origin") {
+            if (!viewport)
+              return Value::error("#VALUE!", true);
+            auto [sheet, row, column] = *viewport;
+            Text label;
+            for (int c = column; c; c = (c - 1) / 26)
+              label = Text(1, U'A' + (c - 1) % 26) + label;
+            return Value(Text("$A:$") + label + "$" + Text::number(row));
+          }
+          return native_host_information(key);
+        });
+  }
   if (name == "FORMULA" || name == "ISFORMULA") {
     try {
       auto region = area(e->args[0]);
@@ -2719,7 +2779,9 @@ SheetEngine::SheetEngine(NativeCalculationSettings settings)
 const NativeCalculationSettings &SheetEngine::calculation_settings() const {
   return impl_->settings;
 }
-SheetEngine::~SheetEngine() = default;
+SheetEngine::~SheetEngine() {
+  active_worksheets.fetch_sub(impl_->sheets.size());
+}
 int SheetEngine::count() const { return impl_->sheets.size(); }
 NativeSheet *SheetEngine::sheet(int s) const {
   return impl_->sheets.at(s).get();
@@ -2731,6 +2793,7 @@ NativeSheet *SheetEngine::findSheet(const Text &name) const {
 void SheetEngine::addNewSheet(const Text &name) {
   impl_->sheets.push_back(
       std::make_unique<NativeSheet>(NativeSheet{this, count(), name}));
+  active_worksheets.fetch_add(1);
   impl_->cache.clear();
 }
 Text SheetEngine::input(int s, int c, int r) const {
@@ -2738,7 +2801,24 @@ Text SheetEngine::input(int s, int c, int r) const {
   return it == impl_->cells.end() ? Text() : it->second.input;
 }
 NativeValue SheetEngine::value(int s, int c, int r) const {
+  impl_->begin_query();
   return impl_->value({s, r, c});
+}
+void SheetEngine::set_document_path(Text path) noexcept {
+  if (path == impl_->document_path)
+    return;
+  impl_->document_path.swap(path);
+  impl_->cache.clear();
+}
+Text SheetEngine::document_path() const { return impl_->document_path; }
+void SheetEngine::set_viewport(int sheet, int column, int row) {
+  if (sheet < 0 || sheet >= count() || column < 1 || column > KS_colMax ||
+      row < 1 || row > KS_rowMax)
+    throw std::invalid_argument("Viewport is outside the worksheet");
+  Address next{sheet, row, column};
+  if (impl_->viewport == next)
+    return;
+  impl_->viewport = next;
 }
 void SheetEngine::set(int s, int c, int r, const Text &value, bool literal) {
   if (s < 0 || s >= count() || c < 1 || r < 1 || c > KS_colMax || r > KS_rowMax)
@@ -2778,6 +2858,7 @@ void SheetEngine::set(int s, int c, int r, const Text &value, bool literal) {
 }
 void SheetEngine::recalculate() {
   impl_->cache.clear();
+  impl_->begin_query();
   impl_->visiting.clear();
   impl_->visiting_names.clear();
   for (const auto &[pos, cell] : impl_->cells)

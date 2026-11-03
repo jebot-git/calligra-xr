@@ -33,6 +33,7 @@ def main():
             "log_regression",
             "database",
         "information",
+        "context",
         ),
         default="criteria",
     )
