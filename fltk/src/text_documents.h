@@ -5,6 +5,7 @@
 #include "native_presentation.h"
 #include "native_stage_geometry.h"
 #include "native_shape_drag.h"
+#include "native_stage_order.h"
 #include "native_words_edit.h"
 #include "native_words_selection.h"
 #include "native_words_tables.h"
@@ -176,6 +177,8 @@ public:
     PresentationPosition insert_image(int slide, const NativeImageInput&, SceneRect,
         PresentationPosition previous = {});
     PresentationPosition remove_shape(int slide, int shape);
+    PresentationPosition reorder_shape(int slide, int shape, NativeShapeOrder,
+        NativeOrderScope = NativeOrderScope::Object);
     NativeShapeGeometry shape_geometry(int slide, int shape) const;
     void set_shape_geometry(int slide, int shape,
                             const NativeShapeGeometryEdit &);

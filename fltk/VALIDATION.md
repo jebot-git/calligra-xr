@@ -2802,3 +2802,53 @@ All software builds/staging run as the ordinary user with optimized Release and
 system FLTK. Stage/installed hashes, ownership, runtime dependencies and installed
 native input/CUPS are separate gates. No desktop/display session is restarted.
 ODF1.2 functionality beyond these verified cases remains incomplete.
+
+
+## Stage sibling and containing-group order — 2026-11-03
+
+Artifact root: `/home/blux/de-xr/artifacts/calligra-stage-order-20261103`.
+
+The native transaction tests cover four ordering commands, immediate/nested group
+contexts, tied/missing/maximum indices, hidden legacy siblings, opaque drawing,
+annotation and 3D source, source-to-editor paths, exact source/history/saved points,
+selection remapping, boundary redo, unchanged archive parts, invalid operations,
+masters and read-only sources. Candidate scenes and selected identity validate
+before publication. The renderer, insertion and ordering share the same stacking
+inventory, retaining drawing-only editor source paths for opaque other namespaces.
+The complete selected Release and ASan/UBSan suites each contain 77 tests; the
+three established outline-font exclusions remain under the bitmap-font policy.
+
+Private Cage (`-d`)/nested-DomeD native Wayland tests exercise all eight universal
+Arrange commands through the exported desktop menu. Real pointer/keyboard input
+selects shapes, tests exact undo/redo and selected identity, saved points, no-op
+boundary redo, Save and reopening. The release and sanitizer runs use system
+FLTK with no X server or Qt/GTK runtime maps. GUI leak checking retains only the
+established Fontconfig/Mesa process-cache suppressions.
+
+An independent odfpy/stdlib fixture and raw XML oracle verify authored source
+indices and unchanged child/navigation order, text, styles, geometry, IDs,
+connector references and every non-content archive part. Strict ODF1.2 source
+validation exposed and corrected two producer errors: draw:display belongs on a
+layer, not a rectangle, and draw:connector requires svg:viewBox. The compatibility
+model retains legacy hidden-object input separately; its opaque annotation/3D
+probes do not establish strict producer support. Native layer display/protection
+rules and connector rendering remain explicitly incomplete.
+
+Four actual private CUPS jobs cover eight pages: original, front, group/sibling
+edits and independent model. An authored overlap-color oracle independently checks
+red, green and orange fill visibility across a 5x5 raster region at150,130pt.
+Two-page PDF dimensions, exact CUPS PDF bytes, all-page ODP export/reopen pixels,
+source-file hashes and the unaffected second slide are checked. The expected
+single opaque-connector diagnostic must still report zero missing glyphs. A
+contact sheet was visually reviewed. Three suite baseline CUPS jobs add nine
+pages, all exactly matching installed dfbcbc1. Eighteen selected packages pass
+version-matched content/styles schemas; fifteen selected packages pass manifest
+schema and implemented plain-package checks. Original legacy baseline inputs
+without manifest versions remain separate from their repaired exports.
+
+An expanded model test changed during the initial sanitizer build. Its pending
+dependency work was detected; after the UI clients exited, fresh builds and all
+77 selected tests passed in both configurations. Both final Ninja dry runs show
+no pending work. Regular-user optimized Release staging and installed
+hash/ownership/dependency/native-input/CUPS checks remain separate gates. No desktop session is restarted. These cases
+do not establish full ODF1.2 functionality, layer support or suite conformance.

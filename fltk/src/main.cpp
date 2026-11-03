@@ -78,6 +78,8 @@ enum Command {
     InsertImage,
     DeleteObject,
     ObjectGeometry,
+    ObjectBack, ObjectBackward, ObjectForward, ObjectFront,
+    GroupBack, GroupBackward, GroupForward, GroupFront,
     Present,
     Next,
     Previous,
@@ -465,6 +467,14 @@ public:
             add("&Insert/&Image…", 0, InsertImage);
             add("&Edit/Delete &object", 0, DeleteObject);
             add("&Format/&Position and size…", 0, ObjectGeometry);
+            add("&Arrange/Send to &back", 0, ObjectBack);
+            add("&Arrange/Move &backward", 0, ObjectBackward);
+            add("&Arrange/Move &forward", 0, ObjectForward);
+            add("&Arrange/Bring to &front", 0, ObjectFront);
+            add("&Arrange/Containing group/Send to &back", 0, GroupBack);
+            add("&Arrange/Containing group/Move &backward", 0, GroupBackward);
+            add("&Arrange/Containing group/Move &forward", 0, GroupForward);
+            add("&Arrange/Containing group/Bring to &front", 0, GroupFront);
             add("&Slide/&Add slide", FL_CTRL + 'm', AddSlide);
             add("&Slide/&Delete slide", 0, DeleteSlide);
             add("&Presentation/&Present", FL_F + 5, Present);
@@ -2223,6 +2233,21 @@ public:
                     modified = true;
                     title();
                 }
+            } else if (c >= ObjectBack && c <= GroupFront) {
+                if (kind != Kind::Stage) return;
+                if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
+                if (canvas->selected_shape < 0) return;
+                commit_text();
+                const bool group = c >= GroupBack;
+                const int ordinal = c - (group ? GroupBack : ObjectBack);
+                const NativeShapeOrder orders[] = { NativeShapeOrder::Back, NativeShapeOrder::Backward,
+                    NativeShapeOrder::Forward, NativeShapeOrder::Front };
+                auto position = stage->reorder_shape(slide, canvas->selected_shape, orders[ordinal],
+                    group ? NativeOrderScope::ContainingGroup : NativeOrderScope::Object);
+                box = position.box;
+                refresh_stage(position.shape);
+                modified = stage->modified(); title();
+                canvas->take_focus();
             } else if (c == InsertRectangle || c == InsertEllipse || c == InsertLine || c == InsertTextBox || c == DeleteObject) {
                 if (kind != Kind::Stage) return;
                 if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");

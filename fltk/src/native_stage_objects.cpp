@@ -187,12 +187,10 @@ Text append_shape(OdfPackage &package, int slide_index, NativeShapeKind kind,
   names.insert(identifier);
   auto style_name = unique(names, "NativeGraphic");
   int z = 0;
-  for (auto e : children(page, DRAW)) {
-    bool ok = true;
-    int old = e.attributeNS(DRAW, "z-index", Text::number(z)).toInt(&ok);
-    if (!ok || old < 0 || old == std::numeric_limits<int>::max())
+  for (const auto &item : native_stacking_children(page)) {
+    if (item.z == std::numeric_limits<int>::max())
       fail("Presentation stacking order exceeds the limit");
-    z = std::max(z, old + 1);
+    z = std::max(z, item.z + 1);
   }
   auto automatic = child(root, OFFICE, "automatic-styles");
   if (automatic.isNull()) {

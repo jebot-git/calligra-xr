@@ -2,6 +2,7 @@
 #include "native_presentation.h"
 #include "native_enhanced_geometry.h"
 #include "native_path.h"
+#include "native_stage_order.h"
 #include <charconv>
 #include <cmath>
 #include <numbers>
@@ -438,37 +439,19 @@ struct Catalog {
               int depth = 0, const std::string &path = {}) {
     if (depth > 256)
       fail("Presentation group nesting exceeds the limit");
-    struct Item {
-      XmlElement node;
-      int z;
-      size_t order;
-    };
-    std::vector<Item> items;
-    for (auto node = parent.firstChild(); !node.isNull();
-         node = node.nextSibling())
-      if (node.isElement()) {
-        auto e = node.toElement();
-        if (e.namespaceURI() != DRAW) {
-          if (e.namespaceURI().contains("animation"))
-            note(slide.unsupported, "Animations and transitions");
-          continue;
-        }
-        if (e.localName() == "layer-set")
-          continue;
-        if (++nodes > 100000)
-          fail("Presentation shape count exceeds the limit");
-        bool ok;
-        int z = e.attributeNS(DRAW, "z-index", Text::number(items.size()))
-                    .toInt(&ok);
-        if (!ok || z < 0)
-          fail("Invalid presentation stacking order");
-        items.push_back({e, z, items.size()});
-      }
-    // Groups form stacking contexts; preserve stable order for equal z-indices.
-    std::stable_sort(items.begin(), items.end(),
-                     [](const Item &a, const Item &b) { return a.z < b.z; });
+    for (auto node = parent.firstChild(); !node.isNull(); node = node.nextSibling())
+      if (node.isElement() && node.namespaceURI().contains("animation"))
+        note(slide.unsupported, "Animations and transitions");
+    const auto items = native_stacking_children(parent);
+    nodes += items.size();
+    if (nodes > 100000)
+      fail("Presentation shape count exceeds the limit");
     for (const auto &item : items) {
       auto node = item.node;
+      if (node.namespaceURI() != DRAW) {
+        note(slide.unsupported, "Annotations and 3D objects");
+        continue;
+      }
       auto name = node.localName();
       auto display = node.attributeNS(DRAW, "display", "always");
       if (display == "none" || display == "printer")

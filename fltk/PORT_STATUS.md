@@ -14,7 +14,7 @@ output need feature-appropriate independent checks.
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. The preceding
-text-formatting build5531fb7 is installed and independently verified; subsequent
+direct-transform build dfbcbc1 is installed and independently verified; subsequent
 source/build/stage/installation claims require their own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
@@ -1300,3 +1300,32 @@ fixtures are extension-consumer probes; independently produced ODF1.2 packages
 supply strict schema coverage. Stage remains active and full ODF1.2 functionality
 remains incomplete. Stacking/group tools, richer drawing styles, connectors,
 frame layout and presentation details still require implementation.
+
+
+## Native Stage stacking commands — 2026-11-03
+
+The universal Arrange menu adds four sibling-order commands and four matching
+commands for the selected object's nearest containing group. A selected child
+stays selected when its group moves. Immediate groups remain independent stacking
+contexts, so an object cannot inadvertently leave its group. Explicit consecutive
+indices normalize tied/missing/saturated indices without moving XML children or
+changing navigation order. Front/back boundary commands preserve exact source,
+saved points and redo. Candidate scenes and selection identity validate before
+publication; history retains one command with previous/next selected indices.
+
+The renderer, insertion path and ordering commands now share the stacking-item
+inventory. Opaque drawing, 3D-scene and annotation siblings participate in source
+ordering without claiming native rendering support for those contents. Existing
+drawing-only editor paths remain stable. Read-only and master objects reject
+writes. Nesting/shape-count/index limits remain bounded. Geometry, styled text,
+links, IDs, navigation, unrelated slides and archive parts stay unchanged.
+
+The independent strict ODF1.2 fixture covers distinct overlap colors, nested
+groups, ties/missing/max indices, a retained connector and source navigation.
+The C++ compatibility corpus separately keeps legacy per-shape draw:display and
+opaque annotation/3D probes. ODF1.2 draw:display belongs to draw:layer; native layer
+visibility/protection and screen-only/print-only layer rules remain unsupported.
+Layer authoring and full group creation/ungrouping, multi-selection, drawing
+styles/connectors and broader ODF1.2 functionality remain open. Stage is active;
+Words stays paused, columns preserved/uninstalled, and further Sheets work waits.
+Source, build, stage and installed evidence remain separate gates.

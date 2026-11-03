@@ -353,8 +353,15 @@ CUPS test queues.
   text reflows within its resized frame. Blank/unchanged fields and complete
   turns preserve history. Invalid geometry stays in the panel for correction;
   Cancel/Escape leave the presentation unchanged. Masters, read-only files and
-  unavailable transform axes remain protected. Stacking and group editing
-  controls remain unfinished. The canvas now exposes
+  unavailable transform axes remain protected. Arrange moves an object backward,
+  forward, to the back or to the front within its immediate group or slide.
+  The Containing group submenu moves its nearest parent group among that group's
+  siblings, keeping the originally selected child selected. Each action is one
+  undo step; boundary commands preserve source, saved state and redo. Explicit
+  stacking indices retain ties/missing-index source order, opaque sibling objects
+  and existing groups. XML child order, keyboard navigation, IDs, geometry,
+  text and encoded assets remain intact. Group creation/ungrouping and multi-object
+  selection remain unfinished. The canvas now exposes
   square frame resize handles, a circular rotation handle and line endpoints.
   Resize keeps the opposite anchor fixed through affine transforms; crossing
   the anchor mirrors the object while retaining positive ODF dimensions.
