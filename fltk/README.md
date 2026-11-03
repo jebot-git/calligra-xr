@@ -852,9 +852,9 @@ This can limit large or particularly difficult logarithmic fits.
 
 `log_regression_reference.py` checks 234 formulas/1,955 cells with independent
 Fraction Gaussian weights and 160/1,200-digit logarithms. Of 68 retained matrix
-regression results, 58 numeric caches agree, nine errors retain native error labels,
-and one LINEST case still depends on unavailable FORMULA; its source cache is not
-used to manufacture a calculation. A composite passing the first seven prime
+regression results, 58 numeric caches agree and ten cases produce known errors
+using native error labels. The FORMULA-dependent LINEST case now computes #VALUE!
+from its actual text predictor. A composite passing the first seven prime
 Miller-Rabin bases is covered by an exact-zero-residual native test.
 `log_regression_producer.py` provides ODS/XLSX matrices for export, native Wayland
 editing/history/save/reopen, opaque data, raw saved caches and CUPS verification.
@@ -956,8 +956,48 @@ unavailable; ODF database criteria require a rectangle. Relative named-expressio
 base/caller semantics, reference intersection/general range operators and 3D
 ranges also remain unfinished.
 
-The current inventory dispatches 459 of 641 retained names, including aliases,
-with 182 remaining. The remaining catalogue,
+Native information functions now include FORMULA, ISFORMULA, TYPE, ERROR.TYPE
+(the Calligra ERRORTYPE alias), ISNONTEXT/ISNOTTEXT, ISNUM, ISEVEN/ISODD and
+ISDATE/ISTIME. The long analysis-addin parity aliases and Excel FORMULATEXT
+spelling are supported; XLSX FORMULATEXT calls translate to OpenFormula FORMULA.
+INFO/FILENAME context and the distinct ORG.OPENOFFICE.ERRORTYPE numeric error-code
+extension remain unavailable.
+
+FORMULA/ISFORMULA inspect stored expressions without calculating referenced
+values. This includes error/unsupported/self formulas and unparsed source syntax;
+literal text beginning with `=` remains text. Matrix members resolve to their
+owner, whose FORMULA text is brace-wrapped. In scalar context FORMULA selects the
+first cell of a rectangle and ISFORMULA returns false for multi-cell inputs; array
+context maps metadata across the rectangle. Multi-area lists are rejected. Output
+is bounded to one million cells and one million formula-text characters. TYPE
+consumes complete arrays (64), distinguishes Number/empty (1), Text (2), Logical
+(4) and Error (16), and information predicates retain incomplete provenance.
+ERROR.TYPE uses the seven standard error indices; unknown error kinds and nonerrors
+return #N/A. Parity truncates the actual binary64 value before modulo, including
+large values and subnormals; Boolean/complex inputs are rejected.
+
+Date/time identity is carried independently of numeric display/cache formatting
+for imported ISO dates/datetimes/durations, DATE/TIME results and coupon dates.
+Ordinary numeric/text values remain distinct from temporal values. Number-style
+and arithmetic-format inheritance still follow the limited native model; this
+does not implement full upstream formatting fidelity. XLSX ISO clock times in
+HH:MM[:SS[.milliseconds]] form convert to ODF time cells with their fractions intact;
+invalid hours/minutes/seconds and trailing data are rejected.
+
+`information_reference.py` checks 1,043 independent typed predicates and parity
+cases, 83 retained unit cases (77 matches, five unavailable INFO dependencies and
+one ISREF error convention), and 395 retained FODS results. Of those, 317 agree
+with caches, 55 formula-text presentations are independently verified against
+source XML and matrix ownership, two TYPE conventions retain the native distinct
+Logical/Text types, and 21 existing unavailable contexts remain explicit. Original
+fixtures are unchanged. `information_producer.py` checks editable ODS/XLSX metadata,
+array results and raw caches: metadata on an unavailable formula is complete while
+value-dependent information preserves the source cache. The former unavailable
+LINEST predictor containing FORMULA text now reports a known #VALUE! error;
+log-regression retained tests require zero unavailable cases.
+
+The current inventory dispatches 472 of 641 retained names, including aliases,
+with 169 remaining. The remaining catalogue,
 omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
 Words pause and Stage-last priorities remain in force.

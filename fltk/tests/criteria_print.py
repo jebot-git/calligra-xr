@@ -32,6 +32,7 @@ def main():
             "regression",
             "log_regression",
             "database",
+        "information",
         ),
         default="criteria",
     )

@@ -11,6 +11,7 @@
 #include "native_inference.h"
 #include "native_regression.h"
 #include "native_database.h"
+#include "native_information.h"
 #include "native_formula.h"
 #include "native_time.h"
 #include <functional>
@@ -119,6 +120,7 @@ std::optional<Value> calendar_value(const Text &input,
     Value value =
         numeric(serial + (time.valid ? time.time.ms / 86400000.0 : 0));
     value.format = Value::Date;
+    value.temporal = time.valid ? Value::CalendarDateTime : Value::CalendarDate;
     value.string = input;
     return value;
   }
@@ -141,6 +143,7 @@ std::optional<Value> calendar_value(const Text &input,
   if (value.isError())
     return value;
   value.format = Value::Duration;
+  value.temporal = Value::ElapsedTime;
   value.string = input;
   return value;
 }
@@ -556,6 +559,7 @@ struct SheetEngine::Impl {
     Text input;
     Value scalar;
     Expr expression;
+    bool formula = false;
   };
   SheetEngine *owner;
   const NativeCalculationSettings settings;
@@ -1604,9 +1608,10 @@ Value SheetEngine::Impl::database(const Expr &e, const Text &name,
 }
 
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = database_name(regression_name(inference_name(
-      distribution_name(paired_name(statistics_name(order_name(conditional_name(
-          calendar_name(financial_name(engineering_name(e->name)))))))))));
+  const auto name = information_name(
+      database_name(regression_name(inference_name(distribution_name(
+          paired_name(statistics_name(order_name(conditional_name(
+              calendar_name(financial_name(engineering_name(e->name))))))))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1661,6 +1666,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : inference_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : information_signatures())
+      out[name] = arity;
     for (const auto &[name, arity] : database_signatures())
       out[name] = arity;
     for (const auto &[name, arity] : regression_signatures())
@@ -1686,7 +1693,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "IRR",      "MIRR",     "FVSCHEDULE",  "XIRR",      "XNPV",
       "AMORLINC", "AVERAGEA", "AVEDEV",      "DEVSQ",     "DEVSQA",
       "GEOMEAN",  "HARMEAN",  "STDEVA",      "STDEVPA",   "VARA",
-      "VARPA"};
+      "VARPA",    "TYPE"};
   bool caller_array_context = array_context;
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name) ||
@@ -1710,6 +1717,58 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       throw error("#NUM!");
     return int(v);
   };
+  if (name == "FORMULA" || name == "ISFORMULA") {
+    try {
+      auto region = area(e->args[0]);
+      if (!region) {
+        (void)arg(0); // Carry unavailable argument provenance, not ordinary
+                      // cell errors.
+        return name == "ISFORMULA" ? Value::logical(false) : error("#VALUE!");
+      }
+      if (name == "ISFORMULA" && !caller_array_context && region->size() != 1)
+        return Value::logical(false);
+      size_t characters = 0;
+      auto inspect = [&](int row, int column) -> Value {
+        Address address{region->sheet, row, column};
+        bool matrix = false;
+        if (auto owner = matrix_owners.find(address);
+            owner != matrix_owners.end()) {
+          address = owner->second;
+          matrix = true;
+        }
+        auto found = cells.find(address);
+        bool formula = found != cells.end() && found->second.formula;
+        if (name == "ISFORMULA")
+          return Value::logical(formula);
+        if (!formula)
+          return error("#N/A");
+        auto input = found->second.input;
+        size_t length = input.size() + (matrix ? 2 : 0);
+        if (length > 1'000'000 - characters)
+          throw error("#LIMIT!");
+        characters += length;
+        return Value(matrix ? "{" + input + "}" : input);
+      };
+      if (!caller_array_context || region->size() == 1)
+        return inspect(region->row, region->column);
+      if (region->size() > 1'000'000)
+        return error("#LIMIT!");
+      std::vector<Value> result;
+      result.reserve(region->size());
+      for (int row = 0; row < region->rows; ++row)
+        for (int column = 0; column < region->columns; ++column)
+          result.push_back(inspect(region->row + row, region->column + column));
+      return Value::array(region->rows, region->columns, std::move(result));
+    } catch (const Value &failure) {
+      if (name == "FORMULA")
+        return failure;
+      auto result = Value::logical(false);
+      result.incomplete = failure.incomplete;
+      return result;
+    }
+  }
+  if (name == "TYPE")
+    return information_function(name, arg(0));
   if (name == "IF") {
     if (count < 2 || count > 3)
       return error("#VALUE!");
@@ -1887,6 +1946,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       args.push_back(arg(i));
     return distribution_function(name, args);
   }
+  if (information_signatures().contains(name))
+    return information_function(name, arg(0));
   if (name == "STANDARDIZE") {
     long double value = n(0), mean = n(1), sigma = n(2);
     if (sigma <= 0)
@@ -2624,7 +2685,9 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     auto date = std::chrono::sys_days(base / std::chrono::day(1)) +
                 std::chrono::days(day - 1);
     double serial = (date - settings.reference_date()).count();
-    return numeric(serial);
+    auto result = numeric(serial);
+    result.temporal = Value::CalendarDate;
+    return result;
   }
   if (name == "YEAR" || name == "MONTH" || name == "DAY") {
     auto date = std::chrono::year_month_day(calendar_date(arg(0), settings));
@@ -2634,8 +2697,11 @@ Value SheetEngine::Impl::function(const Expr &e) const {
   }
   if (name == "TIME") {
     double seconds = n(0) * 3600 + n(1) * 60 + n(2);
-    return seconds < 0 ? error("#NUM!")
-                       : numeric(std::fmod(seconds, 86400) / 86400);
+    if (seconds < 0)
+      return error("#NUM!");
+    auto result = numeric(std::fmod(seconds, 86400) / 86400);
+    result.temporal = Value::ClockTime;
+    return result;
   }
   if (name == "HOUR" || name == "MINUTE" || name == "SECOND") {
     double serial = n(0);
@@ -2687,6 +2753,7 @@ void SheetEngine::set(int s, int c, int r, const Text &value, bool literal) {
   Impl::Cell cell;
   cell.input = value;
   if (!literal && value.startsWith('=')) {
+    cell.formula = true;
     try {
       cell.expression = impl_->parse(value, s);
     } catch (const Value &e) {

@@ -80,6 +80,7 @@ V date_result(sys_days date, const NativeCalculationSettings &settings) {
     fail("#NUM!");
   auto out = V::numeric((date - settings.reference_date()).count());
   out.format = V::Date;
+  out.temporal = V::CalendarDate;
   char text[32];
   std::snprintf(text, sizeof text, "%04d-%02u-%02u", int(d.year()),
                 unsigned(d.month()), unsigned(d.day()));

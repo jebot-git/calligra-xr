@@ -382,11 +382,33 @@ OdfPackage import_xlsx(const Text& path)
                     cell.setAttributeNS(OFFICE, "office:value-type", "boolean");
                     cell.setAttributeNS(OFFICE, "office:boolean-value", value == "1" ? "true" : "false");
                 } else if (type == "d") {
-                    if (!DateTime::fromString(value, ISODate).isValid()
-                        && !Date::fromString(value, ISODate).isValid())
-                        fail("Invalid ISO date");
+                  if (DateTime::fromString(value, ISODate).isValid() ||
+                      Date::fromString(value, ISODate).isValid()) {
                     cell.setAttributeNS(OFFICE, "office:value-type", "date");
                     cell.setAttributeNS(OFFICE, "office:date-value", value);
+                  } else {
+                    // ISO clock times are also emitted with t="d" by OOXML
+                    // producers. Convert to ODF's duration-valued time cells
+                    // without interpreting them as dates or dropping fractions.
+                    static const std::regex clock(
+                        R"(([0-9]{2}):([0-9]{2})(?::([0-9]{2})(\.[0-9]{1,3})?)?Z?)");
+                    auto bytes = value.toStdString();
+                    std::smatch match;
+                    if (bytes.size() > 32 ||
+                        !std::regex_match(bytes, match, clock) ||
+                        std::stoi(match[1].str()) >= 24 ||
+                        std::stoi(match[2].str()) >= 60 ||
+                        (match[3].matched && std::stoi(match[3].str()) >= 60))
+                      fail("Invalid ISO date/time");
+                    Text seconds = match[3].matched
+                                       ? Text(match[3].str() + match[4].str())
+                                       : Text("0");
+                    cell.setAttributeNS(OFFICE, "office:value-type", "time");
+                    cell.setAttributeNS(OFFICE, "office:time-value",
+                                        Text("PT") + Text(match[1].str()) +
+                                            "H" + Text(match[2].str()) + "M" +
+                                            seconds + "S");
+                  }
                 } else if (type.isEmpty() || type == "n") {
                     if (value.isEmpty())
                         continue;

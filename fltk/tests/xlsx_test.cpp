@@ -126,6 +126,24 @@ int main(int argc, char** argv)
     auto duration = import_xlsx(path);
     assert(duration.xml.toString().contains("PT129600S"));
     std::cout << "PASS 1904 date epoch and elapsed time conversion\n";
+    for (auto iso : {"04:05:06.250", "00:00", "23:59:59.999Z"}) {
+      auto clock = files;
+      auto &xml = clock["xl/worksheets/one.xml"];
+      xml.replace("<c r=\"F1\" s=\"1\"><v>45292</v></c>",
+                  (Text("<c r=\"F1\" t=\"d\"><v>") + iso + "</v></c>").toUtf8());
+      write_zip(path, clock);
+      auto imported = import_xlsx(path);
+      assert(imported.xml.toString().contains("office:time-value=\"PT"));
+    }
+    for (auto iso : {"24:00:00", "04:60:00", "04:05:60", "04:05:06.1234",
+                     "04:05:06junk"}) {
+      auto clock = files;
+      auto &xml = clock["xl/worksheets/one.xml"];
+      xml.replace("<c r=\"F1\" s=\"1\"><v>45292</v></c>",
+                  (Text("<c r=\"F1\" t=\"d\"><v>") + iso + "</v></c>").toUtf8());
+      write_zip(path, clock);
+      rejects([&] { import_xlsx(path); });
+    }
     auto arrays = files;
     const auto matrixXml
         = Text::fromUtf8(R"(<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>

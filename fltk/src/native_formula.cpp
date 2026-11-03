@@ -137,10 +137,13 @@ Text from_excel(const Text &f) {
              std::isspace(static_cast<unsigned char>(bytes[call])))
         ++call;
       auto upper = Text(token).toUpper();
-      static const std::map<Text, Text> calls = {{"FDIST", "LEGACY.FDIST"},
-                                                 {"FINV", "LEGACY.FINV"},
-                                                 {"TTEST", "T.TEST"},
-                                                 {"ZTEST", "Z.TEST"}};
+      static const std::map<Text, Text> calls = {
+          {"FDIST", "LEGACY.FDIST"},
+          {"FINV", "LEGACY.FINV"},
+          {"TTEST", "T.TEST"},
+          {"FORMULATEXT", "FORMULA"},
+          {"_XLFN.FORMULATEXT", "FORMULA"},
+          {"ZTEST", "Z.TEST"}};
       auto mapped = calls.find(upper);
       out += call < bytes.size() && bytes[call] == '(' && mapped != calls.end()
                  ? mapped->second.toStdString()

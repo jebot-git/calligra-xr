@@ -246,27 +246,18 @@ def retained(binary):
     agreeing = errors = unavailable = 0
     for r in records:
         a = r["actual"]
-        if a["incomplete"]:
-            assert (
-                Path(r["file"]).stem,
-                r["sheet"],
-                r["row"],
-                r["column"],
-                a["display"],
-            ) == ("logest", 1, 19, 24, "#NAME?"), r
-            assert r["formula"] == "of:=LINEST([.E2:.E12];[.A2:.D12];1;1)", r
-            # Raw D2 is FORMULA(A2), an unavailable dependency. This input is
-            # not replaced with its text cache to manufacture a numeric result.
-            t = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}"
-            table = list(ET.parse(r["file"]).getroot().iter(t + "table"))[1]
-            assert (
-                table.findall(t + "table-row")[1]
-                .findall(t + "table-cell")[3]
-                .get(t + "formula")
-                == "of:=FORMULA([.A2])"
-            )
-            unavailable += 1
-        elif r["expected_error"]:
+        assert not a["incomplete"], r
+        if (Path(r["file"]).stem, r["sheet"], r["row"], r["column"]) == (
+            "logest",
+            1,
+            19,
+            24,
+        ):
+            # FORMULA(A2) is now real text metadata. The numeric predictor
+            # conversion reports the expected known error; no cached text is
+            # substituted for the formula and no unavailable flag remains.
+            assert a["kind"] == 4 and a["display"] == "#VALUE!", r
+        if r["expected_error"]:
             assert a["kind"] == 4, r
             errors += 1
         else:
@@ -274,7 +265,7 @@ def retained(binary):
                 a["value"], r["expected_value"], rel_tol=1e-10, abs_tol=1e-12
             ), r
             agreeing += 1
-    assert (len(records), agreeing, errors, unavailable) == (68, 58, 9, 1)
+    assert (len(records), agreeing, errors, unavailable) == (68, 58, 10, 0)
     assert [p.read_bytes() for p in paths] == originals
     return {
         "cases": len(records),

@@ -11,6 +11,15 @@ struct NativeValue {
   Kind kind = Empty;
   enum NumberFormat { General, Date, Duration };
   NumberFormat format = General;
+  // Numeric temporal identity is independent of display/cache formatting.
+  enum Temporal {
+    Ordinary,
+    CalendarDate,
+    CalendarDateTime,
+    ClockTime,
+    ElapsedTime
+  };
+  Temporal temporal = Ordinary;
   double number = 0;
   double imaginary = 0;
   char complex_suffix = 'i';

@@ -5,6 +5,7 @@
 #include "native_inference.h"
 #include "native_regression.h"
 #include "native_database.h"
+#include "native_information.h"
 #include "workbook.h"
 #include <cassert>
 #include <iostream>
@@ -40,7 +41,8 @@ void near(const V &v, double expected) {
 } // namespace
 int main(int argc, char **argv) {
   std::cout << std::unitbuf;
-  if (argc >= 3 && (std::string(argv[1]) == "--database-fods" ||
+  if (argc >= 3 && (std::string(argv[1]) == "--information-fods" ||
+                    std::string(argv[1]) == "--database-fods" ||
                     std::string(argv[1]) == "--regression-fods" ||
                     std::string(argv[1]) == "--inference-fods" ||
                     std::string(argv[1]) == "--distribution-fods" ||
@@ -103,7 +105,16 @@ int main(int argc, char **argv) {
             bool selected = false;
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
-              if (std::string(argv[1]) == "--database-fods") {
+              if (std::string(argv[1]) == "--information-fods") {
+                auto end = decoded.indexOf('(');
+                auto name = end > 1 ? information_name(decoded.mid(1, end - 1))
+                                    : Text();
+                static const std::set<Text> existing = {
+                    "ISNUMBER",  "ISBLANK", "ISERR", "ISERROR", "ISNA",
+                    "ISLOGICAL", "ISTEXT",  "ISREF", "N",       "NA"};
+                selected = information_signatures().contains(name) ||
+                           existing.contains(name);
+              } else if (std::string(argv[1]) == "--database-fods") {
                 auto end = decoded.indexOf('(');
                 selected =
                     end > 1 && database_signatures().contains(
@@ -201,6 +212,10 @@ int main(int argc, char **argv) {
                       {"actual",
                        encode(
                            book.value(sheet, column + c, row + r).scalar())}};
+                  if (cached == "boolean")
+                    record["expected_boolean"] =
+                        cell.attributeNS(OFFICE, "boolean-value") == "true" ||
+                        cell.attributeNS(OFFICE, "boolean-value") == "1";
                   if (cached == "float" || cached == "currency" ||
                       cached == "percentage")
                     record["expected_value"] =
