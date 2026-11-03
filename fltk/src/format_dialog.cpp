@@ -12,6 +12,7 @@
 #include <FL/Fl_Check_Button.H>
 #include <FL/Fl_Hold_Browser.H>
 #include <FL/Fl_Input.H>
+#include <FL/Fl_Multiline_Input.H>
 #include <FL/Fl_Return_Button.H>
 namespace DomeOffice {
 namespace {
@@ -503,7 +504,7 @@ styles_dialog(Fl_Window &window, OdfPackage working,
   background.hint.resize(x + 20, y + height - 180, width - 40, 28);
   background.hint.copy_label("Choose a style, or create and edit definitions");
   Fl_Hold_Browser browser(x + 20, y + 50, width - 40, height - 240);
-  browser.format_char(0);
+  browser.format_char(0);browser.column_char(0);
   browser.textfont(dx::font);
   browser.textsize(dx::size);
   Fl_Box description(x + 20, y + height - 142, width - 40, 36);
@@ -1138,7 +1139,7 @@ tab_stops_dialog(Fl_Window &window, OdfPackage original, size_t begin,
   background.hint.copy_label(
       "Changes are staged until Apply; Cancel discards them");
   Fl_Hold_Browser browser(x + 20, y + 50, width - 40, 210);
-  browser.format_char(0);
+  browser.format_char(0);browser.column_char(0);
   browser.textfont(dx::font);
   browser.textsize(dx::size);
   Fl_Box scope(x + 20, y + 270, width - 40, 28);
@@ -1833,5 +1834,283 @@ bool shape_geometry_dialog(
     }
   }
   return false;
+}
+
+std::optional<NativeStageLayerEdit>
+stage_layers_dialog(Fl_Window &window, NativeStageLayerEdit draft) {
+  const int width = 760, height = 520,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Layers");
+  background.hint.copy_label(
+      "Changes apply together. Cancel keeps the document unchanged.");
+  background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Fl_Choice scope(x + 85, y + 48, 150, 28, "Scope:");
+  scope.add("Document");
+  scope.add("Slide");
+  scope.add("Master");
+  scope.value(1);
+  Fl_Box origin(x + 250, y + 48, 170, 28);
+  origin.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+  Fl_Button local(x + 430, y + 48, 145, 28, "Make local set"),
+      inherit(x + 590, y + 48, 145, 28, "Use document set");
+  Fl_Hold_Browser browser(x + 20, y + 92, 230, 225);
+  browser.format_char(0);
+  browser.column_char(0);
+  browser.textfont(dx::font);
+  browser.textsize(dx::size);
+  Fl_Button create(x + 20, y + 327, 105, 28, "New layer"),
+      remove(x + 140, y + 327, 110, 28, "Delete layer");
+  Fl_Input name(x + 350, y + 95, 385, 28, "Name:");
+  Fl_Choice display(x + 350, y + 132, 255, 28, "Visible:");
+  for (auto text : {"Screen and print", "Screen only", "Print only", "Hidden"})
+    display.add(text);
+  Fl_Check_Button locked(x + 345, y + 168, 390, 28, "Protect objects");
+  Fl_Input title(x + 350, y + 205, 385, 28, "Title:");
+  Fl_Multiline_Input description(x + 350, y + 242, 385, 48, "Description:");
+  Fl_Button update(x + 350, y + 300, 145, 28, "Update layer");
+  Fl_Box uses(x + 510, y + 300, 225, 28);
+  uses.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+  Fl_Choice missing(x + 20, y + 355, 230, 28);
+  Fl_Button define(x + 20, y + 390, 230, 28, "Define missing layer");
+  Fl_Choice assignment(x + 350, y + 355, 250, 28, "Selection:");
+  Fl_Button assign(x + 615, y + 355, 120, 28, "Assign objects");
+  Fl_Box assignment_hint(x + 285, y + 392, 450, 24,
+                         "Assignment uses the current slide's layers");
+  assignment_hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  NativeLayerScope current = NativeLayerScope::Slide;
+  std::optional<Text> selected;
+  std::optional<NativeLayerInfo> selected_info;
+  std::vector<NativeLayerInfo> items, assignable;
+  std::vector<Text> unresolved;
+  bool refreshing = false;
+  auto enabled = [](Fl_Widget &widget, bool value) {
+    if (value)
+      widget.activate();
+    else
+      widget.deactivate();
+  };
+  auto status = [&](const char *text, bool error = false) {
+    background.hint.copy_label(text);
+    background.hint.labelcolor(error ? FL_RED : FL_FOREGROUND_COLOR);
+    window.redraw();
+  };
+  auto save_current = [&] {
+    if (!selected || !draft.own_set(current) || draft.read_only())
+      return;
+    NativeLayerPatch patch;
+    auto value = *selected_info;
+    if (Text(name.value()) != value.name)
+      patch.name = Text(name.value());
+    if (Text(title.value()) != value.title)
+      patch.title = Text(title.value());
+    if (Text(description.value()) != value.description)
+      patch.description = Text(description.value());
+    if (display.value() != int(value.properties.display))
+      patch.display = SceneLayer::Display(display.value());
+    if (bool(locked.value()) != value.properties.protected_objects)
+      patch.protected_objects = bool(locked.value());
+    draft.update(current, *selected, patch);
+    if (patch.name) {
+      selected = *patch.name;
+      value.name = *patch.name;
+    }
+    if (patch.title)
+      value.title = *patch.title;
+    if (patch.description)
+      value.description = *patch.description;
+    if (patch.display)
+      value.properties.display = *patch.display;
+    if (patch.protected_objects)
+      value.properties.protected_objects = *patch.protected_objects;
+    selected_info = std::move(value);
+  };
+  std::function<void(std::optional<Text>)> refresh =
+      [&](std::optional<Text> wanted) {
+        refreshing = true;
+        items = draft.layers(current);
+        browser.clear();
+        selected.reset();
+        selected_info.reset();
+        for (size_t i = 0; i < items.size(); ++i) {
+          auto label =
+              items[i].name.empty() ? Text("(empty name)") : items[i].name;
+          browser.add(label.toUtf8().c_str());
+          if (wanted && items[i].name == *wanted)
+            browser.value(int(i) + 1);
+        }
+        if (browser.value() == 0 && !items.empty())
+          browser.value(1);
+        const bool own = draft.own_set(current), writable = !draft.read_only();
+        origin.copy_label(own ? (current == NativeLayerScope::Document
+                                     ? "Document layers"
+                                     : "Local layer set")
+                              : "Using document layers");
+        if (browser.value() > 0) {
+          const auto &info = items.at(browser.value() - 1);
+          selected = info.name;
+          selected_info = info;
+          name.value(info.name.toUtf8().c_str());
+          title.value(info.title.toUtf8().c_str());
+          description.value(info.description.toUtf8().c_str());
+          display.value(int(info.properties.display));
+          locked.value(info.properties.protected_objects);
+          uses.copy_label((Text::number(info.uses) + " objects in this scope")
+                              .toUtf8()
+                              .c_str());
+        } else {
+          name.value("");
+          title.value("");
+          description.value("");
+          display.value(0);
+          locked.value(0);
+          uses.copy_label("");
+        }
+        for (Fl_Widget *widget :
+             std::array<Fl_Widget *, 7>{&name, &title, &description, &display,
+                                        &locked, &update, &remove})
+          enabled(*widget, writable && own && selected.has_value());
+        enabled(create, writable);
+        enabled(local, writable && !own);
+        enabled(inherit,
+                writable && own && current != NativeLayerScope::Document);
+        enabled(buttons.apply, writable);
+        unresolved = draft.missing_layers(current);
+        missing.clear();
+        for (size_t i = 0; i < unresolved.size(); ++i) {
+          missing.add(" ");
+          missing.replace(int(i), unresolved[i].toUtf8().c_str());
+        }
+        if (!unresolved.empty())
+          missing.value(0);
+        enabled(missing, !unresolved.empty());
+        enabled(define, writable && !unresolved.empty());
+        assignable = draft.layers(NativeLayerScope::Slide);
+        assignment.clear();
+        assignment.add("Keep current assignment");
+        assignment.add("No layer");
+        for (size_t i = 0; i < assignable.size(); ++i) {
+          assignment.add(" ");
+          assignment.replace(int(i) + 2, assignable[i].name.toUtf8().c_str());
+        }
+        assignment.value(0);
+        enabled(assignment, writable && draft.has_selection());
+        enabled(assign, writable && draft.has_selection());
+        refreshing = false;
+        window.redraw();
+      };
+  std::vector<std::unique_ptr<std::function<void()>>> callbacks;
+  auto on = [&](Fl_Widget &widget, std::function<void()> action) {
+    auto callback = std::make_unique<std::function<void()>>(
+        [&, action = std::move(action)] {
+          if (refreshing)
+            return;
+          try {
+            action();
+            status(
+                "Changes apply together. Cancel keeps the document unchanged.");
+          } catch (const std::exception &error) {
+            status(error.what(), true);
+          }
+        });
+    widget.callback(
+        [](Fl_Widget *, void *p) {
+          (*static_cast<std::function<void()> *>(p))();
+        },
+        callback.get());
+    callbacks.push_back(std::move(callback));
+  };
+  on(browser, [&] {
+    if (browser.value() < 1)
+      return;
+    auto wanted = items.at(browser.value() - 1).name;
+    auto old = selected;
+    save_current();
+    if (old && wanted == *old)
+      wanted = *selected;
+    refresh(wanted);
+  });
+  on(scope, [&] {
+    auto next = NativeLayerScope(scope.value());
+    if (!draft.available(next)) {
+      scope.value(int(current));
+      throw std::runtime_error("This slide has no resolved master page");
+    }
+    try {
+      save_current();
+    } catch (...) {
+      scope.value(int(current));
+      throw;
+    }
+    current = next;
+    refresh({});
+  });
+  on(local, [&] {
+    save_current();
+    draft.make_local(current);
+    refresh(selected);
+  });
+  on(inherit, [&] {
+    save_current();
+    draft.inherit(current);
+    refresh(selected);
+  });
+  on(create, [&] {
+    save_current();
+    auto name = draft.new_name(current);
+    draft.create(current, name);
+    refresh(name);
+  });
+  on(update, [&] {
+    save_current();
+    refresh(selected);
+  });
+  on(remove, [&] {
+    save_current();
+    if (selected)
+      draft.remove(current, *selected);
+    refresh({});
+  });
+  on(define, [&] {
+    save_current();
+    if (missing.value() < 0 || size_t(missing.value()) >= unresolved.size())
+      return;
+    auto value = unresolved[missing.value()];
+    draft.create(current, value, true);
+    refresh(value);
+  });
+  on(assign, [&] {
+    auto index = assignment.value();
+    std::optional<Text> value;
+    if (index >= 2)
+      value = assignable.at(index - 2).name;
+    auto old = selected;
+    const bool slide_definition = current == NativeLayerScope::Slide ||
+                                  (current == NativeLayerScope::Document &&
+                                   !draft.own_set(NativeLayerScope::Slide));
+    save_current();
+    if (slide_definition && value && old && selected && *value == *old)
+      value = *selected;
+    if (index > 0)
+      draft.assign(value);
+    refresh(selected);
+  });
+  refresh({});
+  while (panel.run(browser)) {
+    try {
+      save_current();
+      draft.validate();
+      return draft;
+    } catch (const std::exception &error) {
+      status(error.what(), true);
+    }
+  }
+  return {};
 }
 } // namespace DomeOffice

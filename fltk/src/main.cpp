@@ -78,7 +78,7 @@ enum Command {
     InsertTextBox,
     InsertImage,
     DeleteObject,
-    ObjectGeometry,
+    ObjectGeometry, StageLayers,
     ObjectBack, ObjectBackward, ObjectForward, ObjectFront,
     GroupBack, GroupBackward, GroupForward, GroupFront,
     GroupObjects, UngroupObjects, SelectParentGroup, SelectLeafObject,
@@ -482,6 +482,7 @@ public:
             add("&Arrange/&Ungroup", FL_CTRL + FL_SHIFT + 'g', UngroupObjects);
             add("&Arrange/Select containing &group", 0, SelectParentGroup);
             add("&Arrange/Select &individual object", 0, SelectLeafObject);
+            add("&Arrange/&Layers...", 0, StageLayers);
             add("&Slide/&Add slide", FL_CTRL + 'm', AddSlide);
             add("&Slide/&Delete slide", 0, DeleteSlide);
             add("&Presentation/&Present", FL_F + 5, Present);
@@ -1138,6 +1139,25 @@ public:
         title();
         sync_pages();
     }
+    void stage_layers()
+    {
+        if (kind != Kind::Stage) return;
+        if (presenting) throw std::runtime_error("Exit presentation mode to edit layers");
+        commit_text();
+        auto draft = stage->edit_layers(slide, canvas->selected_objects);
+        const auto selection = word_selection(false);
+        formatting_dialog = true;
+        std::optional<NativeStageLayerEdit> result;
+        try { result = stage_layers_dialog(window, std::move(draft)); }
+        catch (...) { formatting_dialog = false; throw; }
+        formatting_dialog = false;
+        if (!result) return;
+        if (auto at = stage->commit_layers(std::move(*result), selection)) {
+            refresh_stage(at->shape < 0 ? -2 : at->shape, at->objects);
+            if (at->selection && at->box >= 0) restore_stage_selection(*at->selection);
+            modified = stage->modified(); title();
+        }
+    }
     void stage_image()
     {
         if (kind != Kind::Stage) return;
@@ -1205,6 +1225,8 @@ public:
             office->guard([&] {
                 if (action == InsertImage)
                     office->stage_image();
+                else if (action == StageLayers)
+                    office->stage_layers();
                 else if (action == ObjectGeometry)
                     office->stage_geometry();
                 else if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell || action == CellFormat || action == TableSizing)
@@ -2175,7 +2197,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == InsertImage || c == ObjectGeometry || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
+            } else if (c == InsertImage || c == ObjectGeometry || c == StageLayers || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

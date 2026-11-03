@@ -1018,6 +1018,7 @@ void Presentation::load(const Text& p)
     text_reader_ = std::move(reader);
     ++revision_;
     imported_office_ = office;
+    document_identity_ = std::make_shared<const char>(0);
     clear_history();
 }
 void Presentation::save(const Text& p)

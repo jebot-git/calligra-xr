@@ -24,14 +24,42 @@ protected:
   xmlNodePtr node_ = nullptr;
   XmlNode(std::shared_ptr<XmlOwner> o, xmlNodePtr n)
       : owner_(std::move(o)), node_(n) {}
-  xmlNsPtr ns(const Text &uri, const Text &qname) const {
+  xmlNsPtr ns(const Text &uri, const Text &qname,
+              bool attribute = false) const {
+    if (attribute && uri.empty())
+      return nullptr;
     auto u = uri.toUtf8();
     auto at = qname.indexOf(':');
     auto prefix = at >= 0 ? qname.left(at).toUtf8() : Bytes();
     auto found = xmlSearchNsByHref(owner_->doc, node_, BAD_CAST u.c_str());
+    if (attribute && found && !found->prefix) {
+      // A default namespace applies to element names, never attributes.
+      // Prefer an existing prefixed binding for the same URI.
+      found = nullptr;
+      auto **bindings = xmlGetNsList(owner_->doc, node_);
+      for (size_t i = 0; bindings && bindings[i]; ++i)
+        if (bindings[i]->prefix &&
+            xmlStrEqual(bindings[i]->href, BAD_CAST u.c_str())) {
+          found = bindings[i];
+          break;
+        }
+      xmlFree(bindings);
+    }
+    if (found)
+      return found;
+    if (attribute) {
+      if (prefix.empty())
+        prefix = "ns";
+      auto base = prefix;
+      // Do not rebind a prefix that existing QName values may depend on.
+      for (size_t i = 1;
+           xmlSearchNs(owner_->doc, node_, BAD_CAST prefix.c_str()); ++i)
+        prefix = base + Bytes(std::to_string(i));
+    }
+    found = xmlNewNs(node_, BAD_CAST u.c_str(),
+                     prefix.empty() ? nullptr : BAD_CAST prefix.c_str());
     if (!found)
-      found = xmlNewNs(node_, BAD_CAST u.c_str(),
-                       prefix.empty() ? nullptr : BAD_CAST prefix.c_str());
+      throw std::runtime_error("Cannot create XML namespace binding");
     return found;
   }
   void attach(XmlNode child) const {
@@ -107,8 +135,9 @@ public:
                    const Text &fallback = {}) const {
     if (!node_)
       return fallback;
-    auto *p = xmlGetNsProp(node_, BAD_CAST name.toUtf8().c_str(),
-                           BAD_CAST uri.toUtf8().c_str());
+    auto *p =
+        xmlGetNsProp(node_, BAD_CAST name.toUtf8().c_str(),
+                     uri.empty() ? nullptr : BAD_CAST uri.toUtf8().c_str());
     if (!p)
       return fallback;
     Text out(reinterpret_cast<const char *>(p));
@@ -129,8 +158,9 @@ public:
     return node_ && xmlHasProp(node_, BAD_CAST name.toUtf8().c_str());
   }
   bool hasAttributeNS(const Text &uri, const Text &name) const {
-    return node_ && xmlHasNsProp(node_, BAD_CAST name.toUtf8().c_str(),
-                                 BAD_CAST uri.toUtf8().c_str());
+    return node_ &&
+           xmlHasNsProp(node_, BAD_CAST name.toUtf8().c_str(),
+                        uri.empty() ? nullptr : BAD_CAST uri.toUtf8().c_str());
   }
   struct Attribute {
     Text uri, name, value;
@@ -157,7 +187,7 @@ public:
       throw std::runtime_error("Attribute on null node");
     auto local = qname.mid(qname.indexOf(':') + 1).toUtf8();
     auto v = value.toUtf8();
-    xmlSetNsProp(node_, ns(uri, qname), BAD_CAST local.c_str(),
+    xmlSetNsProp(node_, ns(uri, qname, true), BAD_CAST local.c_str(),
                  BAD_CAST v.c_str());
   }
   template <class T>
@@ -176,6 +206,10 @@ public:
   }
   void removeAttributeNS(const Text &uri, const Text &name) {
     if (node_) {
+      if (uri.empty()) {
+        xmlUnsetNsProp(node_, nullptr, BAD_CAST name.toUtf8().c_str());
+        return;
+      }
       auto *n =
           xmlSearchNsByHref(owner_->doc, node_, BAD_CAST uri.toUtf8().c_str());
       if (n)
@@ -323,6 +357,36 @@ public:
     if (!node.node_)
       return {};
     auto *n = xmlDocCopyNode(node.node_, owner_->doc, deep ? 1 : 2);
+    if (!n)
+      throw std::runtime_error("Cannot import XML node");
+    // Preserve source-scope bindings as well as element/attribute namespaces.
+    // ODF and opaque metadata can contain QNames in values; a destination's
+    // same prefix must not silently change their meaning.
+    if (n->type == XML_ELEMENT_NODE) {
+      auto **bindings = xmlGetNsList(node.owner_->doc, node.node_);
+      for (size_t i = 0; bindings && bindings[i]; ++i) {
+        auto *binding = bindings[i];
+        xmlNsPtr own = nullptr;
+        for (auto *ns = n->nsDef; ns; ns = ns->next)
+          if (xmlStrEqual(ns->prefix, binding->prefix)) {
+            own = ns;
+            break;
+          }
+        if (own && !xmlStrEqual(own->href, binding->href)) {
+          xmlFree(bindings);
+          xmlFreeNode(n);
+          throw std::runtime_error(
+              "Conflicting imported XML namespace binding");
+        }
+        if (!own && !xmlNewNs(n, binding->href, binding->prefix)) {
+          xmlFree(bindings);
+          xmlFreeNode(n);
+          throw std::runtime_error(
+              "Cannot retain imported XML namespace binding");
+        }
+      }
+      xmlFree(bindings);
+    }
     owner_->detached.insert(n);
     return {owner_, n};
   }
@@ -331,7 +395,11 @@ public:
   }
   Text toString() const { return Text::fromUtf8(toByteArray()); }
   Bytes toByteArray(int = -1) const {
-    xmlReconciliateNs(owner_->doc, xmlDocGetRootElement(owner_->doc));
+    // The legacy reconciler can reuse an ancestor prefix that is shadowed
+    // inside an imported subtree, serializing an element into the wrong URI.
+    auto *root = xmlDocGetRootElement(owner_->doc);
+    if (root && xmlDOMWrapReconcileNamespaces(nullptr, root, 0) < 0)
+      throw std::runtime_error("Cannot reconcile XML namespaces");
     xmlChar *p = nullptr;
     int n = 0;
     xmlDocDumpMemoryEnc(owner_->doc, &p, &n, "UTF-8");

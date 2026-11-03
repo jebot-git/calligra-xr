@@ -143,6 +143,7 @@ struct PresentationPosition {
 };
 class NativeImageInput;
 enum class NativeShapeKind { Rectangle, Ellipse, Line, TextBox, Image };
+class NativeStageLayerEdit;
 class Presentation {
 public:
     Presentation();
@@ -152,6 +153,8 @@ public:
     Slide slide(int index) const;
     const SlideScene& scene(int index) const;
     std::vector<SlideScene> print_scenes() const;
+    NativeStageLayerEdit edit_layers(int slide, const std::vector<NativeObjectRef> & = {});
+    std::optional<PresentationPosition> commit_layers(NativeStageLayerEdit, std::optional<TextSelection> = {});
     uint64_t revision() const { return revision_; }
     void add_slide(const Text& title = "New slide", PresentationPosition previous = {});
     void remove_slide(int index, int selectedBox = 0, int selectedShape = -1);
@@ -208,6 +211,7 @@ public:
 
 private:
     OdfPackage package_ { Kind::Stage };
+    std::shared_ptr<const char> document_identity_ = std::make_shared<const char>(0);
     bool imported_office_ = false;
     mutable std::vector<SlideScene> scenes_;
     mutable std::shared_ptr<OdfTextReader> text_reader_;

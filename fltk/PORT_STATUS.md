@@ -14,7 +14,7 @@ output need feature-appropriate independent checks.
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. The preceding
-group/selection build 02f4d64 is installed and independently verified; subsequent
+layer-consumption build 8ef6848 is installed and independently verified; subsequent
 source/build/stage/installation claims require their own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
@@ -264,7 +264,8 @@ page-column worktree is uninstalled and preserved.
    printing. Native movement and primitive/text creation/deletion are available;
    numeric position/size/rotation and embedded images are installed; richer text
    formatting, direct resize/rotation, stacking and group/selection tools are installed.
-   Layer visibility/protection and separate screen/print scenes form the next increment.
+   Layer visibility/protection and separate screen/print scenes are installed.
+   Transactional layer editing is the current increment; broader drawing/clipboard tools follow.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1427,3 +1428,66 @@ broader group/property/connector/frame/presentation semantics remain unfinished.
 This is partial ODF1.2 functionality; source/build/stage and installation require
 separate receipts. Stage remains active, Words paused and further Sheets work
 waits.
+
+
+## Native Stage layer editing — 2026-11-03
+
+Arrange → Layers now provides a detached native editor for document, slide and
+master definitions. The FLTK panel fits the minimum780×560 application window.
+Local sets copy the effective document definitions; returning to inheritance
+rejects references to local-only names until the objects are reassigned. New
+layers, Unicode names, display/protection, SVG title/description, deletion of
+unused layers and assignment to own-slide objects/groups share one Apply/Undo
+transaction. Only changed properties are written. Cancel, unchanged commands,
+rejected draft actions and stale/foreign-document drafts preserve live source
+and history. Draft actions clone their working XML before mutation, so a failed
+action also retains the prior draft. Archive limits and both screen/print scenes
+validate before publication. Read-only files retain their write guards.
+
+Known draw:layer references are renamed only among consumers of that effective
+set. Page/master-local sets shadow the entire document set, so global renames
+retain their references, including those on unused local masters. New names
+reserve unresolved references. Define missing layer deliberately creates the
+missing definition in the chosen scope instead of silently claiming an unrelated
+name. Layer title/description values use plain XML text, including newlines;
+unchanged metadata, other properties, text/styles, geometry and archive assets
+stay retained. General RDF/reference interpretation remains unfinished.
+
+Assignments address the current slide's effective set. Selected groups assign
+supported drawable members rather than writing a nonstandard group layer
+attribute. Hidden/unrendered members participate in the source guard; protected
+objects require an explicit layer unlock before assignment. Intentionally changing
+layer protection is allowed through the definitions editor. Hidden selections
+become explicitly empty; source identity restores all selected objects/groups on
+undo/redo. The history journal includes styles.xml creation/edits and exact
+manifest/archive-part restoration, alongside content and selection. New styles
+parts retain the document's version. Master geometry itself remains noneditable.
+
+Independent style/content prefixes exposed a shared XML serialization defect:
+the old namespace reconciler could reuse a prefix shadowed within an imported
+subtree, serializing SVG metadata into the drawing namespace. Imports now retain
+source-scope bindings, including prefixes used only in values, and serialization
+uses libxml2 DOM namespace reconciliation. A direct reparse regression covers
+shadowed element/attribute names, value QName bindings, repeated serialization,
+CDATA and source identity. Default element namespaces exposed a second issue:
+attributes must retain a nonempty prefix when they have a namespace. Attribute
+writes now select or allocate an unshadowed prefix without rebinding existing
+QName values; empty-namespace reads, presence checks and removal use the
+libxml2 null namespace convention. The independent source corpus exercises
+default drawing namespaces in content/styles and a default manifest namespace.
+The official API reference is
+https://gnome.pages.gitlab.gnome.org/libxml2/html/tree_8h.html.
+Selected whole-suite regression and actual exports remain required because this
+helper is shared by Words, Sheets and Stage. This does not claim complete QName,
+RDF or namespace handling for every structural editor operation.
+
+The actual native Wayland tests use the universal menu, real controls, complete
+selection/history, scope-aware renaming, visibility, unlocking/movement,
+inheritance, missing-name repair, hidden group members and minimum-window Apply.
+The new Stage path restores its caret with the existing Stage helper; sanitizer
+coverage reproduced and caught the earlier Words-only helper error. Independent
+source/metadata/archive oracles, schema/package checks, exact export/reopen
+rasters and CUPS jobs provide separate evidence. Source/build/stage and installed
+receipts remain separate gates. Full ODF1.2 functionality, broader group/style/
+connector/frame/presentation semantics and object clipboard workflows remain
+unfinished. Stage stays active, Words paused, and further Sheets work waits.

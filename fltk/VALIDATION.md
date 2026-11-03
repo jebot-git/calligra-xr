@@ -2932,3 +2932,43 @@ The current selected suite count is80, with the same three established outline
 font exclusions. Per-build/runtime counts, reviewed page matches, schemas and
 installed results are recorded separately in the stage-layers artifact receipts;
 these test definitions do not claim installation or full ODF1.2 conformance.
+
+
+## Stage layer editing and XML namespace imports — 2026-11-03
+
+The selected Release and ASan/UBSan suite count is82, retaining the same three
+outline-font exclusions. `native-stage-layer-edit` covers detached drafts,
+scope-aware renames, properties/assignment, protected hidden group members,
+empty selection/history, exact styles/manifest replay, missing-style creation,
+explicit repair, failed/stale/foreign commits and print-only validation failure.
+`native-xml-namespaces` reproduces shadowed imported prefixes and reparses the
+serialized output to verify element/attribute URIs and value-only QName bindings.
+It also checks CDATA/text, repeated serialization and original node/source identity.
+Default-namespace cases verify updates and creation of namespaced attributes,
+prefix conflicts without rebinding QName values, and exact empty-namespace
+attribute lookup/presence/removal. Independent producer inputs use default
+element namespaces in content.xml, styles.xml and META-INF/manifest.xml while
+retaining required attribute prefixes.
+
+`stage_layer_edit_producer.py` independently authors ODF1.2 sources and expected
+content/styles/reference/metadata transformations. `native_stage_layer_edit_ui.py`
+uses private native Wayland, actual menu replies/controls and a780×560 minimum
+window; it checks draft cancellation, one-command history, scoped renaming,
+screen/print modes, protection/unlocking, group assignment, inheritance, explicit
+repair and saved archive data. GUI leak detection stays enabled with the existing
+narrow system Fontconfig/Mesa startup-cache suppressions.
+`stage_layer_edit_print.py` uses actual private CUPS jobs, independent visibility
+and movement pixels, raw source/metadata/package oracles, unchanged other pages
+and exact reopen rasters. Per-build schema/package counts, reviewed page matches
+and installation results are recorded in the stage-layer-edit artifact receipts.
+Passing these selected checks does not establish full ODF1.2 functionality or
+physical-printer interoperability.
+
+The final increment passes 82 selected Release and 82 ASan/UBSan suites and both
+actual native Wayland authoring runs. Forty-six packages pass version-matched
+content/styles schemas; 43 selected packages pass the manifest schema and
+implemented Part 3 checks. Twelve authoring CUPS jobs cover 36 reviewed pages;
+three suite baseline jobs cover nine pages matching installed 8ef6848 exactly.
+Thirty staged artifacts preserve optimized Release sections, use system FLTK
+and have no Qt/GTK ELF dependency. Installation requires its own independent
+receipt; these counts do not establish full ODF 1.2 functionality.

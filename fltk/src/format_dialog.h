@@ -2,6 +2,7 @@
 #pragma once
 #include "native_words_format.h"
 #include "native_stage_geometry.h"
+#include "native_stage_layers.h"
 #include "native_words_page.h"
 #include "native_words_tabs.h"
 #include "native_words_tables.h"
@@ -9,6 +10,7 @@
 #include <FL/Fl_Window.H>
 #include <functional>
 namespace DomeOffice {
+std::optional<NativeStageLayerEdit> stage_layers_dialog(Fl_Window &, NativeStageLayerEdit);
 bool shape_geometry_dialog(
     Fl_Window &, const NativeShapeGeometry &,
     const std::function<void(const NativeShapeGeometryEdit &)> &apply);

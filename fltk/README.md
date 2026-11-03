@@ -322,8 +322,17 @@ CUPS test queues.
   including hidden members of selected groups. Editable peers can be ordered
   without changing protected z-index attributes where integer labels permit it;
   otherwise the command rejects atomically. Missing layer references are displayed
-  with default settings and a diagnostic. Layer authoring/assignment controls and
-  automatic reference repair remain unfinished.
+  with default settings and a diagnostic. Arrange → Layers edits definitions in
+  document, slide or master scope. A local set can copy document definitions or
+  return to inheritance. Creation, Unicode renaming, screen/print visibility,
+  protection, title/description and object/group assignment use one Apply/Undo
+  transaction; Cancel discards the draft. Group assignment visits drawable
+  members, including hidden ones, while protection still requires an intentional
+  unlock. Used layers cannot be deleted. New names reserve unresolved references;
+  Define missing layer explicitly repairs the selected missing name. Renames
+  update known assignments only in the affected scope, respecting local sets.
+  Hidden selections become empty and Undo restores the previous complete
+  selection. Broader drawing/group/reference and clipboard tools remain open.
 - Stage loads ODP and imports PPTX text boxes and embedded PNG/JPEG images,
   dimensions, order and frame positions. It supports text editing, slide
   insertion/deletion, document-wide native undo/redo, ODP saves and a basic F5
