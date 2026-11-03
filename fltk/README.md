@@ -13,11 +13,11 @@ and full upstream spreadsheet function catalogue are not reimplemented here.
 The original Qt/KDE source remains available only through the opt-in frontend
 build. See [PORT_STATUS.md](PORT_STATUS.md).
 
-Finish and verify the current Sheets build, then switch implementation focus to
-Stage, as requested on 2026-11-03. Further Sheets catalogue work waits. Words is
-paused at its rudimentary layout/editing milestone; its experimental columns
-remain uninstalled. OpenDocument export and CUPS printing remain the acceptance
-floor while this work proceeds.
+Stage is the current implementation focus, following the installed and verified
+Sheets context build 930f2cc and the user's 2026-11-03 steering. Further Sheets
+catalogue work waits. Words is paused at its rudimentary layout/editing milestone;
+its experimental columns remain uninstalled. OpenDocument export and CUPS
+printing remain the acceptance floor while this work proceeds.
 
 ## Build and install
 
@@ -56,8 +56,8 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 ## Export and printing baseline
 
 The accepted baseline is OpenDocument export and CUPS printing in Words, Sheets
-and Stage. The current Sheets increment is being finished before the requested
-switch to Stage; remaining scope and priorities are documented in PORT_STATUS.md.
+and Stage. Stage is the current focus; remaining scope and priorities are
+documented in PORT_STATUS.md.
 
 Save or Save as writes ODT, ODS or ODP through the native package/model paths.
 Imported DOCX/XLSX/PPTX content can be saved in the corresponding OpenDocument
@@ -323,6 +323,17 @@ CUPS test queues.
   Dragging updates writable modifiers with bounds and group/mirror transforms;
   Escape cancels the drag, and one Undo restores the whole completed gesture.
   Shapes without text can also be selected and adjusted.
+  Editable objects can now be dragged from their body or nudged with arrow keys
+  (1 pt, or 10 pt with Shift). A four-pixel drag threshold keeps clicks unchanged;
+  custom adjustment handles retain priority. Movement follows slide coordinates
+  through nested affine groups while retaining source geometry, text runs,
+  dimensions and image data. Each completed drag/nudge is one native undo command.
+  Moved frames are marked user-positioned for subsequent presentation readers.
+  Escape or loss of focus cancels a drag; returning to its starting point keeps
+  the original XML and redo branch. Masters and read-only presentations cannot
+  be moved. Complete candidate scenes are validated before changing live state.
+  Resize/rotate, object insertion/deletion, stacking and group editing controls
+  remain unfinished.
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.
@@ -1030,7 +1041,7 @@ The current inventory dispatches 474 of 641 retained names, including aliases,
 with 167 remaining. The remaining catalogue,
 omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
-Words pause and the requested switch to Stage after this Sheets build remain in force.
+Words remains paused and further Sheets work waits while Stage is active.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

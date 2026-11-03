@@ -149,6 +149,9 @@ public:
     void end_text_edit() { merge_text_ = false; }
     void begin_handle_drag(int slide, int shape, int handle);
     void move_handle(int slide, int shape, int handle, ScenePoint target);
+    void begin_shape_move(int slide, int shape, ScenePoint pointer);
+    void move_shape_to(int slide, int shape, ScenePoint pointer);
+    void move_shape(int slide, int shape, ScenePoint delta);
     void finish_handle_drag(bool cancel = false);
     bool dragging_handle() const { return bool(drag_); }
     bool can_undo() const { return history_index_ != 0 || (drag_ && drag_->changed); }
@@ -184,6 +187,8 @@ private:
         int handle;
         uint64_t state;
         bool changed = false;
+        ScenePoint pointer;
+        SceneTransform parent_inverse, original_transform;
     };
     std::optional<HandleDrag> drag_;
     void clear_history();

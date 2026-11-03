@@ -56,6 +56,7 @@ struct SceneShape {
   Text name, text, image;
   std::shared_ptr<const ImageAsset> raster;
   SceneTransform transform;
+  SceneTransform parent_transform; // Accumulated group coordinates.
   ScenePaint paint;
   TextFlow text_flow;
   Text paragraph_style;

@@ -54,5 +54,7 @@ private:
   void draw() override;
   int drag_shape_ = -1, drag_handle_ = -1;
   SceneTransform drag_screen_inverse_;
+  ScenePoint drag_screen_start_;
+  bool drag_moved_ = false;
 };
 } // namespace DomeOffice

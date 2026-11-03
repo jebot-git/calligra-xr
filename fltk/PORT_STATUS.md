@@ -8,8 +8,8 @@ Words prints native pages, Stage prints slide scenes, and Sheets prints a
 paginated calculated-value grid with all/current worksheet selection. Copies,
 page ranges, cancellation and CUPS submission errors have explicit handling.
 That baseline remains the minimum acceptance floor. The current implementation
-priority is **finish and verify the current Sheets build, then switch to Stage**,
-following the user's 2026-11-03 steering. Words remains paused at its rudimentary
+priority is **Stage**, following the user's 2026-11-03 steering and installation
+and independent verification of Sheets context build 930f2cc. Words remains paused at its rudimentary
 compliance milestone; further Sheets catalogue work waits. Historical increment
 entries below retain their priorities at the time. The remaining-work inventory records the unfinished scope; the baseline
 does not imply that Words or the full suite is finished.
@@ -250,17 +250,18 @@ and vertical alignment position continuous text within each frame. Unknown
 objects and extension data remain in the saved package, but preservation does
 not imply correct display or editing support.
 
-## Implementation priorities — finish current Sheets build, then Stage
+## Implementation priorities — Stage now
 
 The user switched focus to Sheets on 2026-11-03 after the installed Words build
 reached rudimentary compliance, then requested Stage after the current Sheets
 build. Broader Words layout/editing remains unfinished; the separate experimental
 page-column worktree is uninstalled and preserved.
 
-1. Finish, commit, push, stage, install and independently verify the current
-   Sheets context increment, including OpenDocument export and CUPS printing.
-2. Switch implementation focus to Stage. Evaluate the native slide model,
-   layout/editing and export/printing behavior before choosing the next change.
+1. Work on native Stage layout/editing, preserving OpenDocument export and CUPS
+   printing. The initial object-editing increment adds native movement; resize,
+   rotate, insert/delete and stacking/group tools remain unfinished.
+2. Sheets context build 930f2cc is committed, pushed, installed and independently
+   verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
    Do not extend Sheets before the requested Stage work. Shared-engine changes
    still require suite regression checks, OpenDocument round trips and CUPS printing.
@@ -1028,3 +1029,49 @@ reference intersection/range/3D and other catalogue functions remain unfinished.
 Per the latest user steering, finish this Sheets build and switch to Stage;
 further Sheets catalogue work waits. Words stays paused, and experimental
 columns remain preserved and uninstalled.
+
+## Native Stage object movement — 2026-11-03
+
+Sheets context build 930f2cc is installed and independently verified; Stage is
+now active per the user's latest steering. This increment adds general native
+object movement alongside existing custom adjustment handles. Drag a supported
+leaf object's body or use arrows (1 pt; Shift 10 pt). Clicks have a four-pixel
+threshold. Master objects and read-only/signed documents remain protected.
+
+The model retains accumulated parent transforms so slide-space motion converts
+correctly through nested rotations, scales, reflections and shears, including
+legacy transformed-group inputs accepted by the reader. Source geometry,
+SVG position/dimension values, styled text, paths, image bytes, surrounding
+containers and opaque package entries remain intact. A bounded canonical
+matrix/translate list stores each moved leaf's transform. Matrix parameters are
+unitless and explicit translate parameters carry length units, following
+[ODF draw:transform](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part3-schema/OpenDocument-v1.3-os-part3-schema.html).
+The independently produced baseline uses schema-valid groups and transformed
+leaf frames; legacy group-transform acceptance is not a claim of schema validity.
+Moved frames set presentation:user-transformed so their edited position overrides
+master-supplied placement; undo/cancel restores the original flag or its absence.
+
+Movement builds and validates isolated candidates before replacing live state.
+Dragging uses one native journal transaction, Escape/focus loss restores its
+original XML/state/redo, and a return to origin leaves no edit. Undo/redo restores
+selection and exact source XML. Saving an active move closes the gesture and
+records the saved point. Invalid coordinates, singular parent transforms and
+out-of-bounds candidate geometry fail before changing the live document.
+
+Stage resize/rotate, shape insertion/deletion, stacking/group tools, richer
+text editing/layout and the previously listed rendering/model features remain
+unfinished. Words stays paused, its experimental columns preserved/uninstalled;
+remaining Sheets catalogue/settings work waits.
+
+Validation for this increment passes 69 applicable Release and 69 ASan/UBSan
+suites, retaining the same three outline-font exclusions. Native Wayland input
+checks pass in both builds for body dragging, exact keyboard nudges, master
+protection, click/no-op, Escape/focus cancellation, redo preservation, frame
+placement flags, rich source and ODP save/reopen. Thirteen generated/exported
+packages, including a moved frame with its user-position flag, pass version-
+matched content/styles schemas. Five actual private CUPS jobs cover 13 reviewed
+pages; original/edited Stage pages reopen identically and the nine suite baseline
+pages match installed Sheets build 930f2cc. The optimized stage verifies 29
+artifacts, matching Release sections, system FLTK and no Qt/GTK ELF linkage.
+Installed behavior is verified separately after authentication; this section
+records build/stage evidence rather than assuming installation succeeded.

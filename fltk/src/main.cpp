@@ -569,9 +569,12 @@ public:
             canvas->adjustment = [this](SlideCanvas::Adjustment event, int shape, int handle, ScenePoint point) {
                 try {
                     if (event == SlideCanvas::Begin) {
-                        commit_text(); stage->begin_handle_drag(slide, shape, handle);
+                        commit_text();
+                        if (handle < 0) stage->begin_shape_move(slide, shape, point);
+                        else stage->begin_handle_drag(slide, shape, handle);
                     } else if (event == SlideCanvas::Move) {
-                        stage->move_handle(slide, shape, handle, point);
+                        if (handle < 0) stage->move_shape_to(slide, shape, point);
+                        else stage->move_handle(slide, shape, handle, point);
                     } else {
                         stage->finish_handle_drag(event == SlideCanvas::Cancel);
                         refresh_stage(shape);
@@ -2254,7 +2257,7 @@ public:
             for (const auto& feature : model.unsupported)
                 unsupported.push_back(utf8(feature));
             const auto &text = canvas->text_stats();
-            Json adjustments = Json::array(), tabs = Json::array();
+            Json adjustments = Json::array(), tabs = Json::array(), objects = Json::array();
             for (const auto &tab : text.tabs)
                 tabs.push_back({{"source", tab.source},
                                 {"x1", tab.start.x},
@@ -2266,6 +2269,11 @@ public:
                                 {"glyphs", tab.glyphs}});
             for (size_t i = 0; i < model.shapes.size(); ++i) {
                 const auto& shape = model.shapes[i];
+                const auto& t = shape.transform;
+                auto bounds = shape.bounds();
+                objects.push_back({ { "name", utf8(shape.name) }, { "master", shape.master },
+                    { "transform", { t.a, t.b, t.c, t.d, t.e, t.f } },
+                    { "bounds", { bounds.x, bounds.y, bounds.width, bounds.height } } });
                 if (shape.master) continue;
                 for (size_t j = 0; j < shape.handles.size(); ++j) {
                     const auto& handle = shape.handles[j];
@@ -2294,6 +2302,7 @@ public:
                 { "can_redo", stage->can_redo() },
                 { "selected_shape", canvas->selected_shape },
                 { "adjustments", adjustments },
+                { "objects", objects },
                 { "revision", stage->revision() },
                 { "slides", stage->count() },
                 { "rendered_shapes", canvas->rendered_shapes() },

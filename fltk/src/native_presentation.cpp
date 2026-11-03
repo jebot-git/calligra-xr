@@ -488,6 +488,7 @@ struct Catalog {
         continue;
       }
       SceneShape shape;
+      shape.parent_transform = transform;
       shape.master = master;
       if (!master)
         shape.source = node;

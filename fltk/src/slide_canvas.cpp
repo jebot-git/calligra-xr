@@ -488,6 +488,12 @@ int SlideCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_DRAG && dragging()) {
+    if (drag_handle_ == -1 && !drag_moved_) {
+      if (std::hypot(Fl::event_x() - drag_screen_start_.x,
+                     Fl::event_y() - drag_screen_start_.y) < 4)
+        return 1;
+      drag_moved_ = true;
+    }
     if (adjustment &&
         !adjustment(Move, drag_shape_, drag_handle_,
                     drag_screen_inverse_.map(
@@ -497,6 +503,10 @@ int SlideCanvas::handle(int event) {
     return 1;
   }
   if (event == FL_RELEASE && dragging()) {
+    if (drag_handle_ == -1 && !drag_moved_) {
+      finish_drag(true);
+      return 1;
+    }
     if (adjustment &&
         !adjustment(Move, drag_shape_, drag_handle_,
                     drag_screen_inverse_.map(
@@ -539,9 +549,40 @@ int SlideCanvas::handle(int event) {
       }
       int i = model.hit_test(
           inverse->map({double(Fl::event_x()), double(Fl::event_y())}));
-      if (i >= 0 && selected)
-        selected(i);
+      if (i >= 0) {
+        if (selected)
+          selected(i);
+        if (adjustable && adjustment) {
+          drag_shape_ = i;
+          drag_handle_ = -1;
+          drag_screen_inverse_ = *inverse;
+          drag_screen_start_ = {double(Fl::event_x()), double(Fl::event_y())};
+          drag_moved_ = false;
+          if (!adjustment(Begin, i, -1, inverse->map(drag_screen_start_)))
+            drag_shape_ = -1;
+        }
+      }
     }
+    return 1;
+  }
+  if (event == FL_KEYDOWN && !dragging() && adjustable && adjustment &&
+      selected_shape >= 0 && !(Fl::event_state() & (FL_CTRL | FL_ALT | FL_META))) {
+    ScenePoint delta;
+    double step = Fl::event_state(FL_SHIFT) ? 10 : 1;
+    switch (Fl::event_key()) {
+    case FL_Left: delta.x = -step; break;
+    case FL_Right: delta.x = step; break;
+    case FL_Up: delta.y = -step; break;
+    case FL_Down: delta.y = step; break;
+    default: return Fl_Widget::handle(event);
+    }
+    if (adjustment(Begin, selected_shape, -1, {})) {
+      if (adjustment(Move, selected_shape, -1, delta))
+        adjustment(End, selected_shape, -1, {});
+      else
+        adjustment(Cancel, selected_shape, -1, {});
+    }
+    redraw();
     return 1;
   }
   return Fl_Widget::handle(event);
