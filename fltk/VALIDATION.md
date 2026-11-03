@@ -2513,3 +2513,65 @@ The local Java/Jing tools are validation-only artifacts, not runtime dependencie
 
 Artifacts: /home/blux/de-xr/artifacts/calligra-words-header-footer-20261103.
 The full Words goal remains active; remaining behavior is listed in PORT_STATUS.md.
+
+## Sheets descriptive statistics and focus change — 2026-11-03
+
+Sheets functions are now the active priority, following the user's direction.
+The installed Words milestone remains available; its experimental page-column
+worktree is excluded from this increment. Stage implementation stays last.
+
+The ten added functions are AVERAGEA, AVEDEV, DEVSQ, DEVSQA, GEOMEAN, HARMEAN,
+STDEVA, STDEVPA, VARA and VARPA. Tests exercise direct arguments versus referenced
+text/logicals, empty strings versus missing cells, named and sparse ranges,
+typed arrays, dependencies, incomplete calculation/cache preservation, ordinary
+errors and extreme numeric scales. Compensated extended intermediates avoid
+product/reciprocal/squared-deviation overflow when a result is representable.
+The A variants count every text value as zero. The ODF statistical definitions
+are the reference: [OpenFormula 1.3, section 6.18](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part4-formula/OpenDocument-v1.3-os-part4-formula.html).
+DEVSQA remains a Calligra extension. This does not complete the statistical group.
+
+The comment-aware registration audit includes active constructors, alternate
+names and dotted/u-prefixed names. Native arity probes find 307 covered and 334
+remaining names out of 641 retained names, including aliases. The statistical
+module accounts for 21 covered and 140 remaining names. These are dispatch
+counts, not a numerical/interoperability completion percentage.
+
+Evidence is under `artifacts/calligra-sheets-statistics-20261103`:
+
+- All 56 applicable Release suites and all 56 ASan/UBSan suites pass. Core leak
+  detection is enabled. The three legacy outline-font-assumption suites
+  (`native-text-shaping`, `native-text-hit`, `native-text-editing`) remain excluded
+  and are not counted as passing.
+- `statistics_reference.py` passes 39 retained cases and 424 independent
+  high-precision Decimal references. Two retained cases, STDEVA(1) and VARA(1),
+  expect NUM while the native engine reports DIV/0 consistently with its existing
+  sample statistics. These differences are recorded, not counted as identical.
+- Independent odfpy/openpyxl producers exercise ODS/XLSX typed inputs, deliberately
+  stale ODS caches, unsupported dependencies, formula-array expressions and
+  opaque archive data. Supported results and saved caches are checked against
+  Python's standard statistics library.
+- Native Wayland Release and ASan/UBSan GUI checks pass editing/recalculation,
+  keyboard navigation, undo/redo, save/reopen and opaque data retention. X11
+  Release and sanitizer GUI checks also passed. GUI leak checking is disabled
+  for external graphics libraries; core tests retain it. All use system FLTK
+  without Qt. The optional libdecor decoration path loads GTK3 on Wayland.
+- The GUI harness waits for a previous Wayland client to disappear and moves
+  the pointer out before entering the reopened client. This fixes a test focus
+  sequencing failure without changing application input behavior.
+- Schema validation exposed missing column declarations in new/imported ODS
+  tables. Save now supplies missing declarations and a blank row on empty
+  sheets, preserving existing column groups and table-local expression order.
+  All 21 accepted ODF packages pass the unchanged version-matched OASIS schemas,
+  including a newly created workbook with an empty second sheet and XLSX exports.
+- Two real private CUPS jobs print the original and edited statistics workbooks.
+  All twelve print pages were visually reviewed and match their ODS-reopened
+  rendering exactly; captured CUPS PDF bytes equal the generated PDF.
+- The suite baseline adds three private CUPS jobs. All nine baseline pages are
+  pixel-identical to the verified c192a74 milestone. No physical printer or
+  global queue/default/session changes are involved.
+
+The focused reproducer accepts `--eval`, `--retained-eval`, `--document INPUT
+OUTPUT.ods`, and `--artifacts DIR`. The Python reference, producer, UI, print and
+inventory tools live alongside it in `fltk/tests/statistics*.py` and
+`fltk/tests/sheets_function_inventory.py`. Installation verification is recorded
+separately from build/stage evidence.

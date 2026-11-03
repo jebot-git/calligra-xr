@@ -3,6 +3,7 @@
 #include "native_calendar.h"
 #include "native_engineering.h"
 #include "native_financial.h"
+#include "native_statistics.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -893,6 +894,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : calendar_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : statistics_signatures())
+      out[name] = arity;
     return out;
   }();
   auto signature = signatures.find(name);
@@ -902,17 +905,19 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     return error("#VALUE!");
 
   static const std::set<Text> accepts_arrays = {
-      "SUM",     "PRODUCT", "AVERAGE",     "MIN",       "MAX",
-      "COUNT",   "COUNTA",  "COUNTBLANK",  "MEDIAN",    "STDEV",
-      "STDEV.S", "STDEVP",  "STDEV.P",     "VAR",       "VAR.S",
-      "VARP",    "VAR.P",   "AND",         "OR",        "XOR",
-      "SUMSQ",   "CONCAT",  "CONCATENATE", "NPV",       "CHOOSE",
-      "INDEX",   "OFFSET",  "INDIRECT",    "ROW",       "COLUMN",
-      "SHEET",   "SHEETS",  "ROWS",        "COLUMNS",   "MATCH",
-      "LOOKUP",  "VLOOKUP", "HLOOKUP",     "TRANSPOSE", "SUMPRODUCT",
-      "MMULT",   "MDETERM", "MINVERSE",    "IMSUM",     "IMPRODUCT",
-      "IRR",     "MIRR",    "FVSCHEDULE",  "XIRR",      "XNPV",
-      "AMORLINC"};
+      "SUM",      "PRODUCT",  "AVERAGE",     "MIN",       "MAX",
+      "COUNT",    "COUNTA",   "COUNTBLANK",  "MEDIAN",    "STDEV",
+      "STDEV.S",  "STDEVP",   "STDEV.P",     "VAR",       "VAR.S",
+      "VARP",     "VAR.P",    "AND",         "OR",        "XOR",
+      "SUMSQ",    "CONCAT",   "CONCATENATE", "NPV",       "CHOOSE",
+      "INDEX",    "OFFSET",   "INDIRECT",    "ROW",       "COLUMN",
+      "SHEET",    "SHEETS",   "ROWS",        "COLUMNS",   "MATCH",
+      "LOOKUP",   "VLOOKUP",  "HLOOKUP",     "TRANSPOSE", "SUMPRODUCT",
+      "MMULT",    "MDETERM",  "MINVERSE",    "IMSUM",     "IMPRODUCT",
+      "IRR",      "MIRR",     "FVSCHEDULE",  "XIRR",      "XNPV",
+      "AMORLINC", "AVERAGEA", "AVEDEV",      "DEVSQ",     "DEVSQA",
+      "GEOMEAN",  "HARMEAN",  "STDEVA",      "STDEVPA",   "VARA",
+      "VARPA"};
   bool caller_array_context = array_context;
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name));
@@ -1052,6 +1057,33 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         }
       return Value::array(rows, columns, std::move(result));
     }
+  }
+  if (statistics_signatures().contains(name)) {
+    std::vector<double> numbers;
+    bool include_text = statistics_includes_text(name);
+    size_t records = 0;
+    for (const auto &expression : e->args) {
+      bool collection = false;
+      auto values = flatten(expression, &collection);
+      if (values.size() > 1'000'000 - records)
+        return error("#LIMIT!");
+      records += values.size();
+      for (const auto &value : values) {
+        if (value.isError())
+          return value;
+        if (value.isNumber())
+          numbers.push_back(value.number);
+        else if (value.isBoolean() && (include_text || !collection))
+          numbers.push_back(value.boolean ? 1 : 0);
+        else if (value.kind == Value::String) {
+          if (include_text)
+            numbers.push_back(0);
+          else if (!collection)
+            numbers.push_back(number(value));
+        }
+      }
+    }
+    return statistics_function(name, numbers);
   }
   if (calendar_signatures().contains(name)) {
     std::vector<Value> args;

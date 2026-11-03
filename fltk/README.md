@@ -54,7 +54,7 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 ## Export and printing baseline
 
 The accepted baseline is OpenDocument export and CUPS printing in Words, Sheets
-and Stage. Words layout/editing is the active development focus; the remaining
+and Stage. Sheets functions are the active development focus; the remaining
 scope and subsequent priorities are documented in PORT_STATUS.md.
 
 Save or Save as writes ODT, ODS or ODP through the native package/model paths.
@@ -609,6 +609,26 @@ registration to a native handler. This is catalogue coverage, not complete
 calculation settings/model or Excel/OpenFormula interoperability fidelity. The
 originally unregistered odd-first-period functions remain unsupported; unknown
 formula caches continue to be preserved.
+
+The descriptive statistics increment adds `AVERAGEA`, `AVEDEV`, `DEVSQ`,
+`DEVSQA` (a retained Calligra extension), `GEOMEAN`, `HARMEAN`, `STDEVA`,
+`STDEVPA`, `VARA` and `VARPA`. Complete typed arrays, named/cross-sheet references
+and sparse ranges are consumed as datasets. Empty cells are excluded; the A
+variants count all text, including numeric and empty strings, as zero and logical
+values as zero/one. Other variants ignore collection text/logicals and retain
+the existing numeric coercion for direct scalar arguments. Complex observations
+use their real coefficient, as in the existing aggregates.
+
+Compensated extended-precision sums preserve small deviations around large
+origins. Geometric means use logarithms; harmonic means use scaled reciprocals,
+so intermediate products/reciprocals do not overflow for representable results.
+Geometric/harmonic means require positive observations. Insufficient samples
+return `#DIV/0!`; nonpositive observations or nonrepresentable results return
+`#NUM!`. Collected inputs are bounded to one million records. ODS save supplies required
+column declarations and a blank row for newly created/empty sheets and imports
+that lack them, preserving existing column groups and source caches. A function-name
+inventory is catalogue coverage only; conditional aggregates, distributions,
+regression and other retained groups remain unfinished.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

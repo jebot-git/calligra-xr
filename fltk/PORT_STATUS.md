@@ -8,8 +8,8 @@ Words prints native pages, Stage prints slide scenes, and Sheets prints a
 paginated calculated-value grid with all/current worksheet selection. Copies,
 page ranges, cancellation and CUPS submission errors have explicit handling.
 That baseline remains the minimum acceptance floor. The current implementation
-priority is **Words layout and editing first, Sheets functions second, Stage
-last**. The remaining-work inventory records the unfinished scope; the baseline
+priority is **Sheets functions first, with Words paused at its rudimentary
+compliance milestone and Stage last**. The remaining-work inventory records the unfinished scope; the baseline
 does not imply that Words or the full suite is finished.
 
 The first Words editing increment adds immediate native document transactions,
@@ -248,21 +248,21 @@ and vertical alignment position continuous text within each frame. Unknown
 objects and extension data remain in the saved package, but preservation does
 not imply correct display or editing support.
 
-## Implementation priorities — Words, then Sheets, then Stage
+## Implementation priorities — Sheets now, Stage last
 
-1. Finish Words layout and editing. Continue native KoText/text-layout and
-   KWDocument behavior: rich formatting/input/selection, structural lists and
-   tables, sections/columns, headers/footers, notes, images/anchors and the
-   remaining pagination/typography requirements. Preserve loader, style and
-   XML undo semantics. Validate real document corpora, OpenDocument round trips,
-   print/export, scripts, IME and both compositor realms as each part lands.
-2. Complete Sheets functions after Words. Port the remaining original
-   calculation catalogue and settings, using the upstream corpora and independent
-   references. Retain unsupported source caches until calculation is implemented;
-   then address the remaining model/style and filter work in that order.
-3. Leave Stage implementation last. Its remaining KPrDocument/master/shape/
-   animation behavior and editing tools follow Words and Sheets. Shared-engine
-   fixes still require Stage regression checks during earlier work.
+The user switched focus to Sheets on 2026-11-03 after the installed Words build
+reached rudimentary compliance. Broader Words layout/editing remains unfinished;
+the separate experimental page-column worktree is uninstalled and preserved.
+
+1. Complete Sheets functions and calculation settings. Use retained upstream
+   registrations/corpora and independent numerical references to identify and
+   validate missing behavior. Preserve unsupported source caches until their
+   calculations are implemented. Begin with descriptive statistics, then address
+   the remaining statistical, conditional, database and other function groups.
+2. Keep the verified Words build available. Resume its broader layout/editing
+   backlog when requested; it does not gate current Sheets work.
+3. Leave Stage implementation last. Shared-engine changes still require suite
+   regression checks, OpenDocument round trips and CUPS printing.
 
 Keep native document/geometry/persistence interfaces independent of the toolkit,
 and use system FLTK for input and display. Qt6 frontends remain explicit opt-ins.
@@ -721,3 +721,34 @@ usage/blank-page insertion, anchored images/shapes, notes, sections/columns,
 box shadows, additional field types and broader document-corpus fidelity remain.
 Content-based table sizing, formula/reference updates, richer lists and large
 file performance also remain. Sheets functions follow Words; Stage stays last.
+
+
+## Sheets focus and descriptive statistics — 2026-11-03
+
+Sheets functions are now the active implementation priority. The native engine
+adds AVERAGEA, AVEDEV, DEVSQ, DEVSQA, GEOMEAN, HARMEAN, STDEVA, STDEVPA, VARA and
+VARPA. These consume complete typed arrays, named/cross-sheet references and
+sparse ranges; missing cells are excluded. A variants count text as zero and
+logical values as zero/one. Other variants ignore text/logicals in collections,
+with the existing native numeric conversion for direct arguments. Complex
+values use their real coefficient, following the existing aggregate convention.
+
+Compensated extended-precision arithmetic retains small deviations at large
+origins, geometric means avoid product overflow/underflow, and harmonic means
+avoid reciprocal overflow. The functions bound collected input to one million
+records. Nonpositive geometric/harmonic observations report NUM errors;
+insufficient samples report DIV/0, consistent with existing native VAR/STDEV.
+DEVSQA is retained as a Calligra extension. These are ten added functions, not
+completion of the statistical group or full calculation compatibility.
+
+ODS saving now supplies missing column declarations and an empty row when
+needed, including new sheets and XLSX imports. Existing column groups/styles,
+row data and unsupported caches remain in place. Independent schema validation
+checks the source and exported packages.
+
+A comment-aware audit probes active retained registrations and alternate names.
+It reports 307 covered and 334 remaining registered names, including aliases;
+these counts measure catalogue dispatch separately from numerical fidelity. Unsupported
+functions and their dependent source caches remain preserved. Validation and
+installation status are recorded separately; experimental Words columns are not
+part of this increment.

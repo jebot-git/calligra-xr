@@ -343,6 +343,40 @@ void Workbook::save(const Text& path)
         set_plain_text(p, text);
         element.appendChild(p);
     }
+    // Native new sheets and XLSX imports may not carry column declarations.
+    // ODF requires column declarations and at least one row, even on an empty
+    // sheet. Keep table-local named expressions after the row content.
+    // Preserve existing column groups, styles and source repetition unchanged.
+    for (int s = 0; s < tables_.size(); ++s) {
+        bool declared = false;
+        XmlNode first_row, trailing;
+        for (auto element : children(tables_[s], TABLE)) {
+            auto name = element.localName();
+            if (name == "table-column" || name == "table-columns" ||
+                name == "table-column-group" || name == "table-header-columns")
+                declared = true;
+            if (first_row.isNull() &&
+                (name == "table-row" || name == "table-rows" ||
+                 name == "table-row-group" || name == "table-header-rows"))
+                first_row = element;
+            if (name == "named-expressions")
+                trailing = element;
+        }
+        if (!declared) {
+            auto column =
+                package_.xml.createElementNS(TABLE, "table:table-column");
+            column.setAttributeNS(TABLE, "table:number-columns-repeated",
+                                  std::max(1, columns(s)));
+            tables_[s].insertBefore(column,
+                                    first_row.isNull() ? trailing : first_row);
+        }
+        if (first_row.isNull()) {
+            auto row = package_.xml.createElementNS(TABLE, "table:table-row");
+            row.appendChild(
+                package_.xml.createElementNS(TABLE, "table:table-cell"));
+            tables_[s].insertBefore(row, trailing);
+        }
+    }
     package_.save(path);
     changed_.clear();
 }
