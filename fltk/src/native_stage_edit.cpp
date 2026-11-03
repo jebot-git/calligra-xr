@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
+#include "native_stage_source.h"
 #include <cmath>
 #include <stdexcept>
 namespace DomeOffice {
@@ -10,29 +11,6 @@ void point(ScenePoint p) {
   if (!std::isfinite(p.x) || !std::isfinite(p.y) || std::abs(p.x) > 1e9 ||
       std::abs(p.y) > 1e9)
     throw std::runtime_error("Shape position exceeds the coordinate limit");
-}
-XmlElement corresponding(const XmlElement &source,
-                         const XmlDocument &candidate) {
-  std::vector<size_t> path;
-  auto original = source.ownerDocument().documentElement();
-  for (auto node = source; node != original; node = node.parentNode()) {
-    if (node.isNull())
-      throw std::runtime_error("Shape is outside the presentation");
-    size_t index = 0;
-    for (auto previous = node.previousSibling(); !previous.isNull();
-         previous = previous.previousSibling())
-      ++index;
-    path.push_back(index);
-  }
-  auto node = candidate.documentElement();
-  for (auto it = path.rbegin(); it != path.rend(); ++it) {
-    node = node.firstChild();
-    for (size_t i = 0; i < *it && !node.isNull(); ++i)
-      node = node.nextSibling();
-    if (node.isNull())
-      throw std::runtime_error("Invalid shape source path");
-  }
-  return node.toElement();
 }
 Text matrix(const SceneTransform &m) {
   TextList values;
@@ -94,7 +72,7 @@ void Presentation::move_shape_to(int slide, int shape_index,
   translation.e = p.a * delta.x + p.c * delta.y;
   translation.f = p.b * delta.x + p.d * delta.y;
   auto candidate = read_document_xml(drag_->before);
-  auto source = corresponding(shape.source, candidate);
+  auto source = stage_candidate_source(shape.source, candidate);
   source.setAttributeNS(DRAW, "draw:transform",
                         matrix(translation * drag_->original_transform));
   if (source.localName() == "frame")

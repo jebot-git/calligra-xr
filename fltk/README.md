@@ -329,11 +329,22 @@ CUPS test queues.
   through nested affine groups while retaining source geometry, text runs,
   dimensions and image data. Each completed drag/nudge is one native undo command.
   Moved frames are marked user-positioned for subsequent presentation readers.
+  The universal Insert menu creates rectangles, ellipses, lines and text boxes.
+  New rectangles/ellipses also have editable paragraph content. New text boxes
+  start with their text selected for replacement. Canvas Delete or Edit → Delete
+  object removes the selected own-slide object; Delete in the text editor keeps
+  its ordinary text-editing behavior. Creation/deletion uses native undo/redo,
+  unique names/styles/XML IDs and navigation-order updates. Referenced-but-missing
+  style/identifier names stay unresolved, so insertion
+  does not change an existing object's fallback appearance. Existing image and
+  opaque package data remain intact. Deletion rejects known external links,
+  animation/event, connector and frame-chain relationships rather than leaving
+  dangling references; rewriting those relationships remains unfinished.
   Escape or loss of focus cancels a drag; returning to its starting point keeps
   the original XML and redo branch. Masters and read-only presentations cannot
   be moved. Complete candidate scenes are validated before changing live state.
-  Resize/rotate, object insertion/deletion, stacking and group editing controls
-  remain unfinished.
+  Resize/rotate, image insertion, stacking and group editing controls remain
+  unfinished.
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.

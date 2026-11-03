@@ -28,6 +28,7 @@ public:
   std::function<uint64_t()> revision;
   std::function<void(int)>
       selected; // Scene shape index (including shapes without text).
+  std::function<void()> remove_selected;
   enum Adjustment { Begin, Move, End, Cancel };
   // False aborts the gesture; the controller restores its native transaction.
   std::function<bool(Adjustment, int, int, ScenePoint)> adjustment;

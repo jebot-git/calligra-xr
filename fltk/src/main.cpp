@@ -70,6 +70,11 @@ enum Command {
     AddSheet,
     AddSlide,
     DeleteSlide,
+    InsertRectangle,
+    InsertEllipse,
+    InsertLine,
+    InsertTextBox,
+    DeleteObject,
     Present,
     Next,
     Previous,
@@ -448,6 +453,11 @@ public:
         if (kind == Kind::Sheets)
             add("&Sheet/&Add worksheet…", 0, AddSheet);
         if (kind == Kind::Stage) {
+            add("&Insert/&Rectangle", 0, InsertRectangle);
+            add("&Insert/&Ellipse", 0, InsertEllipse);
+            add("&Insert/&Line", 0, InsertLine);
+            add("&Insert/&Text box", 0, InsertTextBox);
+            add("&Edit/Delete &object", 0, DeleteObject);
             add("&Slide/&Add slide", FL_CTRL + 'm', AddSlide);
             add("&Slide/&Delete slide", 0, DeleteSlide);
             add("&Presentation/&Present", FL_F + 5, Present);
@@ -556,6 +566,7 @@ public:
             canvas = new SlideCanvas(194, 62, 894, 418);
             canvas->scene = [this]() -> const SlideScene& { return stage->scene(slide); };
             canvas->revision = [this] { return stage->revision(); };
+            canvas->remove_selected = [this] { command(DeleteObject); };
             canvas->selected = [this](int n) {
                 if (presenting) {
                     command(Next);
@@ -2000,6 +2011,32 @@ public:
                     modified = true;
                     title();
                 }
+            } else if (c == InsertRectangle || c == InsertEllipse || c == InsertLine || c == InsertTextBox || c == DeleteObject) {
+                if (kind != Kind::Stage) return;
+                if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
+                commit_text();
+                PresentationPosition position;
+                if (c == DeleteObject) {
+                    if (canvas->selected_shape < 0) return;
+                    position = stage->remove_shape(slide, canvas->selected_shape);
+                } else {
+                    const auto& scene = stage->scene(slide);
+                    auto type = c == InsertRectangle ? NativeShapeKind::Rectangle
+                        : c == InsertEllipse ? NativeShapeKind::Ellipse
+                        : c == InsertLine ? NativeShapeKind::Line : NativeShapeKind::TextBox;
+                    SceneRect rect { scene.width * .25, scene.height * .25, scene.width * .3, scene.height * .25 };
+                    if (c == InsertTextBox) rect = { scene.width * .2, scene.height * .45, scene.width * .6, scene.height * .2 };
+                    if (c == InsertLine) rect = { scene.width * .2, scene.height * .7, scene.width * .6, 0 };
+                    position = stage->insert_shape(slide, type, rect, c == InsertTextBox ? Text("Text") : Text(), { slide, box, canvas->selected_shape });
+                }
+                box = position.box;
+                refresh_stage(position.shape);
+                modified = stage->modified(); title();
+                if (c == InsertTextBox) {
+                    editor->take_focus();
+                    buffer.select(0, buffer.length());
+                    editor->insert_position(buffer.length());
+                } else canvas->take_focus();
             } else if (c == AddSlide) {
                 commit_text();
                 stage->add_slide("New slide", { slide, box, canvas->selected_shape });
@@ -2272,6 +2309,8 @@ public:
                 const auto& t = shape.transform;
                 auto bounds = shape.bounds();
                 objects.push_back({ { "name", utf8(shape.name) }, { "master", shape.master },
+                    { "tag", utf8(shape.source.localName()) }, { "text", utf8(shape.text) },
+                    { "id", utf8(shape.source.attributeNS("http://www.w3.org/XML/1998/namespace", "id")) },
                     { "transform", { t.a, t.b, t.c, t.d, t.e, t.f } },
                     { "bounds", { bounds.x, bounds.y, bounds.width, bounds.height } } });
                 if (shape.master) continue;
@@ -2322,6 +2361,8 @@ public:
                 { "missing_glyphs", text.missing_glyphs },
                 { "overflow_frames", text.overflow_frames },
                 { "viewport", { canvas->x(), canvas->y(), canvas->w(), canvas->h() } } };
+            data["scene"]["editor"] = { { "active", bool(editor->active()) },
+                { "bounds", { editor->x(), editor->y(), editor->w(), editor->h() } } };
         }
         // Readers must see one complete snapshot while the UI refreshes it.
         TempFile temporary(Text(options.report + ".XXXXXX"));

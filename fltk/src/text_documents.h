@@ -134,6 +134,7 @@ struct PresentationPosition {
     int shape = -1;
     bool operator==(const PresentationPosition&) const = default;
 };
+enum class NativeShapeKind { Rectangle, Ellipse, Line, TextBox };
 class Presentation {
 public:
     Presentation();
@@ -152,6 +153,9 @@ public:
     void begin_shape_move(int slide, int shape, ScenePoint pointer);
     void move_shape_to(int slide, int shape, ScenePoint pointer);
     void move_shape(int slide, int shape, ScenePoint delta);
+    PresentationPosition insert_shape(int slide, NativeShapeKind, SceneRect,
+        const Text& text = {}, PresentationPosition previous = {});
+    PresentationPosition remove_shape(int slide, int shape);
     void finish_handle_drag(bool cancel = false);
     bool dragging_handle() const { return bool(drag_); }
     bool can_undo() const { return history_index_ != 0 || (drag_ && drag_->changed); }

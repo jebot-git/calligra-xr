@@ -479,6 +479,13 @@ void SlideCanvas::draw() {
   fl_pop_clip();
 }
 int SlideCanvas::handle(int event) {
+  if (event == FL_KEYDOWN && Fl::event_key() == FL_Delete && adjustable &&
+      selected_shape >= 0 && remove_selected &&
+      !(Fl::event_state() & (FL_CTRL | FL_ALT | FL_META | FL_SHIFT))) {
+    finish_drag();
+    remove_selected();
+    return 1;
+  }
   if (event == FL_UNFOCUS && dragging())
     finish_drag(true);
   if (event == FL_FOCUS || event == FL_UNFOCUS)
