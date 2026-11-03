@@ -135,7 +135,8 @@ struct PresentationPosition {
     int shape = -1;
     bool operator==(const PresentationPosition&) const = default;
 };
-enum class NativeShapeKind { Rectangle, Ellipse, Line, TextBox };
+class NativeImageInput;
+enum class NativeShapeKind { Rectangle, Ellipse, Line, TextBox, Image };
 class Presentation {
 public:
     Presentation();
@@ -156,6 +157,8 @@ public:
     void move_shape(int slide, int shape, ScenePoint delta);
     PresentationPosition insert_shape(int slide, NativeShapeKind, SceneRect,
         const Text& text = {}, PresentationPosition previous = {});
+    PresentationPosition insert_image(int slide, const NativeImageInput&, SceneRect,
+        PresentationPosition previous = {});
     PresentationPosition remove_shape(int slide, int shape);
     NativeShapeGeometry shape_geometry(int slide, int shape) const;
     void set_shape_geometry(int slide, int shape,
@@ -184,6 +187,14 @@ private:
         Bytes before, after;
         PresentationPosition previous, next;
         uint64_t before_state, after_state;
+        std::vector<ArchivePartChange> parts;
+        size_t bytes() const
+        {
+            size_t result = before.size() + after.size();
+            for (const auto& part : parts)
+                result += part.before.size() + part.after.size();
+            return result;
+        }
     };
     std::vector<Edit> history_;
     size_t history_index_ = 0, history_bytes_ = 0;
@@ -200,8 +211,12 @@ private:
     };
     std::optional<HandleDrag> drag_;
     void clear_history();
-    void remember(Bytes, PresentationPosition, PresentationPosition, bool merge = false);
+    void remember(Bytes, PresentationPosition, PresentationPosition, bool merge = false,
+        std::vector<ArchivePartChange> parts = {});
+    PresentationPosition commit_insert(OdfPackage, const Text& name, int slide,
+        PresentationPosition previous);
     std::optional<PresentationPosition> travel(bool redo);
     void restore_content(const Bytes&);
+    void restore_package(OdfPackage);
 };
 }

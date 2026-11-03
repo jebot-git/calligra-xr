@@ -446,7 +446,12 @@ int main(int argc, char **argv) {
   local.load_package(create.document());
   local.replace(0, 0, "First page", true);
   auto created = create.finish(local.style_snapshot(), true);
-  assert(created.xml.toByteArray() == blank_content);
+  // First-page stories explicitly need ODF 1.3. New documents begin at 1.2;
+  // upgrading this optional operation must retain the remaining body exactly.
+  auto expected_content = read_document_xml(blank_content);
+  expected_content.documentElement().setAttributeNS(OFFICE, "office:version", "1.3");
+  assert(created.xml.toByteArray() == expected_content.toByteArray());
+  assert(blank.xml.toByteArray() == blank_content);
   auto created_flow = read_text_flow(created);
   assert(!created_flow.first_master.empty());
   assert(story_text(paginate_text(created_flow, metrics).pages[0],

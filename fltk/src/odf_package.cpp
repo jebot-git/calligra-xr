@@ -106,7 +106,7 @@ OdfPackage::OdfPackage(Kind kind)
         + "\" "
           "xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\" "
           "xmlns:style=\"urn:oasis:names:tc:opendocument:xmlns:style:1.0\" "
-          "office:version=\"1.3\">"
+          "office:version=\"1.2\">"
           "<office:automatic-styles/><office:body><office:"
         + local(kind) + "/></office:body></office:document-content>")
                                  .toUtf8();
@@ -118,7 +118,7 @@ OdfPackage::OdfPackage(Kind kind)
     put("styles.xml", ("<?xml version=\"1.0\"?><office:document-styles xmlns:office=\"" + OFFICE + "\" xmlns:style=\"" +
                        STYLE + "\" xmlns:fo=\"" + FO +
                        "\" "
-                       "office:version=\"1.3\"><office:styles/"
+                       "office:version=\"1.2\"><office:styles/"
                        "><office:automatic-styles><style:page-layout "
                        "style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"" +
                        (kind == Kind::Stage ? Text("28cm") : Text("21cm")) + "\" fo:page-height=\"" +
@@ -132,7 +132,7 @@ OdfPackage::OdfPackage(Kind kind)
 
     put("META-INF/manifest.xml", ("<?xml version=\"1.0\"?><manifest:manifest "
                                   "xmlns:manifest=\"urn:oasis:names:tc:opendocument:xmlns:manifest:1.0\" "
-                                  "manifest:version=\"1.3\"><manifest:file-entry manifest:full-path=\"/\" "
+                                  "manifest:version=\"1.2\"><manifest:file-entry manifest:full-path=\"/\" "
                                   "manifest:media-type=\"" +
                                   mime(kind) +
                                   "\"/><manifest:file-entry manifest:full-path=\"content.xml\" "
@@ -240,6 +240,21 @@ void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& medi
     put(name, data);
     put("META-INF/manifest.xml", manifest.toByteArray(-1));
 }
+void OdfPackage::validate_archive_limits() const
+{
+    if (entries_.size() + (entry_data("content.xml") ? 0 : 1) > 10000)
+        fail("Too many document archive entries");
+    const size_t content_size = xml.toByteArray(-1).size();
+    size_t total = content_size;
+    if (content_size > 64 * 1024 * 1024)
+        fail("Document content exceeds the current import size limit");
+    for (const auto& name : entries_.keys()) {
+        if (name == "content.xml") continue;
+        auto data = entry_data(name);
+        if (data->size() > 64 * 1024 * 1024 || (total += data->size()) > 256 * 1024 * 1024)
+            fail("Document exceeds the current import size limit");
+    }
+}
 std::vector<ArchivePartChange> OdfPackage::part_changes_from(const OdfPackage& before) const
 {
     if (kind_ != before.kind_)
@@ -316,6 +331,19 @@ void OdfPackage::save(const Text& path)
              "silently invalidated");
     auto contents = entries_;
     contents["content.xml"] = std::make_shared<const Bytes>(xml.toByteArray(-1));
+    // Older producers can omit the mandatory ODF 1.2 manifest version.
+    // Repair only the serialized package; preserve source bytes for exact undo.
+    const Text MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
+    auto manifest_bytes = contents.value("META-INF/manifest.xml");
+    if (!manifest_bytes) fail("Cannot export a document without a package manifest");
+    auto manifest = read_document_xml(*manifest_bytes);
+    auto root = manifest.documentElement();
+    if (root.namespaceURI() != MANIFEST || root.localName() != "manifest")
+        fail("Invalid OpenDocument package manifest");
+    if (!root.hasAttributeNS(MANIFEST, "version")) {
+        root.setAttributeNS(MANIFEST, "manifest:version", "1.2");
+        contents["META-INF/manifest.xml"] = std::make_shared<const Bytes>(manifest.toByteArray(-1));
+    }
     TempFile temporary(FileInfo(path).absolutePath() + "/.calligra-XXXXXX");
     if (!temporary.open())
         fail("Cannot create document in the selected directory");
@@ -362,7 +390,10 @@ void OdfPackage::save(const Text& path)
         fsync(directory);
         close(directory);
     }
-    entries_ = contents;
+    // A serialization-only manifest repair must not invalidate archive undo
+    // deltas that refer to the exact original source manifest.
+    contents["META-INF/manifest.xml"] = manifest_bytes;
+    entries_ = std::move(contents);
     image_assets_.erase("content.xml");
 }
 std::shared_ptr<const ImageAsset> OdfPackage::image_asset(const Text &reference) const {

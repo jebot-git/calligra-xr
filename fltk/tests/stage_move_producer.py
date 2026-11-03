@@ -144,6 +144,7 @@ def produce(directory):
         for item, value in original:
             if item.filename == "META-INF/manifest.xml":
                 root = ET.fromstring(value)
+                root.set("{" + ns + "}version", "1.2")
                 ET.SubElement(
                     root,
                     "{" + ns + "}file-entry",

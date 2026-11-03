@@ -921,36 +921,36 @@ void Presentation::clear_history()
     merge_text_ = false;
     drag_.reset();
 }
-void Presentation::remember(Bytes before, PresentationPosition previous, PresentationPosition next, bool merge)
+void Presentation::remember(Bytes before, PresentationPosition previous, PresentationPosition next, bool merge, std::vector<ArchivePartChange> parts)
 {
     const auto after = package_.xml.toByteArray();
-    if (before == after) return;
-    if (merge && merge_text_ && history_index_ && history_index_ == history_.size()
-        && history_.back().previous == previous && history_.back().next == next) {
+    if (before == after && parts.empty()) return;
+    if (merge && parts.empty() && merge_text_ && history_index_ && history_index_ == history_.size()
+        && history_.back().parts.empty() && history_.back().previous == previous && history_.back().next == next) {
         const auto& last = history_.back();
         before.std::string::replace(last.offset, last.after.size(), last.before);
         state_ = last.before_state;
-        history_bytes_ -= last.before.size() + last.after.size();
+        history_bytes_ -= last.bytes();
         history_.pop_back();
         --history_index_;
     }
     merge_text_ = merge;
-    if (before == after) { merge_text_ = false; return; }
+    if (before == after && parts.empty()) { merge_text_ = false; return; }
     size_t prefix = 0, suffix = 0;
     while (prefix < before.size() && prefix < after.size() && before[prefix] == after[prefix]) ++prefix;
     while (suffix < before.size() - prefix && suffix < after.size() - prefix
         && before[before.size() - 1 - suffix] == after[after.size() - 1 - suffix]) ++suffix;
     Edit edit { prefix, before.substr(prefix, before.size() - prefix - suffix),
-        after.substr(prefix, after.size() - prefix - suffix), previous, next, state_, next_state_++ };
+        after.substr(prefix, after.size() - prefix - suffix), previous, next, state_, next_state_++, std::move(parts) };
     for (size_t i = history_index_; i < history_.size(); ++i)
-        history_bytes_ -= history_[i].before.size() + history_[i].after.size();
+        history_bytes_ -= history_[i].bytes();
     history_.resize(history_index_);
     state_ = edit.after_state;
-    history_bytes_ += edit.before.size() + edit.after.size();
+    history_bytes_ += edit.bytes();
     history_.push_back(std::move(edit));
     constexpr size_t budget = 32 * 1024 * 1024;
     while (!history_.empty() && (history_.size() > 100 || history_bytes_ > budget)) {
-        history_bytes_ -= history_.front().before.size() + history_.front().after.size();
+        history_bytes_ -= history_.front().bytes();
         history_.erase(history_.begin());
     }
     history_index_ = history_.size();
@@ -969,7 +969,10 @@ std::optional<PresentationPosition> Presentation::travel(bool redo)
         || bytes.compare(edit.offset, from.size(), from) != 0)
         fail("Presentation undo history does not match the document");
     bytes.std::string::replace(edit.offset, from.size(), to);
-    restore_content(bytes);
+    OdfPackage candidate = package_;
+    candidate.replay_part_changes(edit.parts, redo);
+    candidate.xml = read_document_xml(bytes);
+    restore_package(std::move(candidate));
     history_index_ = redo ? history_index_ + 1 : history_index_ - 1;
     state_ = redo ? edit.after_state : edit.before_state;
     return redo ? edit.next : edit.previous;
@@ -979,6 +982,10 @@ void Presentation::restore_content(const Bytes& bytes)
     // Validate the restored document and its scenes before changing live state.
     OdfPackage candidate = package_;
     candidate.xml = read_document_xml(bytes);
+    restore_package(std::move(candidate));
+}
+void Presentation::restore_package(OdfPackage candidate)
+{
     if (children(candidate.body(), DRAW, "page").isEmpty()) fail("Undo would remove every slide");
     auto reader = std::make_shared<OdfTextReader>(candidate);
     auto scenes = read_presentation_scenes(candidate, reader);

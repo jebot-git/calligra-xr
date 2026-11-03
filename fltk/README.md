@@ -16,8 +16,9 @@ build. See [PORT_STATUS.md](PORT_STATUS.md).
 Stage is the current implementation focus, following the installed and verified
 Sheets context build 930f2cc and the user's 2026-11-03 steering. Further Sheets
 catalogue work waits. Words is paused at its rudimentary layout/editing milestone;
-its experimental columns remain uninstalled. OpenDocument export and CUPS
-printing remain the acceptance floor while this work proceeds.
+its experimental columns remain uninstalled. ODF 1.2 document behavior and OpenFormula, together with CUPS printing, are
+the functionality baseline. The broader target remains incomplete;
+[ODF12_BASELINE.json](ODF12_BASELINE.json) tracks initial areas and evidence.
 
 ## Build and install
 
@@ -55,9 +56,11 @@ cmake -S . -B build-qt -DCALLIGRA_BUILD_FLTK=OFF -DCALLIGRA_BUILD_QT_FRONTENDS=O
 
 ## Export and printing baseline
 
-The accepted baseline is OpenDocument export and CUPS printing in Words, Sheets
-and Stage. Stage is the current focus; remaining scope and priorities are
-documented in PORT_STATUS.md.
+The functionality baseline is ODF 1.2 document semantics and OpenFormula plus
+CUPS printing in Words, Sheets and Stage. New documents default to ODF 1.2;
+existing newer versions are preserved. Stage is the current focus.
+The initial coverage inventory is in ODF12_BASELINE.json; the full standard
+requires further per-feature implementation and interoperability evidence.
 
 Save or Save as writes ODT, ODS or ODP through the native package/model paths.
 Imported DOCX/XLSX/PPTX content can be saved in the corresponding OpenDocument
@@ -351,7 +354,11 @@ CUPS test queues.
   turns preserve history. Invalid geometry stays in the panel for correction;
   Cancel/Escape leave the presentation unchanged. Masters, read-only files and
   unavailable transform axes remain protected. Drag resize/rotation handles,
-  image insertion, stacking and group editing controls remain unfinished.
+  stacking and group editing controls remain unfinished. The Image menu embeds
+  validated PNG/JPEG/SVG/GIF/BMP source bytes with package/manifest undo.
+  The original encoded image and manifest additions undo together.
+  A cancelled chooser preserves history, and inserted images can be moved,
+  resized/rotated numerically and deleted through ordinary object commands.
   Rectangles, full ellipses/circles, polygons, polylines and lines use GPU geometry;
   ordered groups, affine transforms and inverse hit testing retain editable
   nested text-frame identity. Images and native shaped text use those transforms.

@@ -32,6 +32,7 @@ public:
     void load(const Text& path);
     void save(const Text& path);
     void set_entry(const Text& name, const Bytes& data, const Text& mediaType);
+    void validate_archive_limits() const;
     XmlElement body() const;
     std::vector<ArchivePartChange> part_changes_from(const OdfPackage&) const;
     // Validates every source part before atomically replaying the changes.

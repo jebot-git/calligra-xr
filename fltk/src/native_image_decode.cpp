@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_image_decode.h"
+#include "native_image_input.h"
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "odf_package.h"
 #include <FL/Fl_BMP_Image.H>
 #include <FL/Fl_GIF_Image.H>
@@ -125,5 +130,89 @@ bool image_is_vector(const Bytes &data) {
   return !(data.startsWith("\x89PNG") || data.startsWith("\xff\xd8") ||
            data.startsWith("BM") || data.startsWith("GIF87a") ||
            data.startsWith("GIF89a"));
+}
+NativeImageInput prepare_image_input(Bytes bytes) {
+  if (bytes.empty() || bytes.size() > 16 * 1024 * 1024)
+    throw std::runtime_error("Choose an image no larger than 16 MiB");
+  DecodeLimit limit;
+  Text media, extension;
+  std::unique_ptr<Fl_RGB_Image> image;
+  if (bytes.startsWith("\x89PNG")) {
+    media = "image/png";
+    extension = "png";
+  } else if (bytes.startsWith("\xff\xd8")) {
+    media = "image/jpeg";
+    extension = "jpg";
+  } else if (bytes.startsWith("BM")) {
+    media = "image/bmp";
+    extension = "bmp";
+  } else if (bytes.startsWith("GIF87a") || bytes.startsWith("GIF89a")) {
+    media = "image/gif";
+    extension = "gif";
+  }
+  int width = 0, height = 0;
+  if (!media.empty()) {
+    image = decode_image(bytes, 1, 1);
+    if (image) {
+      width = image->w();
+      height = image->h();
+    }
+    if (!image || image->fail() || width <= 0 || height <= 0 || width > 4000 ||
+        height > 4000 || uint64_t(width) * height > 16000000 || !image->array)
+      throw std::runtime_error(
+          "The image is damaged or exceeds the native pixel limit");
+  } else {
+    auto svg = svg_data(bytes);
+    if (!svg)
+      throw std::runtime_error(
+          "Choose a valid PNG, JPEG, SVG, GIF or BMP image");
+    auto vector = std::make_unique<Fl_SVG_Image>(
+        nullptr, reinterpret_cast<const unsigned char *>(svg->data()),
+        svg->size());
+    width = vector->w();
+    height = vector->h();
+    if (vector->fail() || width <= 0 || height <= 0)
+      throw std::runtime_error("The SVG image has no usable dimensions");
+    // Validate rendering at a bounded resolution, retaining original vector
+    // bytes.
+    vector->proportional = false;
+    vector->resize(64, 64);
+    vector->normalize();
+    if (vector->fail() || !vector->array)
+      throw std::runtime_error("The SVG image cannot be rendered");
+    media = "image/svg+xml";
+    extension = "svg";
+  }
+  return NativeImageInput(std::move(bytes), media, extension, width, height);
+}
+NativeImageInput load_image_input(const Text &path) {
+  int fd = ::open(path.toUtf8().c_str(), O_RDONLY | O_CLOEXEC | O_NONBLOCK);
+  if (fd < 0)
+    throw std::runtime_error("Cannot open the selected image");
+  struct Close {
+    int fd;
+    ~Close() { ::close(fd); }
+  } close{fd};
+  struct stat info;
+  if (::fstat(fd, &info) || !S_ISREG(info.st_mode) || info.st_size <= 0 ||
+      info.st_size > 16 * 1024 * 1024)
+    throw std::runtime_error(
+        "Choose a regular image file no larger than 16 MiB");
+  Bytes bytes;
+  char buffer[8192];
+  for (;;) {
+    auto n = ::read(fd, buffer, sizeof buffer);
+    if (n < 0) {
+      if (errno == EINTR)
+        continue;
+      throw std::runtime_error("Cannot read the selected image");
+    }
+    if (!n)
+      break;
+    if (bytes.size() + size_t(n) > 16 * 1024 * 1024)
+      throw std::runtime_error("The image exceeds 16 MiB");
+    bytes.append(buffer, size_t(n));
+  }
+  return prepare_image_input(std::move(bytes));
 }
 } // namespace DomeOffice

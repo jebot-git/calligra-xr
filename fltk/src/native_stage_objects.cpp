@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
 #include "native_stage_source.h"
+#include "native_image_input.h"
+#include "native_image.h"
 #include <cmath>
 #include <limits>
 #include <set>
@@ -55,6 +57,7 @@ void geometry(NativeShapeKind kind, SceneRect rect, const Text &text) {
   case NativeShapeKind::Ellipse:
   case NativeShapeKind::Line:
   case NativeShapeKind::TextBox:
+  case NativeShapeKind::Image:
     break;
   default:
     fail("Unsupported shape kind");
@@ -141,20 +144,10 @@ void external_references(XmlElement root, XmlElement removed,
       },
       removed);
 }
-} // namespace
-PresentationPosition Presentation::insert_shape(int slide_index,
-                                                NativeShapeKind kind,
-                                                SceneRect rect,
-                                                const Text &text,
-                                                PresentationPosition previous) {
-  geometry(kind, rect, text);
-  finish_handle_drag();
-  end_text_edit();
-  if (read_only())
-    fail("This presentation is read-only");
-  (void)scene(slide_index);
-  auto before = package_.xml.toByteArray();
-  auto candidate = read_document_xml(before);
+Text append_shape(OdfPackage &package, int slide_index, NativeShapeKind kind,
+                  SceneRect rect, const Text &text, const Text &image_path = {},
+                  const NativeImageInput *image = nullptr) {
+  auto &candidate = package.xml;
   auto root = candidate.documentElement();
   auto body = child(child(root, OFFICE, "body"), OFFICE, "presentation");
   auto page = children(body, DRAW, "page").at(slide_index);
@@ -185,7 +178,7 @@ PresentationPosition Presentation::insert_shape(int slide_index,
     }
   };
   walk(root, collect);
-  auto styles = package_.entry("styles.xml");
+  auto styles = package.entry("styles.xml");
   if (!styles.empty())
     walk(read_document_xml(styles).documentElement(), collect);
   auto object_name = unique(names, "NativeObject");
@@ -210,7 +203,8 @@ PresentationPosition Presentation::insert_shape(int slide_index,
   style.setAttributeNS(STYLE, "style:name", style_name);
   style.setAttributeNS(STYLE, "style:family", "graphic");
   auto paint = candidate.createElementNS(STYLE, "style:graphic-properties");
-  bool frame = kind == NativeShapeKind::TextBox,
+  bool frame =
+           kind == NativeShapeKind::TextBox || kind == NativeShapeKind::Image,
        line = kind == NativeShapeKind::Line;
   paint.setAttributeNS(DRAW, "draw:fill", frame || line ? "none" : "solid");
   if (!frame && !line)
@@ -221,7 +215,7 @@ PresentationPosition Presentation::insert_shape(int slide_index,
     paint.setAttributeNS(SVG, "svg:stroke-width", "1pt");
   }
   style.appendChild(paint);
-  if (!line) {
+  if (!line && !image) {
     auto font = candidate.createElementNS(STYLE, "style:text-properties");
     font.setAttributeNS(FO, "fo:font-size", "18pt");
     font.setAttributeNS(FO, "fo:color", "#000000");
@@ -248,7 +242,16 @@ PresentationPosition Presentation::insert_shape(int slide_index,
     shape.setAttributeNS(SVG, "svg:width", pt(rect.width));
     shape.setAttributeNS(SVG, "svg:height", pt(rect.height));
   }
-  if (!line) {
+  if (image) {
+    shape.setAttributeNS(PRESENTATION, "presentation:user-transformed", "true");
+    auto child = candidate.createElementNS(DRAW, "draw:image");
+    child.setAttributeNS(XLINK, "xlink:href", image_path);
+    child.setAttributeNS(XLINK, "xlink:type", "simple");
+    child.setAttributeNS(XLINK, "xlink:show", "embed");
+    child.setAttributeNS(XLINK, "xlink:actuate", "onLoad");
+    // ODF 1.2 stores the image media type in the package manifest.
+    shape.appendChild(child);
+  } else if (!line) {
     auto box = shape;
     if (frame) {
       shape.setAttributeNS(PRESENTATION, "presentation:user-transformed",
@@ -268,16 +271,97 @@ PresentationPosition Presentation::insert_shape(int slide_index,
     page.setAttributeNS(DRAW, "draw:nav-order",
                         order.empty() ? identifier : order + " " + identifier);
   }
-  restore_content(candidate.toByteArray());
-  const auto &model = scene(slide_index);
-  for (size_t i = 0; i < model.shapes.size(); ++i)
-    if (!model.shapes[i].master && model.shapes[i].name == object_name) {
-      PresentationPosition next{slide_index, model.shapes[i].editor_index,
-                                int(i)};
-      remember(before, previous, next);
-      return next;
+  return object_name;
+}
+Text image_path(const OdfPackage &package, const NativeImageInput &image) {
+  std::set<Text> referenced;
+  auto collect = [&](XmlElement element) {
+    for (const auto &attr : element.attributes())
+      if (attr.uri == XLINK &&
+          attr.name.mid(attr.name.indexOf(':') + 1) == "href")
+        if (auto path = package_image_path(attr.value))
+          referenced.insert(*path);
+  };
+  walk(package.xml.documentElement(), collect);
+  if (!package.entry("styles.xml").empty())
+    walk(read_document_xml(package.entry("styles.xml")).documentElement(),
+         collect);
+  const Text MANIFEST = "urn:oasis:names:tc:opendocument:xmlns:manifest:1.0";
+  auto manifest = read_document_xml(package.entry("META-INF/manifest.xml"));
+  for (auto entry :
+       children(manifest.documentElement(), MANIFEST, "file-entry"))
+    if (auto path =
+            package_image_path(entry.attributeNS(MANIFEST, "full-path")))
+      referenced.insert(*path);
+  for (size_t n = 1; n <= 1000001; ++n) {
+    auto name =
+        "Pictures/native-image-" + Text::number(n) + "." + image.extension();
+    if (!referenced.contains(name) && !package.entry_data(name))
+      return name;
+  }
+  fail("Presentation image name limit exceeded");
+}
+} // namespace
+PresentationPosition
+Presentation::commit_insert(OdfPackage candidate, const Text &name,
+                            int slide_index, PresentationPosition previous) {
+  candidate.validate_archive_limits();
+  auto reader = std::make_shared<OdfTextReader>(candidate);
+  auto scenes = read_presentation_scenes(candidate, reader);
+  PresentationPosition next{slide_index, -1, -1};
+  const auto &shapes = scenes.at(slide_index).shapes;
+  for (size_t i = 0; i < shapes.size(); ++i)
+    if (!shapes[i].master && shapes[i].name == name) {
+      next.box = shapes[i].editor_index;
+      next.shape = int(i);
+      break;
     }
-  fail("Inserted shape has no native scene");
+  if (next.shape < 0)
+    fail("Inserted shape has no native scene");
+  auto before = package_.xml.toByteArray();
+  auto parts = candidate.part_changes_from(package_);
+  package_ = std::move(candidate);
+  scenes_ = std::move(scenes);
+  text_reader_ = std::move(reader);
+  ++revision_;
+  remember(before, previous, next, false, std::move(parts));
+  return next;
+}
+PresentationPosition Presentation::insert_shape(int slide_index,
+                                                NativeShapeKind kind,
+                                                SceneRect rect,
+                                                const Text &text,
+                                                PresentationPosition previous) {
+  if (kind == NativeShapeKind::Image)
+    fail("Choose an image to insert");
+  geometry(kind, rect, text);
+  finish_handle_drag();
+  end_text_edit();
+  if (read_only())
+    fail("This presentation is read-only");
+  (void)scene(slide_index);
+  auto candidate = package_;
+  candidate.xml = read_document_xml(package_.xml.toByteArray());
+  auto name = append_shape(candidate, slide_index, kind, rect, text);
+  return commit_insert(std::move(candidate), name, slide_index, previous);
+}
+PresentationPosition Presentation::insert_image(int slide_index,
+                                                const NativeImageInput &image,
+                                                SceneRect rect,
+                                                PresentationPosition previous) {
+  geometry(NativeShapeKind::Image, rect, {});
+  finish_handle_drag();
+  end_text_edit();
+  if (read_only())
+    fail("This presentation is read-only");
+  (void)scene(slide_index);
+  auto candidate = package_;
+  candidate.xml = read_document_xml(package_.xml.toByteArray());
+  auto path = image_path(candidate, image);
+  candidate.set_entry(path, image.data(), image.media_type());
+  auto name = append_shape(candidate, slide_index, NativeShapeKind::Image, rect,
+                           {}, path, &image);
+  return commit_insert(std::move(candidate), name, slide_index, previous);
 }
 PresentationPosition Presentation::remove_shape(int slide_index,
                                                 int shape_index) {

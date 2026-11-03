@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_limits.h"
 #include "native_print.h"
+#include "native_image_input.h"
 #include "print_dialog.h"
 #include "format_dialog.h"
 #include "suite/desktop-menu.h"
@@ -74,6 +75,7 @@ enum Command {
     InsertEllipse,
     InsertLine,
     InsertTextBox,
+    InsertImage,
     DeleteObject,
     ObjectGeometry,
     Present,
@@ -458,6 +460,7 @@ public:
             add("&Insert/&Ellipse", 0, InsertEllipse);
             add("&Insert/&Line", 0, InsertLine);
             add("&Insert/&Text box", 0, InsertTextBox);
+            add("&Insert/&Image…", 0, InsertImage);
             add("&Edit/Delete &object", 0, DeleteObject);
             add("&Format/&Position and size…", 0, ObjectGeometry);
             add("&Slide/&Add slide", FL_CTRL + 'm', AddSlide);
@@ -1027,6 +1030,36 @@ public:
         title();
         sync_pages();
     }
+    void stage_image()
+    {
+        if (kind != Kind::Stage) return;
+        if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
+        if (readonly()) throw std::runtime_error("This presentation is read-only");
+        commit_text();
+        formatting_dialog = true;
+        std::optional<NativeImageInput> image;
+        try {
+            if (auto* path = fl_file_chooser("Insert image", "*.{png,jpg,jpeg,svg,gif,bmp,PNG,JPG,JPEG,SVG,GIF,BMP}", nullptr))
+                image = load_image_input(qs(path));
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        if (!image) return;
+        const auto& scene = stage->scene(slide);
+        // Natural image pixels use 96 dpi; fit larger images inside the slide.
+        double width = image->width() * .75, height = image->height() * .75;
+        double scale = std::min({ 1., scene.width * .8 / width, scene.height * .8 / height });
+        width *= scale;
+        height *= scale;
+        SceneRect rect { (scene.width - width) / 2, (scene.height - height) / 2, width, height };
+        auto position = stage->insert_image(slide, *image, rect,
+            { slide, box, canvas->selected_shape });
+        refresh_stage(position.shape);
+        modified = stage->modified();
+        title();
+    }
     void stage_geometry()
     {
         if (kind != Kind::Stage) return;
@@ -1060,7 +1093,9 @@ public:
         office->queued_format = 0;
         if (office->window.shown())
             office->guard([&] {
-                if (action == ObjectGeometry)
+                if (action == InsertImage)
+                    office->stage_image();
+                else if (action == ObjectGeometry)
                     office->stage_geometry();
                 else if (action == RowBefore || action == RowAfter || action == DeleteRow || action == ColumnBefore || action == ColumnAfter || action == DeleteColumn || action == MergeCells || action == SplitCell || action == SubdivideCell || action == CellFormat || action == TableSizing)
                     office->word_grid(action);
@@ -1939,7 +1974,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == ObjectGeometry || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
+            } else if (c == InsertImage || c == ObjectGeometry || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);

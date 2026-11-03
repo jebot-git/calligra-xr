@@ -1,18 +1,21 @@
 # Native engine milestone — 2026-10-29
 
-The user-defined acceptance baseline is now **OpenDocument export and CUPS
-printing** for the Qt-free system-FLTK applications. Full upstream functional
-parity is optional future work. Save/Save as and batch export write ODT/ODS/ODP;
-a native PDF print backend and FLTK CUPS dialog cover all three applications.
-Words prints native pages, Stage prints slide scenes, and Sheets prints a
-paginated calculated-value grid with all/current worksheet selection. Copies,
-page ranges, cancellation and CUPS submission errors have explicit handling.
-That baseline remains the minimum acceptance floor. The current implementation
-priority is **Stage**, following the user's 2026-11-03 steering and installation
-and independent verification of Sheets context build 930f2cc. Words remains paused at its rudimentary
-compliance milestone; further Sheets catalogue work waits. Historical increment
-entries below retain their priorities at the time. The remaining-work inventory records the unfinished scope; the baseline
-does not imply that Words or the full suite is finished.
+The current functionality baseline is **ODF 1.2 document semantics and
+OpenFormula, plus CUPS printing**, following the user's 2026-11-03 steering.
+The earlier export/printing milestone remains verified on selected fixtures;
+the broader ODF 1.2 functionality target is incomplete. See
+[ODF12_BASELINE.json](ODF12_BASELINE.json) for the initial area inventory and
+completion evidence requirements. It still needs decomposition into individual
+normative behaviors. Schema-valid XML, preserved package bytes and recognized
+function names each provide separate evidence; they do not establish functional
+coverage. Native document semantics, editing, rendering, save/reopen and printed
+output need feature-appropriate independent checks.
+
+Stage remains the active implementation priority. Words is paused at its prior
+rudimentary milestone; its experimental column worktree stays preserved and
+uninstalled. Further Sheets catalogue/settings work waits. The installed geometry
+build is fa12ec5; subsequent source/build/stage/installation claims require their
+own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
 styled paragraph splits/joins in the body, sections and individual table cells,
@@ -259,7 +262,8 @@ page-column worktree is uninstalled and preserved.
 
 1. Work on native Stage layout/editing, preserving OpenDocument export and CUPS
    printing. Native movement and primitive/text creation/deletion are available;
-   resize/rotate, image insertion and stacking/group tools remain unfinished.
+   numeric position/size/rotation is installed; image insertion is being verified,
+   and drag resize/rotation and stacking/group tools remain unfinished.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1172,3 +1176,64 @@ CUPS jobs cover thirteen pages: original/edited Stage exports reopen identically
 and all nine suite baseline pages match the preceding reviewed build. The
 optimized stage checks 29 artifacts, matching Release sections, system FLTK
 and no Qt/GTK ELF linkage. The installed build requires its own receipt.
+
+
+## ODF 1.2 baseline and embedded Stage images — 2026-11-03
+
+New native ODT/ODS/ODP documents now declare version 1.2 for content/styles and
+manifest. Editing existing 1.3/1.4 documents retains their source versions. The
+explicit first-page-story operation still upgrades the necessary XML to 1.3;
+its test now checks the exact version-only content change and original-source
+isolation. New images use the ODF 1.2 image element attributes and package
+manifest media type. The earlier draw:mime-type-on-image output was reproduced
+as invalid against the official 1.2 schema and corrected.
+
+The native Stage image value validates PNG/JPEG/SVG/GIF/BMP encoded data through
+the shared bounded decoder. Local files are regular, at most 16 MiB; supported
+raster images retain the existing pixel limits. SVG validation rasterizes at a
+bounded probe size and stores the original vector bytes. The Image menu opens
+an FLTK chooser and embeds the original bytes, fitting the intrinsic aspect
+ratio inside the slide. New names reserve existing archive parts, manifest paths
+and unresolved content/styles references to avoid changing other objects.
+The image frame has explicit portable graphic properties, XML identity and
+navigation order. Package quotas are checked before committing any state.
+
+Stage history now includes non-content archive byte changes alongside exact
+content XML. Undo of insertion removes its new image and restores the original
+manifest bytes; redo restores them. Ordinary image deletion retains archive
+assets for other references. Text-only events share immutable image data and
+skip archive comparisons; merge boundaries and the history byte budget include
+asset changes. Candidate scenes and all replayed parts validate before live
+replacement. Mixed image/text/movement/delete history, saved points, branching,
+missing references, signed files and package/history limits have native checks.
+
+The ODF 1.2 function census is separate from retained Calligra registrations:
+312 of 392 Part 2 function signatures are available, with 80 missing. This does
+not measure numerical, type, reference or settings conformance. OpenFormula
+1.2 functions and behaviors take priority over later-version/vendor extensions
+when Sheets work resumes. The initial package checker covers manifest schema,
+mimetype layout, ZIP integrity/compression and manifest/file correspondence;
+full encrypted/signature/RDF/package and consumer/producer conformance remain
+unfinished. All functional coverage beyond proven cases remains open.
+
+
+The final increment passes 73 selected Release and 73 ASan/UBSan suites, retaining
+the three existing outline-font exclusions. Real native Wayland tests exercise
+the FLTK image chooser, cancel/redo preservation, GPU decoding, movement,
+deletion, save/reopen and archive preservation in both builds. GUI leak detection
+stays enabled with the existing narrowly scoped system Fontconfig/Mesa startup
+cache suppressions. Ten private CUPS jobs cover 23 reviewed pages, including all
+five inserted image formats. Reopened pages match exactly; all nine suite
+baseline pages match the installed geometry build.
+
+Forty-six packages pass version-matched content/styles schemas. Forty-three
+selected packages pass the ODF 1.2 manifest schema and implemented Part 3
+checks; the three original legacy print inputs lacking manifest versions are
+separate from their repaired exports. Eight malformed package controls are
+rejected. Three actual application exports repair missing manifest versions
+while retaining unrelated XML and archive data. The repair is serialization-only:
+original in-memory manifest bytes remain available to exact history replay.
+Newly generated ODF fixtures include the required manifest version. Thirty
+staged artifacts include the installed initial coverage inventory; optimized
+Release sections and system-FLTK/no-Qt/GTK ELF linkage are verified. Installation
+requires a separate installed receipt. Full ODF 1.2 functionality remains open.

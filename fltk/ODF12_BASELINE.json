@@ -1,0 +1,186 @@
+{
+  "target": "ODF1.2 specification functionality baseline plus CUPS printing",
+  "user_steering_date": "2026-11-03",
+  "priority": "Stage active; Words paused and columns preserved; further Sheets catalogue work waits",
+  "sources": [
+    {
+      "part": 1,
+      "url": "https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html"
+    },
+    {
+      "part": 2,
+      "url": "https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part2.html"
+    },
+    {
+      "part": 3,
+      "url": "https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part3.html"
+    }
+  ],
+  "completion_rule": "Each feature requires relevant read/render/edit/save/reopen, semantic or visual oracle, and CUPS evidence where meaningful. Schema validity, byte retention, signature recognition and upstream name counts are separate evidence and cannot close a functional requirement.",
+  "version_policy": "Default new native documents to1.2; preserve newer source versions. Explicit optional operations needing newer syntax retain their established version upgrade behavior. Missing manifest versions are repaired to1.2 in serialized exports while exact edit-source manifest bytes remain available to history.",
+  "coverage_exhaustive": false,
+  "coverage_note": "Initial area inventory; decompose into normative element/attribute/behavior requirements before a full conformance/completion claim.",
+  "areas": [
+    {
+      "id": "package",
+      "reference": "Part3 \u00a72\u20134",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "ZIP/package preservation and archive-part undo exist; plain-package and manifest gates added.",
+      "remaining": "Encrypted packages, signature verification/writing, RDF/package metadata semantics, flat XML and broader package cases remain."
+    },
+    {
+      "id": "versions",
+      "reference": "Part1 \u00a72\u20133",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "New native ODT/ODS/ODP use1.2;1.3/1.4 source versions retained by editing tests.",
+      "remaining": "Template and additional ODF document kinds, explicit export-version policy and full consumer/producer implementation-defined documentation remain."
+    },
+    {
+      "id": "text",
+      "reference": "Part1 \u00a75\u20136,16\u201320",
+      "components": [
+        "Words",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Native paragraphs/runs/styles, shaping/bidi, lists, tabs and editing/history.",
+      "remaining": "Complete text/frame/anchor layout, section/column flow, vertical/ruby/embedded/color fonts and broader editing behavior remain."
+    },
+    {
+      "id": "fields-indexes",
+      "reference": "Part1 \u00a77\u20138",
+      "components": [
+        "Words",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Words page number/count fields in page stories work.",
+      "remaining": "General variables/references/notes, generated indexes/TOC, tracked changes and field editing/layout remain."
+    },
+    {
+      "id": "tables",
+      "reference": "Part1 \u00a79,17",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Words structural tables/merged/nested cells and sizing; Stage table rendering; Sheets native cells/arrays/references.",
+      "remaining": "Full styles/borders/number formats, structural formula rewrites, table editing in Stage, and spreadsheet range/merge/row/column tools remain."
+    },
+    {
+      "id": "formula",
+      "reference": "Part2 \u00a72\u20136",
+      "components": [
+        "Sheets"
+      ],
+      "status": "partial",
+      "evidence": "OpenFormula-specific signature census finds312/392 available and80 missing; existing numerical/type/reference corpora provide function-specific evidence.",
+      "remaining": "All required function semantics, operators/reference intersections/3D, settings, named-expression/locale behavior and explicit evaluator-group conformance remain."
+    },
+    {
+      "id": "drawing",
+      "reference": "Part1 \u00a710",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Stage shapes, transforms, paths, masters, editable text and basic images; embedded image insertion under verification.",
+      "remaining": "Complete connectors/groups/stacking, custom geometry, fills/strokes, charts/3D/OLE/embedded content, Word anchors and authoring tools remain."
+    },
+    {
+      "id": "presentation",
+      "reference": "Part1 \u00a710,15",
+      "components": [
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Basic slides, masters, scene editing and presentation navigation.",
+      "remaining": "Placeholder/theme/notes/settings fidelity, transitions, timing, animation/media and presentation authoring remain."
+    },
+    {
+      "id": "charts",
+      "reference": "Part1 \u00a711",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "unsupported",
+      "evidence": "Opaque original package parts may be retained.",
+      "remaining": "Native chart models/rendering/editing, references and chart ODF round trips remain."
+    },
+    {
+      "id": "forms-database",
+      "reference": "Part1 \u00a712\u201313",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "unsupported",
+      "evidence": "Opaque source retention is not functional support.",
+      "remaining": "Native form controls/database bindings and standalone ODB support remain."
+    },
+    {
+      "id": "scripts-events",
+      "reference": "Part1 \u00a714",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Some event/link references guard destructive edits; unknown source stays retained.",
+      "remaining": "General event/link semantics and a declared safe execution/support policy remain; scripting language behavior is implementation-defined."
+    },
+    {
+      "id": "metadata",
+      "reference": "Part1 \u00a74",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "Unchanged original XML/archive metadata is retained.",
+      "remaining": "Native metadata/RDF semantics and editing controls remain unverified/incomplete."
+    },
+    {
+      "id": "standalone-kinds",
+      "reference": "Part1 \u00a72,3",
+      "components": [
+        "Karbon",
+        "other suite components"
+      ],
+      "status": "unsupported",
+      "evidence": "Native installation currently contains Words/Sheets/Stage.",
+      "remaining": "Native ODG, ODC, ODF formula, image/database and template workflows remain unimplemented or unverified; retained Qt apps do not count as native completion."
+    },
+    {
+      "id": "printing-interop",
+      "reference": "cross-cutting",
+      "components": [
+        "Words",
+        "Sheets",
+        "Stage"
+      ],
+      "status": "partial",
+      "evidence": "OpenDocument export/reopen and model-driven PDF/CUPS checks cover selected fixtures.",
+      "remaining": "Per-feature semantic/visual interoperability corpus, physical printing, large files, accessibility and XR/input breadth remain."
+    }
+  ]
+}
