@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--wayland", action="store_true")
 parser.add_argument(
-    "--suite", choices=("criteria", "order", "moments"), default="criteria"
+    "--suite", choices=("criteria", "order", "moments", "paired"), default="criteria"
 )
 parser.add_argument("--bin-dir", type=Path, default=ROOT / "build-native/fltk")
 parser.add_argument(

@@ -21,7 +21,9 @@ def main():
     parser.add_argument("--test-bin-dir", type=Path, required=True)
     parser.add_argument("--edited", type=Path, required=True)
     parser.add_argument(
-        "--suite", choices=("criteria", "order", "moments"), default="criteria"
+        "--suite",
+        choices=("criteria", "order", "moments", "paired"),
+        default="criteria",
     )
     args = parser.parse_args()
     producer = importlib.import_module(args.suite + "_producer")

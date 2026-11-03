@@ -696,13 +696,34 @@ reference unions and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
---test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria` and `order`
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order` and `paired`
 are also supported. A test-only input helper, Cage's headless backend and nested
 DomeD provide private virtual keyboard/pointer input and render captures. The
 fixture uses no X server and never directs input to the user's desktop. It
 checks painted/calculated values, editing/history, native saved caches and
 save/reopen. The old Xvfb-based harness is retained for X11-enabled development
 systems. Neither input helper nor protocol test infrastructure is installed.
+
+Paired statistics include `CORREL`/`PEARSON`, `COVAR`/`COVARIANCE.P`,
+`COVARIANCE.S`, `SLOPE`, `INTERCEPT`, `RSQ`, `STEYX`, `FORECAST`/`FORECAST.LINEAR`
+and `SUMX2MY2`, `SUMX2PY2`, `SUMXMY2`/`SUM2XMY`. Dataset geometry must match in
+both dimensions. Corresponding positions are paired before filtering collection
+text, logical values and empty cells. Direct scalar parameters retain numeric
+coercion. Sparse/named/dynamic references and fixed matrices participate; errors
+and unavailable calculations propagate even beside a nonnumeric partner.
+FORECAST reference queries use implicit intersection outside array context;
+explicit array and matrix queries reuse the same dataset.
+
+The kernel decomposes finite binary64 values into integers and powers of two.
+Exact sums and products cancel before final quad-precision division/square root
+and storage as doubles, preserving small intercepts, zero residuals and tiny
+correlation datasets. Boost.Multiprecision headers are needed at build time;
+no additional runtime math library or UI toolkit is introduced. Collection and
+integer-work budgets preserve incomplete `#LIMIT!` provenance for excessive
+work. A standalone one-million-observation exact-regression benchmark takes
+about 0.09 seconds in the local Release build; this excludes workbook loading
+and rendering. Full multiple-regression/matrix functions and other statistical,
+database and calculation-model work remain unfinished.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

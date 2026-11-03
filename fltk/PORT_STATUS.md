@@ -869,3 +869,51 @@ Release stage verifies 29 artifacts, system FLTK and no Qt/GTK ELF linkage.
 Optional runtime decoration plugins remain separate from ELF dependencies.
 Words stays paused at rudimentary compliance, with its experimental columns
 preserved and uninstalled; Sheets remains active and Stage last.
+
+
+## Native Sheets paired statistics and linear regression — 2026-11-03
+
+The preceding higher-moments increment 173dadb is installed and independently
+verified. Paired statistics add eleven canonical functions and recognized
+aliases: CORREL/PEARSON, population/sample covariance, SLOPE, INTERCEPT, RSQ,
+STEYX, FORECAST/FORECAST.LINEAR, and the three pairwise square sums (including
+legacy SUM2XMY). The dispatch inventory covers 355 of 641 retained names, with
+286 remaining; this is catalogue coverage only. Distributions, full matrix
+regression (LINEST/TREND/GROWTH/LOGEST), database and remaining function groups,
+reference unions/omitted arguments and full settings/model fidelity remain open.
+
+Sparse traversal preserves positions across same-shaped datasets, rather than
+compacting each sequence independently. Direct scalar coercion differs from
+collection filtering. Nonnumeric partners do not hide errors or unavailable
+calculations. Named/dynamic references, fixed matrix results and array forecasts
+are supported. Scalar-context FORECAST range queries use implicit intersection.
+
+The kernel accumulates exact binary sums/products using header-only Boost
+Multiprecision integers. Integer cancellation precedes final quad-precision
+ratios/square roots and double storage, eliminating false large intercepts,
+residual cancellation and intermediate overflow/underflow. One million ordinary
+paired observations produce exact slope/intercept/zero residuals in ~0.087 sec
+in Release and ~0.780 sec under ASan, excluding workbook loading/rendering.
+Gathered positions and integer work are bounded; exhausted budgets preserve
+incomplete provenance. No Qt/GTK or new runtime math library is introduced.
+
+All 60 applicable Release and 60 ASan/UBSan suites pass (the same three outline-
+font exclusions remain under bitmap policy). Independent exact rational checks
+cover 1,100 cases. The selected paired corpus has 147 results: 124 agreeing
+caches, 19 native/Calc error labels, four independently resolved precision
+cases and no unavailable dependencies. Three covariance caches lose large-
+offset precision; one RSQ cache underflows to a false division-by-zero error.
+Raw inputs and simple power-of-ten input formulas are independently evaluated;
+original fixtures are unchanged. Paired support also makes the formerly
+unavailable LARGE result calculable and validates three additional helper cells
+in each of the older order and higher-moment corpora. Their earlier documented
+cache conventions and remaining parser/reference limits stay explicit.
+
+Release and ASan native Wayland tests pass editing/history, recalculation, raw
+saved caches, matrices, save/reopen and opaque-data preservation, using the
+private headless Cage/nested-DomeD fixture without an X server. Twenty-two
+generated packages pass ODF schemas. Five private CUPS jobs cover 21 pages;
+all reopen identically and all nine three-application baseline pages match the
+previous installed increment. The Release stage verifies 29 artifacts with
+system FLTK and no Qt/GTK ELF dependency. Words remains paused at its rudimentary
+milestone; experimental columns stay uninstalled, and Stage remains last.

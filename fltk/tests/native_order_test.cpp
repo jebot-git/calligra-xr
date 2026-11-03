@@ -96,7 +96,11 @@ int main(int argc, char **argv) {
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
               for (auto name :
-                   Text("SKEW SKEWP SKEW.P KURT KURTP TRIMMEAN STANDARDIZE "
+                   Text("CORREL PEARSON COVAR COVARIANCE.P COVARIANCE.S SLOPE "
+                        "INTERCEPT RSQ STEYX FORECAST FORECAST.LINEAR SUMX2MY2 "
+                        "SUMX2PY2 SUMXMY2 SUM2XMY COM.MICROSOFT.COVARIANCE.P "
+                        "COM.MICROSOFT.COVARIANCE.S "
+                        "SKEW SKEWP SKEW.P KURT KURTP TRIMMEAN STANDARDIZE "
                         "SMALL LARGE RANK RANK.EQ RANK.AVG MEDIAN MODE "
                         "MODE.SNGL MODE.MULT PERCENTILE PERCENTILE.INC "
                         "PERCENTILE.EXC PERCENTRANK PERCENTRANK.INC "

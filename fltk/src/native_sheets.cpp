@@ -6,6 +6,7 @@
 #include "native_financial.h"
 #include "native_statistics.h"
 #include "native_order.h"
+#include "native_paired.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -693,6 +694,7 @@ struct SheetEngine::Impl {
   Value evaluate_node(const Expr &e) const;
   Value function(const Expr &e) const;
   Value conditional(const Expr &e, const Text &name, bool array_caller) const;
+  Value paired(const Expr &e, const Text &name, bool array_caller) const;
 };
 std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
   auto expr = expanded(source);
@@ -1057,9 +1059,123 @@ Value SheetEngine::Impl::conditional(const Expr &e, const Text &name,
       results.push_back(compute(r, c));
   return Value::array(result_rows, result_columns, std::move(results));
 }
+Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
+                                bool array_caller) const {
+  struct Input {
+    Area geometry;
+    std::optional<Value> data;
+  };
+  auto input = [&](size_t i) -> Input {
+    if (auto region = area(e->args[i]))
+      return {*region, {}};
+    auto v = evaluate(e->args[i]);
+    if (v.isError())
+      throw v;
+    Area shape{0, 0, 0, int(v.isArray() ? v.rows : 1),
+               int(v.isArray() ? v.columns : 1)};
+    return {shape, std::move(v)};
+  };
+  size_t first = name == "FORECAST" ? 1 : 0;
+  Input a = input(first), b = input(first + 1);
+  const auto &shape = a.geometry;
+  if (shape.rows != b.geometry.rows || shape.columns != b.geometry.columns)
+    return error("#N/A");
+  size_t steps = 0;
+  auto charge = [&] {
+    if (++steps > 50'000'000)
+      throw error("#LIMIT!");
+  };
+  std::set<size_t> offsets;
+  auto collect = [&](const Input &source) {
+    const auto &region = source.geometry;
+    if (source.data) {
+      for (size_t row = 0; row < size_t(region.rows); ++row)
+        for (size_t column = 0; column < size_t(region.columns); ++column) {
+          charge();
+          if (source.data->at(row, column).kind != Value::Empty)
+            offsets.insert(row * shape.columns + column);
+        }
+    } else {
+      int bottom = region.row + region.rows - 1;
+      auto cell = cells.lower_bound({region.sheet, region.row, 0});
+      auto matrix = matrix_owners.lower_bound({region.sheet, region.row, 0});
+      auto eligible = [&](auto iterator, const auto &map) {
+        return iterator != map.end() &&
+               std::get<0>(iterator->first) == region.sheet &&
+               std::get<1>(iterator->first) <= bottom;
+      };
+      while (eligible(cell, cells) || eligible(matrix, matrix_owners)) {
+        charge();
+        Address position;
+        if (!eligible(matrix, matrix_owners) ||
+            (eligible(cell, cells) && cell->first < matrix->first)) {
+          position = cell->first;
+          ++cell;
+        } else if (!eligible(cell, cells) || matrix->first < cell->first) {
+          position = matrix->first;
+          ++matrix;
+        } else {
+          position = cell->first;
+          ++cell;
+          ++matrix;
+        }
+        int column = std::get<2>(position);
+        if (column >= region.column && column < region.column + region.columns)
+          offsets.insert(size_t(std::get<1>(position) - region.row) *
+                             shape.columns +
+                         column - region.column);
+        if (offsets.size() > 1'000'000)
+          throw error("#LIMIT!");
+      }
+    }
+    if (offsets.size() > 1'000'000)
+      throw error("#LIMIT!");
+  };
+  collect(a);
+  collect(b);
+  auto read = [&](const Input &source, size_t offset) {
+    charge();
+    size_t row = offset / shape.columns, column = offset % shape.columns;
+    auto v = source.data
+                 ? source.data->at(row, column)
+                 : value({source.geometry.sheet, source.geometry.row + int(row),
+                          source.geometry.column + int(column)})
+                       .scalar();
+    calculation_incomplete = calculation_incomplete || v.incomplete;
+    if (v.isError())
+      throw v;
+    if (source.data && !source.data->isArray() && v.kind != Value::Empty &&
+        !v.isNumber())
+      return Value::numeric(number(v));
+    return v;
+  };
+  std::vector<std::pair<double, double>> values;
+  values.reserve(offsets.size());
+  for (size_t offset : offsets) {
+    // Read both coordinates before filtering: errors/unavailable calculations
+    // cannot be hidden by a text, logical or absent partner. Pair by position,
+    // never by separately compacting each input sequence.
+    auto x = read(a, offset), y = read(b, offset);
+    if (x.isNumber() && y.isNumber())
+      values.emplace_back(x.number, y.number);
+  }
+  NativePairedData data(std::move(values));
+  if (name != "FORECAST")
+    return data.evaluate(name);
+  Value query;
+  if (auto region = area(e->args[0]);
+      region && region->size() != 1 && !array_caller)
+    query = intersect(*region);
+  else
+    query = evaluate(e->args[0]);
+  calculation_incomplete = calculation_incomplete || query.incomplete;
+  return map_values(query, Value(), [&](const Value &q, const Value &) {
+    return data.evaluate(name, q);
+  });
+}
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = statistics_name(order_name(conditional_name(
-      calendar_name(financial_name(engineering_name(e->name))))));
+  const auto name = paired_name(statistics_name(order_name(conditional_name(
+      calendar_name(financial_name(engineering_name(e->name)))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1104,6 +1220,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : conditional_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : paired_signatures())
+      out[name] = arity;
     for (const auto &[name, arity] : order_signatures())
       out[name] = arity;
     return out;
@@ -1133,7 +1251,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
                              array_context || accepts_arrays.contains(name) ||
                                  conditional_function(name) ||
                                  order_signatures().contains(name) ||
-                                 statistics_signatures().contains(name));
+                                 statistics_signatures().contains(name) ||
+                                 paired_signatures().contains(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1242,6 +1361,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
 
   if (conditional_function(name))
     return conditional(e, name, caller_array_context);
+  if (paired_signatures().contains(name))
+    return paired(e, name, caller_array_context);
   if (order_signatures().contains(name)) {
     bool mode = name.startsWith("MODE") || name == "MEDIAN";
     size_t data_argument = name.startsWith("RANK") ? 1 : 0;

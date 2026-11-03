@@ -21,7 +21,9 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("--suite", choices=("criteria", "order", "moments"), required=True)
+parser.add_argument(
+    "--suite", choices=("criteria", "order", "moments", "paired"), required=True
+)
 parser.add_argument("--bin-dir", type=Path, required=True)
 parser.add_argument("--test-bin-dir", type=Path, required=True)
 parser.add_argument("--artifacts", type=Path, required=True)

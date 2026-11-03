@@ -209,7 +209,7 @@ def main():
     }
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     assert (
-        len(rows) == 149 and len(unavailable) == 1 and len(precision_differences) == 2
+        len(rows) == 152 and len(unavailable) == 1 and len(precision_differences) == 2
     )
     assert not failures, failures[:10]
     print(
