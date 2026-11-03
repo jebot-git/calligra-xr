@@ -356,7 +356,7 @@ struct SlideCanvas::Impl {
       }
       if (!shape.image.empty())
         pictures.draw(shape.raster, transform, shape.width, shape.height,
-                      *window, {}, shape.paint.fill_color.alpha);
+                      *window, {}, shape.paint.image_opacity);
       if (!cached.text.lines.empty() || !cached.text.paints.empty()) {
         glPushAttrib(GL_ENABLE_BIT | GL_TRANSFORM_BIT);
         SceneTransform origin;

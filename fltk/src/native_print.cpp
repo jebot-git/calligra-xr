@@ -430,7 +430,7 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
       }
       if (!shape.image.empty())
         pdf.image(shape.raster, shape.width, shape.height,
-                  shape.paint.fill_color.alpha);
+                  shape.paint.image_opacity);
       auto area =
           shape.text_area.value_or(SceneRect{0, 0, shape.width, shape.height});
       double width =

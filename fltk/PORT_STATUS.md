@@ -265,7 +265,9 @@ page-column worktree is uninstalled and preserved.
    numeric position/size/rotation and embedded images are installed; richer text
    formatting, direct resize/rotation, stacking and group/selection tools are installed.
    Layer visibility/protection and separate screen/print scenes are installed.
-   Transactional layer editing is the current increment; broader drawing/clipboard tools follow.
+   Transactional layer editing awaits installation. The current paint increment
+   separates image and fill opacity after withdrawing the earlier coupled build;
+   broader drawing/clipboard tools follow.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1537,8 +1539,34 @@ pixel oracle retains the mathematically expected page composite; the desktop
 background must not affect the document color. Reference:
 https://registry.khronos.org/OpenGL-Refpages/gl4/html/glBlendFuncSeparate.xhtml.
 
-Uniform frame/image opacity now multiplies the encoded image's intrinsic alpha
-in native GPU rendering and PDF/CUPS output. It does not rewrite image bytes or
-substitute a flattened raster. The independent corpus contains an RGBA image
-with partial intrinsic transparency and checks both the original composite and
-an additional 50% ODF opacity, alongside unchanged archive assets.
+Image transparency uses `draw:image-opacity`, independently of the frame fill's
+`draw:opacity`. The encoded image's intrinsic alpha is multiplied by image opacity
+in native GPU rendering and PDF/CUPS output. Image bytes are retained. The
+previous 676f0db stage coupled image transparency to fill opacity; its queued
+installation was withdrawn before it ran after the specification/upstream audit.
+The corrected corpus keeps a nontrivial fill opacity on image frames so the
+old coupling cannot satisfy the image-opacity oracle.
+
+## Independent ODF image opacity — 2026-11-03
+
+ODF1.2 Part1 section20.133 defines image opacity separately from fill opacity in
+section20.145. Upstream Calligra PictureShape and LibreOffice's graphic-property
+mapping also keep the two values separate. Native scenes now retain an independent
+image opacity with an opaque default. Common, automatic, presentation and master
+style parsing use the same scoped cascade as other graphic properties. Fill-only
+changes do not fade image content. Encoded alpha and image opacity combine in
+GPU preview and PDF/CUPS output; a separately painted frame background retains
+its own fill opacity. Opacity gradients remain unsupported and now produce an
+explicit diagnostic rather than being silently treated as uniform opacity.
+
+The native paint panel exposes a separate Image opacity control and disables it
+when the selection contains no image frames. Mixed/group selection values are
+aggregated over image frames only. Image-only edits leave ordinary shapes' style
+references unchanged, including within selected groups. All existing source
+protection, detached-candidate validation, saved-state and exact history rules
+remain in force. Standard percentage attributes are written; image/archive bytes
+and common parent styles remain unchanged. This correction does not complete
+advanced image effects, gradients, cropping, style class lists or ODF1.2.
+
+References: https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html
+and https://raw.githubusercontent.com/LibreOffice/core/master/xmloff/source/draw/sdpropls.cxx.

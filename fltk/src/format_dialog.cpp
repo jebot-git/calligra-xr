@@ -2116,10 +2116,17 @@ stage_layers_dialog(Fl_Window &window, NativeStageLayerEdit draft) {
 } // namespace DomeOffice
 
 namespace DomeOffice {
-bool object_paint_dialog(Fl_Window &window,const NativePaintInfo &initial,const std::function<void(const NativePaintFormat &)> &apply) {
-  const int width=660,height=450,x=std::max(0,(window.w()-width)/2),y=std::max(0,(window.h()-height)/2);
-  auto previous=Fl_Group::current();window.begin();Panel panel(window,previous);Fl_Group::current(&panel);
-  Background background(window,x,y,width,height,"Fill and stroke");
+bool object_paint_dialog(
+    Fl_Window &window, const NativePaintInfo &initial,
+    const std::function<void(const NativePaintFormat &)> &apply) {
+  const int width = 660, height = 490,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Fill and stroke");
   Fl_Choice fill(x + 160, y + 65, 160, 30, "Fill:"),
       stroke(x + 460, y + 65, 160, 30, "Stroke:");
   Fl_Input fill_color(x + 160, y + 115, 160, 30, "Fill color:"),
@@ -2151,7 +2158,13 @@ bool object_paint_dialog(Fl_Window &window,const NativePaintInfo &initial,const 
   number(fill_opacity, percent(initial.values.fill_opacity));
   number(stroke_opacity, percent(initial.values.stroke_opacity));
   number(stroke_width, initial.values.stroke_width);
-  Fl_Box summary(x + 20, y + 265, width - 40, 50);
+  Fl_Input image_opacity(x + 160, y + 265, 125, 30, "Image opacity (%):");
+  number(image_opacity, percent(initial.values.image_opacity));
+  image_opacity.tooltip(
+      "Opacity of selected image frames, independent of their background fill");
+  if (!initial.image_objects)
+    image_opacity.deactivate();
+  Fl_Box summary(x + 20, y + 315, width - 40, 50);
   auto label = Text::number(initial.objects) +
                (initial.objects == 1 ? " object. " : " objects. ") +
                "Selected groups include hidden members.\nShared styles and "
@@ -2162,7 +2175,8 @@ bool object_paint_dialog(Fl_Window &window,const NativePaintInfo &initial,const 
   if (!initial.editable) {
     for (auto *widget : std::initializer_list<Fl_Widget *>{
              &fill, &stroke, &fill_color, &stroke_color, &fill_opacity,
-             &stroke_opacity, &stroke_width, &rule, &buttons.apply})
+             &stroke_opacity, &stroke_width, &rule, &image_opacity,
+             &buttons.apply})
       widget->deactivate();
     background.hint.copy_label(
         "This selection is read-only or contains protected objects");
@@ -2204,6 +2218,12 @@ bool object_paint_dialog(Fl_Window &window,const NativePaintInfo &initial,const 
         *result.stroke_opacity /= 100;
       changed_number(stroke_width, initial.values.stroke_width,
                      result.stroke_width);
+      if (initial.image_objects) {
+        changed_number(image_opacity, percent(initial.values.image_opacity),
+                       result.image_opacity);
+        if (result.image_opacity)
+          *result.image_opacity /= 100;
+      }
       if (rule.value() && (!initial.values.even_odd ||
                            *initial.values.even_odd != (rule.value() == 2)))
         result.even_odd = rule.value() == 2;

@@ -314,7 +314,7 @@ void producer(const Text &source, const Text &prefix) {
   p.undo();
   assert(bytes(p) == original);
   NativePaintFormat image;
-  image.fill_opacity = .5;
+  image.image_opacity = .5;
   p.set_object_paint(0, {ref(p, "Image")}, image);
   p.save(prefix + "-image.odp");
   p.undo();
@@ -323,6 +323,36 @@ void producer(const Text &source, const Text &prefix) {
   rule.even_odd = true;
   p.set_object_paint(0, {ref(p, "Hole")}, rule);
   p.save(prefix + "-rule.odp");
+  p.undo();
+  assert(bytes(p) == original);
+  NativePaintFormat fill_only;
+  fill_only.fill_opacity = .75;
+  p.set_object_paint(0, {ref(p, "Image")}, fill_only);
+  p.save(prefix + "-image-fill.odp");
+  p.undo();
+  assert(bytes(p) == original);
+  NativePaintFormat background;
+  background.fill = "solid";
+  background.fill_color = "#cc0000";
+  background.fill_opacity = .25;
+  background.image_opacity = .5;
+  p.set_object_paint(0, {ref(p, "Image")}, background);
+  p.save(prefix + "-image-background.odp");
+  p.undo();
+  assert(bytes(p) == original);
+  NativePaintFormat zero;
+  zero.image_opacity = 0;
+  p.set_object_paint(0, {ref(p, "Image")}, zero);
+  p.save(prefix + "-image-zero.odp");
+  p.undo();
+  assert(bytes(p) == original);
+  index = -1;
+  for (size_t i = 0; i < p.scene(1).shapes.size(); ++i)
+    if (p.scene(1).shapes[i].name == "InheritedImage")
+      index = int(i);
+  assert(index >= 0);
+  p.set_object_paint(1, {{index, 0}}, image);
+  p.save(prefix + "-image-inherited.odp");
   p.undo();
   assert(bytes(p) == original);
   std::cout << "PASS independent producer paint/group/no-paint/presentation "

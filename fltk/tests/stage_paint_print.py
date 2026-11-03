@@ -25,13 +25,33 @@ art.mkdir(parents=True, exist_ok=True)
 fixtures = a.fixtures.resolve()
 original = fixtures / "paint.odp"
 cases = [("original", original, "original", original, False)]
-for case in ["paint", "group", "none", "presentation", "image", "rule"]:
+for case in [
+    "paint",
+    "group",
+    "none",
+    "presentation",
+    "image",
+    "rule",
+    "image-fill",
+    "image-background",
+    "image-zero",
+    "image-inherited",
+]:
     cases.append(
         ("model-" + case, fixtures / ("model-" + case + ".odp"), case, original, False)
     )
 if a.ui_artifacts:
     ui = a.ui_artifacts.resolve()
-    for case in ["paint", "group", "none", "image", "rule"]:
+    for case in [
+        "paint",
+        "group",
+        "none",
+        "image",
+        "rule",
+        "image-fill",
+        "image-zero",
+        "image-inherited",
+    ]:
         cases.append(
             (
                 "native-" + case,
@@ -131,11 +151,27 @@ with PrivateCups(art / "cups") as cups:
                 pixel(307, 91, (32, 160, 96))
                 pixel(107, 161, white)
                 pixel(207, 161, (224, 160, 32))
-                pixel(250, 215, (201, 211, 231) if case == "image" else (147, 167, 207))
+                pixel(
+                    250,
+                    215,
+                    (201, 211, 231)
+                    if case == "image"
+                    else (191, 163, 183)
+                    if case == "image-background"
+                    else white
+                    if case == "image-zero"
+                    else (147, 167, 207),
+                )
                 pixel(175, 210, white if case == "rule" else (204, 48, 48))
                 pixel(147, 197, (204, 48, 48))
                 pixel(350, 10, (224, 160, 32))
             elif page == 2:
+                pixel(
+                    50,
+                    170,
+                    (201, 211, 231) if case == "image-inherited" else (174, 189, 219),
+                )
+                pixel(150, 170, (174, 189, 219))
                 pixel(107, 101, white)
                 pixel(207, 101, (32, 160, 96))
                 pixel(307, 101, (224, 160, 32))
@@ -146,8 +182,8 @@ with PrivateCups(art / "cups") as cups:
                     pixel(38, 87, (179, 64, 140))
                 pixel(350, 10, (34, 85, 136))
             unchanged = (
-                page == 2
-                or (case == "presentation" and page == 1)
+                (page == 2 and case != "image-inherited")
+                or (case in ["presentation", "image-inherited"] and page == 1)
                 or (case != "presentation" and page == 3)
             )
             if case != "original" and unchanged:

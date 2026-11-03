@@ -62,7 +62,7 @@ def produce(directory):
     ET.SubElement(
         image_style,
         S + "graphic-properties",
-        {D + "fill": "none", D + "stroke": "none"},
+        {D + "fill": "none", D + "stroke": "none", D + "opacity": "25%"},
     )
     image = io.BytesIO()
     Image.new("RGBA", (4, 4), (40, 80, 160, 128)).save(image, format="PNG")
@@ -115,6 +115,57 @@ def produce(directory):
             V + "d": "M 0 0 L 70 0 L 70 40 L 0 40 Z M 20 10 L 50 10 L 50 30 L 20 30 Z",
         },
     )
+    parent = ET.SubElement(
+        common, S + "style", {S + "name": "ImageParent", S + "family": "graphic"}
+    )
+    ET.SubElement(
+        parent,
+        S + "graphic-properties",
+        {
+            D + "fill": "none",
+            D + "stroke": "none",
+            D + "opacity": "25%",
+            D + "image-opacity": "75%",
+        },
+    )
+    automatic = root.find(O + "automatic-styles")
+    if automatic is None:
+        automatic = ET.Element(O + "automatic-styles")
+        root.insert(list(root).index(root.find(O + "body")), automatic)
+    inherited = ET.SubElement(
+        automatic,
+        S + "style",
+        {
+            S + "name": "ImageChild",
+            S + "family": "graphic",
+            S + "parent-style-name": "ImageParent",
+        },
+    )
+    ET.SubElement(inherited, S + "graphic-properties", {D + "opacity": "50%"})
+    second = root.findall(".//" + D + "page")[1]
+    for name, x in [("InheritedImage", 40), ("InheritedPeer", 140)]:
+        item = ET.SubElement(
+            second,
+            D + "frame",
+            {
+                D + "name": name,
+                D + "style-name": "ImageChild",
+                V + "x": f"{x}pt",
+                V + "y": "140pt",
+                V + "width": "70pt",
+                V + "height": "45pt",
+            },
+        )
+        ET.SubElement(
+            item,
+            D + "image",
+            {
+                X + "href": "Pictures/paint-alpha.png",
+                X + "type": "simple",
+                X + "show": "embed",
+                X + "actuate": "onLoad",
+            },
+        )
     third = root.findall(".//" + D + "page")[2]
     third.find(D + "rect").attrib.pop(D + "style-name", None)
     third.find(D + "rect").set(P + "style-name", "PaintTitle")
@@ -154,6 +205,10 @@ def verify_saved(source, saved, case, native=False):
         "none": ["Editable"],
         "presentation": ["EmptyLocal"],
         "image": ["Image"],
+        "image-fill": ["Image"],
+        "image-background": ["Image"],
+        "image-zero": ["Image"],
+        "image-inherited": ["InheritedImage"],
         "rule": ["Hole"],
     }[case]
     automatic = expected.find(O + "automatic-styles")
@@ -208,10 +263,30 @@ def verify_saved(source, saved, case, native=False):
             else dict(PATCH)
         )
         if case == "image":
-            patch = {D + "opacity": "50%"}
+            patch = {D + "image-opacity": "50%"}
+        if case == "image-fill":
+            patch = {D + "opacity": "75%"}
+        if case == "image-background":
+            patch = {
+                D + "fill": "solid",
+                D + "fill-color": "#cc0000",
+                D + "opacity": "25%",
+                D + "image-opacity": "50%",
+            }
+        if case == "image-zero":
+            patch = {D + "image-opacity": "0%"}
+        if case == "image-inherited":
+            patch = {D + "image-opacity": "50%"}
         if case == "rule":
             patch = {V + "fill-rule": "evenodd"}
-        if native and case not in ("image", "rule"):
+        if native and case not in (
+            "image",
+            "rule",
+            "image-fill",
+            "image-background",
+            "image-zero",
+            "image-inherited",
+        ):
             # The actual panel submits changed fields only; inheritance of an
             # unchanged property remains a source relationship, not a copied
             # explicit property.
@@ -241,7 +316,18 @@ def verify(source, bin_dir, directory):
         ],
         check=True,
     )
-    for case in ["paint", "group", "none", "presentation", "image", "rule"]:
+    for case in [
+        "paint",
+        "group",
+        "none",
+        "presentation",
+        "image",
+        "rule",
+        "image-fill",
+        "image-background",
+        "image-zero",
+        "image-inherited",
+    ]:
         verify_saved(source, prefix.with_name(prefix.name + "-" + case + ".odp"), case)
     print(
         "PASS independent producer scoped paint, common/automatic/presentation styles and unchanged source/archive oracle",

@@ -6,13 +6,14 @@ namespace DomeOffice {
 // info describe the effective selection; missing values are mixed.
 struct NativePaintFormat {
   std::optional<Text> fill, fill_color, stroke, stroke_color;
-  std::optional<double> fill_opacity, stroke_opacity, stroke_width;
+  std::optional<double> fill_opacity, stroke_opacity, stroke_width,
+      image_opacity;
   std::optional<bool> even_odd;
   bool empty() const;
 };
 struct NativePaintInfo {
   NativePaintFormat values;
-  size_t objects = 0;
+  size_t objects = 0, image_objects = 0;
   bool editable = true;
 };
 } // namespace DomeOffice

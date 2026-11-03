@@ -250,6 +250,11 @@ struct Catalog {
     }
     if (p.hasAttributeNS(DRAW, "opacity"))
       paint.fill_color.alpha = opacity(p.attributeNS(DRAW, "opacity"));
+    if (p.hasAttributeNS(DRAW, "image-opacity"))
+      paint.image_opacity = opacity(p.attributeNS(DRAW, "image-opacity"));
+    if (p.hasAttributeNS(DRAW, "opacity-name") &&
+        !p.attributeNS(DRAW, "opacity-name").empty())
+      note(slide.unsupported, "Opacity gradients");
     if (p.hasAttributeNS(SVG, "fill-rule"))
       paint.even_odd = p.attributeNS(SVG, "fill-rule") == "evenodd";
     if (p.hasAttributeNS(DRAW, "stroke")) {

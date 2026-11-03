@@ -94,7 +94,7 @@ void validate(const NativePaintFormat &p) {
   for (auto value : {p.fill_color, p.stroke_color})
     if (value)
       (void)color(*value);
-  for (auto value : {p.fill_opacity, p.stroke_opacity})
+  for (auto value : {p.fill_opacity, p.stroke_opacity, p.image_opacity})
     if (value && (!std::isfinite(*value) || *value < 0 || *value > 1))
       fail("Opacity must be between 0 and 100 percent");
   if (p.stroke_width && (!std::isfinite(*p.stroke_width) ||
@@ -198,6 +198,7 @@ struct Catalog {
     out.stroke_color = color(get(SVG, "stroke-color", "#000000"));
     out.fill_opacity = alpha(get(DRAW, "opacity", "100%"));
     out.stroke_opacity = alpha(get(SVG, "stroke-opacity", "100%"));
+    out.image_opacity = alpha(get(DRAW, "image-opacity", "100%"));
     out.stroke_width = parse_scene_length(get(SVG, "stroke-width", "1pt"));
     out.even_odd = get(SVG, "fill-rule", "nonzero") == "evenodd";
     return out;
@@ -256,6 +257,9 @@ struct Catalog {
     if (patch.stroke_opacity)
       put(SVG, "svg:stroke-opacity",
           Text::number(*patch.stroke_opacity * 100, 'g', 17) + "%");
+    if (patch.image_opacity)
+      put(DRAW, "draw:image-opacity",
+          Text::number(*patch.image_opacity * 100, 'g', 17) + "%");
     if (patch.stroke_width)
       put(SVG, "svg:stroke-width",
           Text::number(*patch.stroke_width, 'g', 17) + "pt");
@@ -291,13 +295,14 @@ bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
          (patch.fill_opacity && patch.fill_opacity != before.fill_opacity) ||
          (patch.stroke_opacity &&
           patch.stroke_opacity != before.stroke_opacity) ||
+         (patch.image_opacity && patch.image_opacity != before.image_opacity) ||
          (patch.stroke_width && patch.stroke_width != before.stroke_width) ||
          (patch.even_odd && patch.even_odd != before.even_odd);
 }
 } // namespace
 bool NativePaintFormat::empty() const {
   return !fill && !fill_color && !stroke && !stroke_color && !fill_opacity &&
-         !stroke_opacity && !stroke_width && !even_odd;
+         !stroke_opacity && !stroke_width && !even_odd && !image_opacity;
 }
 NativePaintInfo
 Presentation::object_paint(int index,
@@ -310,8 +315,15 @@ Presentation::object_paint(int index,
   for (auto ref : native_object_selection(model, refs))
     result.editable =
         result.editable && model.editable(native_object_source(model, ref));
+  std::optional<double> image_opacity;
   for (auto node : nodes) {
     auto info = catalog.info(node);
+    if (!child(node, DRAW, "image").isNull()) {
+      if (result.image_objects++ == 0)
+        image_opacity = info.image_opacity;
+      else
+        aggregate(image_opacity, info.image_opacity);
+    }
     if (result.objects++ == 0)
       result.values = info;
     else {
@@ -325,6 +337,7 @@ Presentation::object_paint(int index,
       aggregate(result.values.even_odd, info.even_odd);
     }
   }
+  result.values.image_opacity = image_opacity;
   return result;
 }
 std::optional<PresentationPosition>
@@ -351,12 +364,16 @@ Presentation::set_object_paint(int index,
   OdfPackage candidate = package_;
   candidate.xml = read_document_xml(package_.xml.toByteArray());
   bool changed = false;
-  for (auto node : nodes)
-    if (changes(catalog.info(node), patch)) {
+  for (auto node : nodes) {
+    auto requested = patch;
+    if (child(node, DRAW, "image").isNull())
+      requested.image_opacity.reset();
+    if (changes(catalog.info(node), requested)) {
       catalog.change(candidate, stage_candidate_source(node, candidate.xml),
-                     patch);
+                     requested);
       changed = true;
     }
+  }
   if (!changed)
     return {};
   candidate.validate_archive_limits();

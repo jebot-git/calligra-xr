@@ -32,6 +32,8 @@ struct ScenePaint {
          padding_bottom = 3.5;
   enum VerticalAlignment { Top, Middle, Bottom } vertical_alignment = Top;
   TextFont font;
+  double image_opacity =
+      1; // ODF draw:image-opacity; independent of fill alpha.
 };
 struct SceneContour {
   std::vector<ScenePoint> points;

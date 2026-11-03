@@ -378,7 +378,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
 
         def panel_click(x, y):
             width, height = data()["window_size"]
-            click((width - 660) / 2 + x, (height - 450) / 2 + y)
+            click((width - 660) / 2 + x, (height - 490) / 2 + y)
 
         def open_paint():
             menu_action("Fill and stroke…")
@@ -398,7 +398,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
             key("Return")
 
         def apply():
-            panel_click(585, 415)
+            panel_click(585, 455)
             wait(lambda: not data()["format_dialog"])
 
         def cancel():
@@ -483,7 +483,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         assert data()["scene"]["revision"] == revision and data()["scene"]["can_redo"]
         open_paint()
         text(240, 130, "xxx")
-        panel_click(585, 415)
+        panel_click(585, 455)
         time.sleep(0.3)
         assert (
             data()["format_dialog"]
@@ -514,7 +514,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         before = data()["scene"]["revision"]
         open_paint()
         shot("protected-paint.png")
-        panel_click(585, 415)
+        panel_click(585, 455)
         time.sleep(0.2)
         assert data()["format_dialog"] and data()["scene"]["revision"] == before
         cancel()
@@ -546,8 +546,18 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         click_world(250, 210)
         wait(lambda: selection() == [("Image", 0)])
         pixel(250, 215, (147, 167, 207))
+        # Changing the frame fill opacity must not change the image's alpha.
         open_paint()
-        text(220, 180, "50")
+        text(220, 180, "75")
+        apply()
+        wait(lambda: data()["modified"])
+        pixel(250, 215, (147, 167, 207))
+        save("image-fill")
+        shot("screen-image-fill.png")
+        key("z", ("Control_L",))
+        wait(lambda: data()["modified"])
+        open_paint()
+        text(220, 280, "50")
         apply()
         wait(lambda: data()["modified"])
         pixel(250, 215, (201, 211, 231))
@@ -555,6 +565,33 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         shot("screen-image.png")
         key("z", ("Control_L",))
         wait(lambda: data()["modified"])
+        open_paint()
+        text(220, 280, "0")
+        apply()
+        wait(lambda: data()["modified"])
+        pixel(250, 215, (255, 255, 255))
+        save("image-zero")
+        shot("screen-image-zero.png")
+        key("z", ("Control_L",))
+        wait(lambda: data()["modified"])
+        click(55, 90)
+        wait(lambda: data()["scene"]["page"] == 2)
+        click_world(50, 155)
+        wait(lambda: selection() == [("InheritedImage", 0)])
+        pixel(50, 170, (174, 189, 219))
+        pixel(150, 170, (174, 189, 219))
+        open_paint()
+        text(220, 280, "50")
+        apply()
+        wait(lambda: data()["modified"])
+        pixel(50, 170, (201, 211, 231))
+        pixel(150, 170, (174, 189, 219))
+        save("image-inherited")
+        shot("screen-image-inherited.png")
+        key("z", ("Control_L",))
+        wait(lambda: data()["modified"])
+        click(55, 70)
+        wait(lambda: data()["scene"]["page"] == 1)
         click_world(175, 210)
         wait(lambda: selection() == [("Hole", 0)])
         pixel(175, 210, (204, 48, 48))
@@ -607,6 +644,8 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
                     protected_selection_disabled=True,
                     object_and_hidden_group_paint=True,
                     intrinsic_image_opacity=True,
+                    fill_image_opacity_independent=True,
+                    zero_and_inherited_image_opacity=True,
                     fill_rule_gpu_hole=True,
                     opacity_gpu_pixels=True,
                     one_command_history=True,

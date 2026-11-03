@@ -2999,3 +2999,32 @@ Twelve paint CUPS cases cover 36 reviewed pages and exact reopened rasters;
 three suite baseline jobs cover nine pages matching installed 8ef6848 exactly.
 The minimum-window panel and all 36 paint pages have visual review. Source,
 stage and independent installed receipts remain separate acceptance gates.
+
+## Separate image-opacity semantics — 2026-11-03
+
+The previous paint corpus demonstrated its implementation's raster arithmetic,
+but used fill opacity for image transparency. Schema validity did not establish
+that semantic mapping. The 676f0db installation queue was withdrawn before it ran.
+`native-stage-image-opacity` adds direct independently authored source/default/
+inheritance cases, selective image-only group changes, unchanged image/style
+peers and archive parts, explicit zero, invalid inputs, protected hidden images,
+signed read-only rejection and exact history. Source and native pixel/CUPS oracles
+now use separate `draw:opacity` and `draw:image-opacity` expectations. Cases include
+fill-only edits retaining image alpha, a colored translucent background under a
+translucent image, zero image alpha, inherited image opacity and unchanged peers.
+The ordinary paint, group, protection, caret/history and fill-rule corpus remains
+part of regression coverage. Build/stage and installed counts are recorded
+separately; no selected corpus establishes full ODF1.2 functionality.
+
+The corrected increment passes 84 selected Release and 84 ASan/UBSan suites,
+with the existing three outline-font exclusions. Both actual native Wayland
+panel runs pass, including independent fill/image opacity, explicit zero and
+inherited-image changes with unchanged peers. Nineteen paint CUPS jobs cover
+57 visually reviewed pages with independent pixels/source checks and exact
+reopen rasters. Three suite baseline jobs add nine pages matching installed
+8ef6848 exactly. Sixty-five packages pass version-matched content/styles
+schemas; 62 selected packages pass the manifest schema and implemented Part3
+checks. The three original legacy baseline inputs remain separate from their
+manifest-repaired exports. The minimum-window panel is visually reviewed.
+Optimized staging and independent installed behavior require their own receipts;
+passing these cases does not establish full ODF1.2 functionality.
