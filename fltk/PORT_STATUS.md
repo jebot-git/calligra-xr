@@ -957,3 +957,39 @@ Words remains paused at rudimentary compliance; experimental columns stay
 uninstalled. Sheets remains active; Stage is last. Hypothesis tests, dataset
 probability/frequency, matrix regression, database functions, omitted arguments,
 reference unions, duration precision and complete model/settings fidelity remain.
+
+
+## Native Sheets inference and dataset probability — 2026-11-03
+
+Distribution increment 80b88bd is installed and independently verified. This
+increment adds six function groups: PROB, FREQUENCY, F-test, paired/pooled/Welch
+t-tests, Z-test and chi-square test, with modern/legacy aliases. Catalogue dispatch
+reaches 440/641 retained names, with 201 remaining; this counts aliases and does not
+measure completion of the full model or numerical interoperability.
+
+PROB independently filters numeric sequences, uses a narrow input-roundoff
+allowance and a range-sum tree that retains tiny masses. FREQUENCY handles
+unsorted/duplicate bins without the retained code's hard-coded index reversals.
+Exact binary sample sums/squares and integer mean cancellation precede quad
+ratios and stable Boost probability tails. A one-ULP perturbation among a million
+large observations remains significant; the paired-statistics kernel shares the
+binary decoder and retains its exact rational checks. Welch degrees of freedom
+remain fractional. F-tests use twice the smaller tail, and Z-tests return the
+specified signed one-tailed probability rather than the retained code's different
+central probability. Data sizes, integer work and convergence remain bounded.
+
+ODF/modern typed filtering and known-sigma singleton rules are explicit. XLSX
+legacy TTEST/ZTEST calls use the modern sample rules; string and quoted-sheet
+contents are preserved. Sparse/named/dynamic references, parameter arrays,
+fixed matrices, errors and unavailable dependencies participate without Qt/GTK.
+All 62 applicable Release and ASan/UBSan suites pass, including the million-point
+precision case. 1,763 independent 110-digit/exact-rational checks pass. The 229
+retained results include 214 agreeing caches, 10 error labels and five documented
+boundary/error conventions; none depend on unavailable functions. Earlier
+statistics, criteria, order, moment, paired and distribution checks also pass.
+
+Full matrix regression, database and remaining functions, reference unions,
+omitted arguments, duration precision and full model/settings fidelity remain.
+Words remains paused at rudimentary compliance, its columns preserved/uninstalled;
+Stage remains last. Export, CUPS, staging and installed evidence are recorded
+separately; this section does not claim an unverified installation.

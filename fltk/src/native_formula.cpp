@@ -108,7 +108,8 @@ Text from_excel(const Text &f) {
   std::string out;
   // Excel's pre-2010 F functions are right tails. OpenFormula's unprefixed
   // FDIST/FINV are left tails. Translate calls, preserving strings, quoted
-  // sheet names and modern dotted function names exactly.
+  // sheet names and modern dotted function names exactly. Legacy Excel T/Z
+  // tests also select modern filtering and known-sigma singleton rules.
   for (size_t i = 0; i < bytes.size();) {
     char c = bytes[i];
     if (c == '"' || c == '\'') {
@@ -136,9 +137,13 @@ Text from_excel(const Text &f) {
              std::isspace(static_cast<unsigned char>(bytes[call])))
         ++call;
       auto upper = Text(token).toUpper();
-      out += call < bytes.size() && bytes[call] == '(' &&
-                     (upper == "FDIST" || upper == "FINV")
-                 ? "LEGACY." + upper.toStdString()
+      static const std::map<Text, Text> calls = {{"FDIST", "LEGACY.FDIST"},
+                                                 {"FINV", "LEGACY.FINV"},
+                                                 {"TTEST", "T.TEST"},
+                                                 {"ZTEST", "Z.TEST"}};
+      auto mapped = calls.find(upper);
+      out += call < bytes.size() && bytes[call] == '(' && mapped != calls.end()
+                 ? mapped->second.toStdString()
                  : token;
     } else
       out += bytes[i++];

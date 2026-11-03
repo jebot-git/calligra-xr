@@ -669,9 +669,8 @@ one per OpenFormula; exclusive singleton rank uses one half. The retained Calc
 corpus has rounding, singleton and older mode-order cache differences, recorded
 explicitly in `order_reference.py`. One rank case also exposes an inherited
 binary duration-subtraction/`INT` boundary discrepancy; reference-list unions
-and other unavailable dependencies remain unfinished. Native dispatch now
-covers 332 of 641 retained names (aliases included), with 309 remaining. This
-count measures catalogue coverage, not numerical or interoperability fidelity.
+and other unavailable dependencies remain unfinished. Catalogue counts measure
+dispatch coverage, not numerical or interoperability fidelity.
 
 Higher moments include `SKEW`, `SKEWP`/`SKEW.P`, `KURT` and `KURTP`.
 Shifted, scaled observations and compensated extended-precision moment sums
@@ -696,7 +695,7 @@ reference unions and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
---test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired` and `distribution`
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution` and `inference`
 are also supported. A test-only input helper, Cage's headless backend and nested
 DomeD provide private virtual keyboard/pointer input and render captures. The
 fixture uses no X server and never directs input to the user's desktop. It
@@ -756,9 +755,48 @@ Incomplete calculations preserve imported caches even through `IFERROR`.
 cases, four fixed-matrix padding differences from Calc, five boundary-convention
 cache differences and one independently resolved inaccurate old chi-square
 inverse cache. Original fixtures are unchanged. Distribution support is broader
-coverage, not complete spreadsheet interoperability; hypothesis tests, dataset
-probability/frequency, multiple regression, database functions and full
-calculation-model/settings fidelity remain unfinished.
+coverage, not complete spreadsheet interoperability. Multiple regression, database
+functions and full calculation-model/settings fidelity remain unfinished.
+
+Dataset probability/frequency and hypothesis tests include `PROB`, `FREQUENCY`,
+`FTEST`/`F.TEST`, `TTEST`/`T.TEST`, `ZTEST`/`Z.TEST` and
+`CHITEST`/`LEGACY.CHITEST`/`CHISQ.TEST`. PROB pairs the numeric sequences after
+independent collection filtering, checks probability bounds and the total with
+only a narrow input-rounding allowance, and uses a balanced range-sum tree.
+It retains tiny isolated masses without subtracting nearly equal prefix totals.
+Zero probability is accepted as an extension; reversed query bounds return zero.
+Query arrays reuse the tree. Scalar option references intersect outside array
+context; fixed matrices retain full reference arrays. FREQUENCY sorts boundaries internally and maps
+counts back to their original positions, including stable duplicate boundaries.
+It returns a column vector with an overflow bin, accepts horizontal boundaries
+as an extension, and counts all numeric data when no numeric bins remain.
+
+Statistical samples accumulate exact binary integer sums and squares. Differences
+of means cancel integers before conversion to quad precision; paired differences
+can exceed binary64's range internally. This preserves a one-ULP perturbation
+among a million large observations. F-tests use twice the smaller CDF/tail,
+Z-tests use signed normal survival probabilities, and Welch tests keep fractional
+degrees of freedom. The sample and integer-work budgets preserve incomplete
+provenance. The existing paired-statistics kernel shares the binary decoder;
+its independent reference checks remain unchanged.
+
+Paired t-tests match two-dimensional geometry and filter corresponding positions.
+OpenFormula TTEST applies paired filtering to same-shaped independent samples;
+modern T.TEST filters independent samples separately. Unequal independent sample
+shapes are accepted as an extension. Known-sigma modern Z.TEST accepts a singleton;
+ODF ZTEST requires two observations. XLSX old TTEST/ZTEST calls translate to the
+modern functions for their filtering/sample rules. Chi-square tests ignore pairs
+with nonnumeric entries and use the original array geometry for degrees of
+freedom; an all-empty array consequently has a zero statistic and tail one.
+The retained Calc empty-array errors, singleton Z-test error and two constant-
+paired-difference zero caches remain explicit boundary/error differences.
+No function result is manufactured from a source cache.
+
+The current inventory dispatches 440 of 641 retained names, including aliases,
+with 201 remaining. Full matrix regression, database and the remaining catalogue,
+reference unions/omitted arguments, duration precision and complete calculation
+settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
+Words pause and Stage-last priorities remain in force.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

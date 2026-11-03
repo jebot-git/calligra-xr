@@ -8,6 +8,7 @@
 #include "native_order.h"
 #include "native_paired.h"
 #include "native_distribution.h"
+#include "native_inference.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -696,6 +697,13 @@ struct SheetEngine::Impl {
   Value function(const Expr &e) const;
   Value conditional(const Expr &e, const Text &name, bool array_caller) const;
   Value paired(const Expr &e, const Text &name, bool array_caller) const;
+  struct PairedValues {
+    size_t rows, columns;
+    std::vector<std::pair<double, double>> values;
+  };
+  PairedValues paired_values(const Expr &, const Expr &,
+                             bool scalar_coercion = true) const;
+  Value inference(const Expr &, const Text &, bool array_caller) const;
 };
 std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
   auto expr = expanded(source);
@@ -1060,27 +1068,27 @@ Value SheetEngine::Impl::conditional(const Expr &e, const Text &name,
       results.push_back(compute(r, c));
   return Value::array(result_rows, result_columns, std::move(results));
 }
-Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
-                                bool array_caller) const {
+SheetEngine::Impl::PairedValues
+SheetEngine::Impl::paired_values(const Expr &source_a, const Expr &source_b,
+                                 bool scalar_coercion) const {
   struct Input {
     Area geometry;
     std::optional<Value> data;
   };
-  auto input = [&](size_t i) -> Input {
-    if (auto region = area(e->args[i]))
+  auto input = [&](const Expr &expression) -> Input {
+    if (auto region = area(expression))
       return {*region, {}};
-    auto v = evaluate(e->args[i]);
+    auto v = evaluate(expression);
     if (v.isError())
       throw v;
     Area shape{0, 0, 0, int(v.isArray() ? v.rows : 1),
                int(v.isArray() ? v.columns : 1)};
     return {shape, std::move(v)};
   };
-  size_t first = name == "FORECAST" ? 1 : 0;
-  Input a = input(first), b = input(first + 1);
+  Input a = input(source_a), b = input(source_b);
   const auto &shape = a.geometry;
   if (shape.rows != b.geometry.rows || shape.columns != b.geometry.columns)
-    return error("#N/A");
+    throw error("#N/A");
   size_t steps = 0;
   auto charge = [&] {
     if (++steps > 50'000'000)
@@ -1145,8 +1153,8 @@ Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
     calculation_incomplete = calculation_incomplete || v.incomplete;
     if (v.isError())
       throw v;
-    if (source.data && !source.data->isArray() && v.kind != Value::Empty &&
-        !v.isNumber())
+    if (scalar_coercion && source.data && !source.data->isArray() &&
+        v.kind != Value::Empty && !v.isNumber())
       return Value::numeric(number(v));
     return v;
   };
@@ -1160,7 +1168,13 @@ Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
     if (x.isNumber() && y.isNumber())
       values.emplace_back(x.number, y.number);
   }
-  NativePairedData data(std::move(values));
+  return {size_t(shape.rows), size_t(shape.columns), std::move(values)};
+}
+Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
+                                bool array_caller) const {
+  size_t first = name == "FORECAST" ? 1 : 0;
+  NativePairedData data(
+      paired_values(e->args[first], e->args[first + 1]).values);
   if (name != "FORECAST")
     return data.evaluate(name);
   Value query;
@@ -1174,10 +1188,83 @@ Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
     return data.evaluate(name, q);
   });
 }
+Value SheetEngine::Impl::inference(const Expr &e, const Text &name,
+                                   bool array_caller) const {
+  auto option_value = [&](size_t i) {
+    if (auto region = area(e->args[i]);
+        region && region->size() != 1 && !array_caller)
+      return intersect(*region);
+    return evaluate(e->args[i]);
+  };
+  auto sequence = [&](size_t i, bool force_array = false) {
+    bool collection = false;
+    auto raw = flatten(e->args[i], &collection);
+    if (raw.size() > 1'000'000)
+      throw error("#LIMIT!");
+    std::vector<double> numbers;
+    for (const auto &v : raw) {
+      calculation_incomplete = calculation_incomplete || v.incomplete;
+      if (v.isError())
+        throw v;
+      if (v.isNumber())
+        numbers.push_back(number(v));
+      else if (!force_array && !collection && v.kind != Value::Empty)
+        numbers.push_back(number(v));
+    }
+    return numbers;
+  };
+  if (name == "CHITEST") {
+    auto pairs = paired_values(e->args[0], e->args[1], false);
+    return native_chi_test(pairs.values, pairs.rows, pairs.columns);
+  }
+  if (name == "FREQUENCY")
+    return native_frequency(sequence(0), sequence(1));
+  if (name == "PROB") {
+    NativeProbabilityData data(sequence(0, true), sequence(1, true));
+    auto lower = option_value(2);
+    auto upper = e->args.size() == 4 ? option_value(3) : lower;
+    return map_values(lower, upper, [&](const Value &a, const Value &b) {
+      return data.evaluate(a, b);
+    });
+  }
+  bool ztest = name == "ZTEST" || name == "Z.TEST";
+  auto x = sequence(0, !ztest);
+  auto y = ztest ? std::vector<double>() : sequence(1, true);
+  if (name == "FTEST")
+    return NativeHypothesisData(std::move(x), std::move(y)).evaluate(name);
+  size_t option = ztest ? 1 : 2;
+  auto a = option_value(option);
+  auto b = option + 1 < e->args.size() ? option_value(option + 1) : Value();
+  bool need_pairs = name == "TTEST";
+  if (name == "T.TEST") {
+    auto needs_pair = [](const Value &v) {
+      return !v.isNumber() ||
+             (std::trunc(v.number) != 2 && std::trunc(v.number) != 3);
+    };
+    need_pairs = b.isArray()
+                     ? std::any_of(b.items->begin(), b.items->end(), needs_pair)
+                     : needs_pair(b);
+  }
+  std::optional<std::vector<std::pair<double, double>>> pairs;
+  if (need_pairs) {
+    try {
+      pairs = paired_values(e->args[0], e->args[1], false).values;
+    } catch (const Value &v) {
+      if (v.string != "#N/A")
+        throw;
+    }
+  }
+  NativeHypothesisData data(std::move(x), std::move(y), std::move(pairs));
+  return map_values(a, b, [&](const Value &a, const Value &b) {
+    return data.evaluate(name, option + 1 < e->args.size()
+                                   ? std::vector<Value>{a, b}
+                                   : std::vector<Value>{a});
+  });
+}
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name =
+  const auto name = inference_name(
       distribution_name(paired_name(statistics_name(order_name(conditional_name(
-          calendar_name(financial_name(engineering_name(e->name))))))));
+          calendar_name(financial_name(engineering_name(e->name)))))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1228,6 +1315,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : distribution_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : inference_signatures())
+      out[name] = arity;
     return out;
   }();
   auto signature = signatures.find(name);
@@ -1256,7 +1345,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
                                  conditional_function(name) ||
                                  order_signatures().contains(name) ||
                                  statistics_signatures().contains(name) ||
-                                 paired_signatures().contains(name));
+                                 paired_signatures().contains(name) ||
+                                 inference_signatures().contains(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1365,6 +1455,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
 
   if (conditional_function(name))
     return conditional(e, name, caller_array_context);
+  if (inference_signatures().contains(name))
+    return inference(e, name, caller_array_context);
   if (paired_signatures().contains(name))
     return paired(e, name, caller_array_context);
   if (order_signatures().contains(name)) {

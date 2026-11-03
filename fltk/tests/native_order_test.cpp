@@ -2,6 +2,7 @@
 #include "native_order.h"
 #include "native_formula.h"
 #include "native_distribution.h"
+#include "native_inference.h"
 #include "workbook.h"
 #include <cassert>
 #include <iostream>
@@ -37,7 +38,8 @@ void near(const V &v, double expected) {
 } // namespace
 int main(int argc, char **argv) {
   std::cout << std::unitbuf;
-  if (argc >= 3 && (std::string(argv[1]) == "--distribution-fods" ||
+  if (argc >= 3 && (std::string(argv[1]) == "--inference-fods" ||
+                    std::string(argv[1]) == "--distribution-fods" ||
                     std::string(argv[1]) == "--fods" ||
                     std::string(argv[1]) == "--inspect-fods")) {
     Json records = Json::array();
@@ -97,7 +99,12 @@ int main(int argc, char **argv) {
             bool selected = false;
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
-              if (std::string(argv[1]) == "--distribution-fods") {
+              if (std::string(argv[1]) == "--inference-fods") {
+                auto end = decoded.indexOf('(');
+                selected =
+                    end > 1 && inference_signatures().contains(
+                                   inference_name(decoded.mid(1, end - 1)));
+              } else if (std::string(argv[1]) == "--distribution-fods") {
                 auto end = decoded.indexOf('(');
                 selected =
                     end > 1 && distribution_signatures().contains(

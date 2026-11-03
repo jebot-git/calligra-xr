@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_paired.h"
+#include "native_exact_sample.h"
 #include <bit>
 #include <limits>
 #include <boost/multiprecision/cpp_bin_float.hpp>
@@ -7,37 +8,10 @@
 namespace DomeOffice {
 namespace {
 using V = NativeValue;
-static_assert(std::numeric_limits<double>::is_iec559 &&
-              std::numeric_limits<double>::digits == 53);
-using I = boost::multiprecision::cpp_int;
-using Q = boost::multiprecision::cpp_bin_float_quad;
-struct Binary {
-  uint64_t mantissa;
-  int exponent;
-  bool negative;
-};
-Binary binary(double value) {
-  if (!std::isfinite(value))
-    throw V::error("#NUM!");
-  uint64_t bits = std::bit_cast<uint64_t>(value);
-  int biased = (bits >> 52) & 2047;
-  uint64_t mantissa =
-      (bits & ((uint64_t(1) << 52) - 1)) | (biased ? uint64_t(1) << 52 : 0);
-  int exponent = biased ? biased - 1023 - 52 : -1074;
-  if (mantissa) {
-    int shift = std::countr_zero(mantissa);
-    mantissa >>= shift;
-    exponent += shift;
-  }
-  return {mantissa, exponent, bool(bits >> 63)};
-}
-I integer(Binary value, int exponent) {
-  if (!value.mantissa)
-    return 0;
-  I result = value.mantissa;
-  result <<= value.exponent - exponent;
-  return value.negative ? -result : result;
-}
+using NativeExact::binary;
+using NativeExact::I;
+using NativeExact::integer;
+using NativeExact::Q;
 V scaled(const I &numerator, const I &denominator, int exponent) {
   Q value = ldexp(Q(numerator) / Q(denominator), exponent);
   return V::numeric(value.convert_to<double>());

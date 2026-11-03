@@ -2668,3 +2668,45 @@ The signature inventory reaches 430/641 retained names (211 remaining), includin
 aliases. This is not a numerical/parity percentage. Boost.Math and Multiprecision
 are build-time headers; system FLTK remains default and Qt frontends opt-in OFF.
 Installation verification is separate from the prepared Release stage.
+
+
+## Sheets dataset probability and hypothesis tests — 2026-11-03
+
+Evidence: `artifacts/calligra-sheets-inference-20261103`. Preceding distribution
+increment 80b88bd is installed and independently verified; its installer is complete.
+
+- All 62 applicable Release and ASan/UBSan suites pass. The same three bitmap-policy
+  exclusions remain; core leak checking is enabled. A million-observation precision
+  case retains a one-ULP perturbation around 1e308 that rounded-mean subtraction loses.
+- Independent exact-rational sample arithmetic and 110-digit probability references
+  cover 1,763 cases: paired, pooled and fractional-df Welch tests, signed Z tails,
+  smaller-tail F probabilities, chi-square, unsorted/duplicate frequency boundaries,
+  independent PROB sequence filtering, tiny isolated masses and query arrays.
+- The unchanged FODS corpus has 229 selected results: 214 matching caches, 10 error
+  labels and five documented boundaries/errors. Two paired t caches store limiting
+  zero despite exact zero difference variance; native returns DIV/0. A known-sigma
+  singleton modern Z test is independently defined while Calc caches DIV/0. Two
+  all-empty chi-square cases have zero ODF statistic/geometry-df tail one while Calc
+  caches an input error. Raw input types/values are independently inspected; these
+  are explicit differences, not silently passing assertions. No selected dependency
+  is unavailable. Earlier statistics, conditional, order, moment, paired and
+  distribution reference checks remain green.
+- The shared exact binary decoder preserves paired-statistics checks and the
+  one-million-point exact-regression benchmark (~0.090 sec locally, excluding
+  loading/rendering). Data counts, integer work and probability convergence are
+  bounded, preserving incomplete provenance and source caches when exhausted.
+- odfpy/openpyxl producers verify stale caches, fixed matrices, query/type arrays,
+  ODF versus modern text filtering, legacy Excel F/T/Z translation, known-sigma
+  singleton imports and opaque bytes. Both Release and ASan native Wayland input
+  pass painted values, editing/recalculation, history, raw saved caches and reopen,
+  using the isolated private host with system FLTK and no X server.
+- Twenty-two generated ODF packages pass version-matched OASIS schemas. Five private
+  CUPS jobs cover original/edited inference and the three-application baseline;
+  all 21 reviewed pages match after reopen and the nine baseline pages equal verified
+  80b88bd. The installer/stage checks and installed receipt are separate evidence.
+
+Catalogue dispatch 440/641 retained names, 201 remaining, includes aliases and is
+not a numerical-parity percentage. Matrix regression, database and remaining
+functions, omitted arguments/reference unions, duration precision and full model/
+settings remain unfinished. Words stays paused at rudimentary compliance, columns
+uninstalled, Stage last. No desktop session or global printer defaults are changed.
