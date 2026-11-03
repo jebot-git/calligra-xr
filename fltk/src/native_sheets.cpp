@@ -7,6 +7,7 @@
 #include "native_statistics.h"
 #include "native_order.h"
 #include "native_paired.h"
+#include "native_distribution.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -1174,8 +1175,9 @@ Value SheetEngine::Impl::paired(const Expr &e, const Text &name,
   });
 }
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = paired_name(statistics_name(order_name(conditional_name(
-      calendar_name(financial_name(engineering_name(e->name)))))));
+  const auto name =
+      distribution_name(paired_name(statistics_name(order_name(conditional_name(
+          calendar_name(financial_name(engineering_name(e->name))))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1223,6 +1225,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     for (const auto &[name, arity] : paired_signatures())
       out[name] = arity;
     for (const auto &[name, arity] : order_signatures())
+      out[name] = arity;
+    for (const auto &[name, arity] : distribution_signatures())
       out[name] = arity;
     return out;
   }();
@@ -1430,6 +1434,12 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         }
       return Value::array(rows, columns, std::move(result));
     }
+  }
+  if (distribution_signatures().contains(name)) {
+    std::vector<Value> args;
+    for (size_t i = 0; i < count; ++i)
+      args.push_back(arg(i));
+    return distribution_function(name, args);
   }
   if (name == "STANDARDIZE") {
     long double value = n(0), mean = n(1), sigma = n(2);

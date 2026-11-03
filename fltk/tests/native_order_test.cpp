@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_order.h"
 #include "native_formula.h"
+#include "native_distribution.h"
 #include "workbook.h"
 #include <cassert>
 #include <iostream>
@@ -36,7 +37,8 @@ void near(const V &v, double expected) {
 } // namespace
 int main(int argc, char **argv) {
   std::cout << std::unitbuf;
-  if (argc >= 3 && (std::string(argv[1]) == "--fods" ||
+  if (argc >= 3 && (std::string(argv[1]) == "--distribution-fods" ||
+                    std::string(argv[1]) == "--fods" ||
                     std::string(argv[1]) == "--inspect-fods")) {
     Json records = Json::array();
     for (int file = 2; file < argc; ++file) {
@@ -95,8 +97,16 @@ int main(int argc, char **argv) {
             bool selected = false;
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
-              for (auto name :
-                   Text("CORREL PEARSON COVAR COVARIANCE.P COVARIANCE.S SLOPE "
+              if (std::string(argv[1]) == "--distribution-fods") {
+                auto end = decoded.indexOf('(');
+                selected =
+                    end > 1 && distribution_signatures().contains(
+                                   distribution_name(decoded.mid(1, end - 1)));
+              } else
+                for (
+                    auto name :
+                    Text(
+                        "CORREL PEARSON COVAR COVARIANCE.P COVARIANCE.S SLOPE "
                         "INTERCEPT RSQ STEYX FORECAST FORECAST.LINEAR SUMX2MY2 "
                         "SUMX2PY2 SUMXMY2 SUM2XMY COM.MICROSOFT.COVARIANCE.P "
                         "COM.MICROSOFT.COVARIANCE.S "
@@ -112,8 +122,8 @@ int main(int argc, char **argv) {
                         "COM.MICROSOFT.PERCENTRANK.INC "
                         "COM.MICROSOFT.PERCENTRANK.EXC "
                         "COM.MICROSOFT.QUARTILE.INC COM.MICROSOFT.QUARTILE.EXC")
-                       .split(' '))
-                selected = selected || decoded.startsWith("=" + name + "(");
+                        .split(' '))
+                  selected = selected || decoded.startsWith("=" + name + "(");
             }
             if (selected &&
                 cell.hasAttributeNS(TABLE, "number-matrix-rows-spanned")) {

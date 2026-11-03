@@ -13,8 +13,8 @@ and full upstream spreadsheet function catalogue are not reimplemented here.
 The original Qt/KDE source remains available only through the opt-in frontend
 build. See [PORT_STATUS.md](PORT_STATUS.md).
 
-Implementation priorities are Words layout and editing first, Sheets functions
-second, and Stage last. OpenDocument export and CUPS printing remain the
+Sheets functions are the current focus. Words is paused at its rudimentary
+layout/editing milestone; its experimental columns remain uninstalled. Stage is last. OpenDocument export and CUPS printing remain the
 acceptance floor while this work proceeds.
 
 ## Build and install
@@ -22,7 +22,7 @@ acceptance floor while this work proceeds.
 Dependencies: CMake 3.29+, Ninja, a C++20 compiler, system FLTK 1.4 development
 files, OpenGL/GLU, libxml2, libzip, zlib, Fontconfig 2.17+, FreeType, HarfBuzz,
 GLib/GIO, ICU, Wayland and X11
-headers, and nlohmann-json. No Qt, ECM, KDE, Eigen or Ixion is used by the native
+headers, Boost.Math/Multiprecision headers, and nlohmann-json. No Qt, ECM, KDE, Eigen or Ixion is used by the native
 build. The system FLTK shared-library finder handles distributions whose CMake
 config exports static archives absent from their shared-devel package.
 
@@ -627,8 +627,8 @@ return `#DIV/0!`; nonpositive observations or nonrepresentable results return
 `#NUM!`. Collected inputs are bounded to one million records. ODS save supplies required
 column declarations and a blank row for newly created/empty sheets and imports
 that lack them, preserving existing column groups and source caches. A function-name
-inventory is catalogue coverage only; distributions,
-regression and other retained groups remain unfinished.
+inventory is catalogue coverage only; full matrix regression, hypothesis tests,
+database and other retained groups remain unfinished.
 
 Conditional aggregates now include `COUNTIF`/`COUNTIFS`, `SUMIF`/`SUMIFS` and
 `AVERAGEIF`/`AVERAGEIFS`. Criteria support comparisons, numeric text, logical
@@ -696,7 +696,7 @@ reference unions and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
---test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order` and `paired`
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired` and `distribution`
 are also supported. A test-only input helper, Cage's headless backend and nested
 DomeD provide private virtual keyboard/pointer input and render captures. The
 fixture uses no X server and never directs input to the user's desktop. It
@@ -724,6 +724,41 @@ work. A standalone one-million-observation exact-regression benchmark takes
 about 0.09 seconds in the local Release build; this excludes workbook loading
 and rendering. Full multiple-regression/matrix functions and other statistical,
 database and calculation-model work remain unfinished.
+
+Probability distributions now cover beta, binomial (including interval and
+critical probabilities), chi-square, exponential, F, Gamma, hypergeometric,
+lognormal, negative binomial, normal, Poisson, Student t and Weibull families,
+plus Fisher transforms, Gaussian area/density, Gamma/log-Gamma and normal/t
+confidence intervals. Modern dotted names and recognized Microsoft prefixes
+retain distinct signatures where their argument order, required parameters,
+boundaries or tail definitions differ. OpenFormula `FDIST`/`FINV` use left tails;
+Excel's old names translate to `LEGACY.FDIST`/`LEGACY.FINV` on XLSX import, without
+altering quoted strings or sheet names. `TDIST` remains a one/two-tail function;
+`T.DIST` is a signed CDF/density and `T.INV` is a signed left quantile.
+
+Boost.Math evaluates distributions with extended intermediates. Complement
+CDFs/quantiles retain small right tails; `expm1` and `erf` retain small areas.
+Critical binomial probabilities use a bounded integer search for the least
+qualifying result. Discrete counts truncate before use. ODF `CONFIDENCE` retains
+its numeric sample size; modern confidence variants truncate it. Scalar/array
+mapping, named/dynamic dependencies and fixed matrix caches use the native engine.
+The explicit OpenFormula zero-density convention for `CHISQDIST` differs from
+the modern function's endpoint density. Gamma endpoint densities are evaluated
+explicitly, including the singular case, rather than trusting Boost's zero
+shortcut. Singular/nonrepresentable values are errors, not fabricated zeros.
+
+Convergence is bounded to 100,000 series iterations and 256 root iterations.
+Binomial counts above the consecutive binary64 integer range and nondegenerate
+hypergeometric populations beyond the backend's unsigned range are incomplete
+`#LIMIT!` results; hypergeometric CDF support wider than 100,000 is also bounded.
+Incomplete calculations preserve imported caches even through `IFERROR`.
+`distribution_reference.py` retains 27 unavailable/malformed/omitted-argument
+cases, four fixed-matrix padding differences from Calc, five boundary-convention
+cache differences and one independently resolved inaccurate old chi-square
+inverse cache. Original fixtures are unchanged. Distribution support is broader
+coverage, not complete spreadsheet interoperability; hypothesis tests, dataset
+probability/frequency, multiple regression, database functions and full
+calculation-model/settings fidelity remain unfinished.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

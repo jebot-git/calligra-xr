@@ -22,7 +22,9 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
-    "--suite", choices=("criteria", "order", "moments", "paired"), required=True
+    "--suite",
+    choices=("criteria", "order", "moments", "paired", "distribution"),
+    required=True,
 )
 parser.add_argument("--bin-dir", type=Path, required=True)
 parser.add_argument("--test-bin-dir", type=Path, required=True)
@@ -60,6 +62,9 @@ def wait(test, timeout=25):
 with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
     base = Path(temp)
     env = {k: v for k, v in os.environ.items() if not k.startswith("DOME_")}
+    # The desktop can carry an opt-in /opt/fltk-vr toolkit search path.
+    # Acceptance tests must use the system FLTK selected by the native build.
+    env["LD_LIBRARY_PATH"] = "/usr/local/lib/domed/bitmap"
     for name in ("CONFIG", "DATA", "CACHE", "STATE", "RUNTIME"):
         p = base / name.lower()
         p.mkdir(mode=0o700)
@@ -150,9 +155,9 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
             text=True,
             bufsize=1,
         )
-        assert (
-            input_process.stdout.readline().strip() == "ready"
-        ), "Private native input helper failed"
+        assert input_process.stdout.readline().strip() == "ready", (
+            "Private native input helper failed"
+        )
 
         def send(payload):
             input_process.stdin.write(json.dumps(payload) + "\n")
@@ -234,8 +239,10 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
             api("/api/action", {"op": "desktop_move", "id": w["id"], "x": 60, "y": 50})
             api("/api/action", {"op": "focus", "id": w["id"]})
             wait(
-                lambda: native_window()["desktop"]["x"] == 60
-                and native_window()["desktop"]["y"] == 50
+                lambda: (
+                    native_window()["desktop"]["x"] == 60
+                    and native_window()["desktop"]["y"] == 50
+                )
             )
             time.sleep(0.6)
             move(5, 5)
@@ -292,10 +299,13 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
                 if any(v in line for v in ("libQt", "libfltk", "libgtk-"))
             }
         )
-        assert not any("libQt" in p for p in libraries)
+        (art / "runtime-libraries.json").write_text(
+            json.dumps(libraries, indent=2) + "\n"
+        )
+        assert not any("libQt" in p for p in libraries), libraries
         assert any(
             p.startswith(("/usr/lib64/libfltk", "/lib64/libfltk")) for p in libraries
-        )
+        ), libraries
         first()
         click(410, 74)
         key("a", ("Control_L",))

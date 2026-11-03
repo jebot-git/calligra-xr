@@ -2,6 +2,7 @@
 #include "native_formula.h"
 #include "native_limits.h"
 #include <functional>
+#include <cctype>
 namespace DomeOffice::Formula {
 namespace {
 const std::regex ref(
@@ -102,7 +103,48 @@ std::string unodf(std::string s) {
   return s;
 }
 } // namespace
-Text from_excel(const Text &f) { return f.startsWith('=') ? f : Text("=") + f; }
+Text from_excel(const Text &f) {
+  auto bytes = f.toStdString();
+  std::string out;
+  // Excel's pre-2010 F functions are right tails. OpenFormula's unprefixed
+  // FDIST/FINV are left tails. Translate calls, preserving strings, quoted
+  // sheet names and modern dotted function names exactly.
+  for (size_t i = 0; i < bytes.size();) {
+    char c = bytes[i];
+    if (c == '"' || c == '\'') {
+      char quote = c;
+      out += bytes[i++];
+      while (i < bytes.size()) {
+        char next = bytes[i++];
+        out += next;
+        if (next == quote) {
+          if (i < bytes.size() && bytes[i] == quote)
+            out += bytes[i++];
+          else
+            break;
+        }
+      }
+    } else if (std::isalpha(static_cast<unsigned char>(c)) || c == '_') {
+      size_t begin = i++;
+      while (i < bytes.size() &&
+             (std::isalnum(static_cast<unsigned char>(bytes[i])) ||
+              bytes[i] == '_' || bytes[i] == '.'))
+        ++i;
+      auto token = bytes.substr(begin, i - begin);
+      size_t call = i;
+      while (call < bytes.size() &&
+             std::isspace(static_cast<unsigned char>(bytes[call])))
+        ++call;
+      auto upper = Text(token).toUpper();
+      out += call < bytes.size() && bytes[call] == '(' &&
+                     (upper == "FDIST" || upper == "FINV")
+                 ? "LEGACY." + upper.toStdString()
+                 : token;
+    } else
+      out += bytes[i++];
+  }
+  return Text(out.starts_with('=') ? out : '=' + out);
+}
 Text decode(const Text &formula) {
   auto b = formula.toStdString();
   auto colon = b.find(":=");

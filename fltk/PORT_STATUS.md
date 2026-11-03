@@ -917,3 +917,43 @@ all reopen identically and all nine three-application baseline pages match the
 previous installed increment. The Release stage verifies 29 artifacts with
 system FLTK and no Qt/GTK ELF dependency. Words remains paused at its rudimentary
 milestone; experimental columns stay uninstalled, and Stage remains last.
+
+
+## Native Sheets probability distributions — 2026-11-03
+
+The paired-statistics increment 8d2464f is installed and independently verified.
+This increment adds 55 native function signatures plus aliases across thirteen
+continuous/discrete distribution families, Fisher transforms, Gamma/log-Gamma,
+Gaussian area/density and normal/t confidence intervals. The retained-name
+dispatch inventory now covers 430 of 641 names, with 211 remaining. Alias counts
+measure catalogue coverage only, not the fraction of the full goal completed.
+
+OpenFormula and modern signatures retain cumulative/density, left/right tail,
+legacy t-tail, beta bound ordering, optional-argument and endpoint distinctions.
+XLSX import translates Excel's old FDIST/FINV calls to ODF right-tail names while
+preserving strings and quoted sheet names. Extended Boost.Math intermediates,
+complement probabilities, cancellation-safe small areas, explicit Gamma density
+endpoints and least-integer binomial search avoid common numerical failures.
+Convergence, integer representability and hypergeometric backend work are bounded;
+incomplete errors retain old caches. This adds no Qt/GTK or runtime math library.
+
+All 61 applicable Release and ASan/UBSan suites pass with the same three bitmap-
+policy exclusions. Independent 100-digit mpmath/exact-rational checks cover
+2,383 direct/inverse cases; inverse checks account for binary64 output spacing.
+The selected untouched FODS corpus has 2,745 results: 2,458 agreeing caches,
+250 error-label differences, 27 unavailable inputs/parser cases and 10 explicitly
+retained differences. Four reflect Calc repeating a row in an oversized matrix
+where native pads with #N/A; five follow the specified ODF/Microsoft boundary
+conventions instead of the old caches. The final chi-square inverse discrepancy
+is resolved independently from its raw inputs using a finite survival sum.
+These differences remain limitations/evidence, not silently passing assertions.
+
+Native Wayland Release/ASan editing, recalculation, undo/redo, raw saved caches,
+arrays, import/export, save/reopen and opaque-data tests pass. Twenty-one print
+pages were visually reviewed, reopen identically and cover five actual private
+CUPS jobs. All nine three-application baseline pages match installed 8d2464f.
+Installation evidence is recorded separately from build and staged validation.
+Words remains paused at rudimentary compliance; experimental columns stay
+uninstalled. Sheets remains active; Stage is last. Hypothesis tests, dataset
+probability/frequency, matrix regression, database functions, omitted arguments,
+reference unions, duration precision and complete model/settings fidelity remain.

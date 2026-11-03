@@ -2631,3 +2631,40 @@ grid display retains its date/duration representation. Array-valued inputs and
 criteria retain the native/Calligra extension. Numeric criteria do not equate
 referenced text with numbers; text equality criteria can match numeric text,
 while ordered numeric criteria exclude text. Installation evidence is separate.
+
+
+## Sheets probability distributions — 2026-11-03
+
+Evidence: `artifacts/calligra-sheets-distributions-20261103`. The preceding
+8d2464f paired-statistics milestone is installed and independently verified.
+
+- 61 applicable optimized Release and 61 ASan/UBSan suites pass. The existing
+  three outline-font-assumption suites remain excluded under bitmap policy.
+  Core leak checking is enabled; external graphics leak checking is disabled.
+- 2,383 independent distribution results cover exact discrete probabilities,
+  100-digit continuous densities/CDFs, separately evaluated inverse CDFs with
+  binary64 quantization bounds, tiny tails and confidence sample-size semantics.
+- 2,745 retained FODS results: 2,458 agreeing caches, 250 error-label differences,
+  27 unavailable/malformed/omitted-argument cases, four matrix-row padding
+  differences, five explicitly justified boundary conventions and one extreme-
+  tail inverse cache resolved using independently read raw inputs and a finite
+  elementary survival sum. Source fixtures/caches are never changed. A dedicated
+  distribution selector keeps prior audit populations unchanged; older statistics,
+  criteria, order, moment and paired reference checks also pass.
+- Independent odfpy/openpyxl producers exercise all distribution families, stale
+  caches, arrays and matrix padding, named/reference dependencies, unknown
+  calculations and IFERROR cache retention, opaque package bytes and Excel's
+  legacy F-tail import. Native Wayland Release/ASan input checks cover painted
+  values, editing, recalculation, undo/redo, raw save caches and save/reopen.
+  The private harness pins its library path to system FLTK instead of inheriting
+  the desktop's optional /opt/fltk-vr toolkit. It uses no X server or desktop input.
+- Original/edited workbooks complete two private CUPS jobs; baseline Words,
+  Sheets and Stage complete three more. All 21 pages were visually reviewed and
+  match after reopen. The nine baseline pages equal verified 8d2464f pixels.
+  Version-matched OASIS schemas validate generated ODF packages. Physical printer,
+  global queues/defaults and running desktop sessions are unchanged.
+
+The signature inventory reaches 430/641 retained names (211 remaining), including
+aliases. This is not a numerical/parity percentage. Boost.Math and Multiprecision
+are build-time headers; system FLTK remains default and Qt frontends opt-in OFF.
+Installation verification is separate from the prepared Release stage.
