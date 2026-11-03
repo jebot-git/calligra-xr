@@ -23,7 +23,9 @@ from Xlib.ext import xtest
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--wayland", action="store_true")
-parser.add_argument("--suite", choices=("criteria", "order"), default="criteria")
+parser.add_argument(
+    "--suite", choices=("criteria", "order", "moments"), default="criteria"
+)
 parser.add_argument("--bin-dir", type=Path, default=ROOT / "build-native/fltk")
 parser.add_argument(
     "--artifacts", type=Path, default=ROOT / "build-native/ui-artifacts"
@@ -351,6 +353,9 @@ with tempfile.TemporaryDirectory(prefix="calligra-ui-") as temp:
             )
             key("s", ("Control_L",))
             wait(lambda: not data()["modified"])
+            if hasattr(producer, "verify_caches"):
+                producer.verify_caches(doc, money=8)
+                (art / "native-saved.ods").write_bytes(doc.read_bytes())
             verify(doc, args.test_bin_dir, art / "saved", money=8)
             with zipfile.ZipFile(doc) as saved:
                 for name, value in original.items():

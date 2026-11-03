@@ -20,7 +20,9 @@ def main():
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--test-bin-dir", type=Path, required=True)
     parser.add_argument("--edited", type=Path, required=True)
-    parser.add_argument("--suite", choices=("criteria", "order"), default="criteria")
+    parser.add_argument(
+        "--suite", choices=("criteria", "order", "moments"), default="criteria"
+    )
     args = parser.parse_args()
     producer = importlib.import_module(args.suite + "_producer")
     produce, verify = producer.produce, producer.verify
@@ -82,6 +84,8 @@ def main():
                 assert first.read_bytes() == second.read_bytes(), (name, page)
                 image = Image.open(first).convert("RGB")
                 assert sum(max(pixel) < 100 for pixel in image.getdata()) > 100
+            if hasattr(producer, "verify_caches"):
+                producer.verify_caches(saved, money)
             verify(saved, args.test_bin_dir, art / ("verified-" + name), money)
             assert hashlib.sha256(source.read_bytes()).hexdigest() == before
             results.append(

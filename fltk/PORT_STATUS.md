@@ -824,3 +824,48 @@ private-queue CUPS jobs cover the increment and the three-application baseline;
 21 print pages reopen identically, and all nine baseline pages match the previous
 installed increment. The optimized stage verifies 29 artifacts with system FLTK
 and no Qt/GTK ELF linkage. Runtime decoration plugins are a separate concern.
+
+
+## Native Sheets higher moments and trimmed means — 2026-11-03
+
+SKEW, SKEWP/SKEW.P, KURT, KURTP, TRIMMEAN and STANDARDIZE are native, including
+recognized Microsoft aliases. VARIANCE and four Microsoft-prefixed standard-
+deviation/variance names now reach the existing native implementations. The
+inventory covers 343 of 641 active retained names, with 298 remaining. This is
+dispatch coverage only; distributions, paired statistics/regression, database,
+remaining function groups and full calculation settings/model remain unfinished.
+
+Higher moments use shifted/scaled observations and compensated extended sums,
+so huge/tiny scales and large offsets remain usable. KURTP follows the documented
+population excess-kurtosis example, correcting the old sample-variance-based
+implementation. Minimum sample counts are three for skewness and four for
+kurtosis; insufficient or constant samples return #DIV/0!. TRIMMEAN shares the
+bounded sorted dataset and supports array trim fractions. STANDARDIZE broadcasts
+scalar arguments, maps same-shaped arrays and avoids intermediate subtraction
+overflow. Runtime errors and unavailable dependencies keep their provenance.
+
+All 59 applicable Release suites and 59 ASan/UBSan suites pass, retaining the
+three longstanding outline-font exclusions under the bitmap-font policy. The
+new reference audit has 582 independent Decimal cases and 149 retained results:
+140 agreeing caches, six native/Calc error-label differences, two independently
+resolved precision differences, and one unavailable trailing omitted argument.
+The two skewness cases independently read 198 raw FODS observations each;
+native results agree with Decimal, while the old caches lose offset precision.
+Original corpora remain unchanged. Earlier descriptive, conditional and order
+reference audits continue to pass with their previously documented exceptions.
+
+After the system's separate X11 retirement removed Xvfb, a private headless
+Cage/nested-DomeD fixture now tests real Wayland keyboard/pointer input without
+an X server. It never connects input to the user's desktop. New-function Release
+and ASan UI runs verify all calculated/painted cells, editing, undo/redo, direct
+raw saved-cache checks, fixed matrices, save/reopen and opaque archive data.
+The conditional and order suites also pass through this new native fixture.
+The test-only helper/protocol definitions are excluded from installation.
+
+Twenty-two generated packages pass ODF schemas. Five private CUPS jobs cover
+the increment and three-application baseline; 21 pages match after reopen, and
+all nine baseline pages match the preceding installed increment. The prepared
+Release stage verifies 29 artifacts, system FLTK and no Qt/GTK ELF linkage.
+Optional runtime decoration plugins remain separate from ELF dependencies.
+Words stays paused at rudimentary compliance, with its experimental columns
+preserved and uninstalled; Sheets remains active and Stage last.

@@ -1058,8 +1058,8 @@ Value SheetEngine::Impl::conditional(const Expr &e, const Text &name,
   return Value::array(result_rows, result_columns, std::move(results));
 }
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = order_name(conditional_name(
-      calendar_name(financial_name(engineering_name(e->name)))));
+  const auto name = statistics_name(order_name(conditional_name(
+      calendar_name(financial_name(engineering_name(e->name))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1083,6 +1083,7 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     add("AVERAGE MEDIAN STDEV STDEV.S STDEVP STDEV.P VAR VAR.S VARP VAR.P AND "
         "OR XOR",
         1, 255);
+    add("STANDARDIZE", 3, 3);
     add("COUNTBLANK", 1, 1);
     add("CHOOSE", 2, 255);
     add("INDEX MATCH LOOKUP", 2, 3);
@@ -1131,7 +1132,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
   FlagScope function_context(array_context,
                              array_context || accepts_arrays.contains(name) ||
                                  conditional_function(name) ||
-                                 order_signatures().contains(name));
+                                 order_signatures().contains(name) ||
+                                 statistics_signatures().contains(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1276,7 +1278,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
                                            : std::vector<Value>{a});
     });
   }
-  if (!accepts_arrays.contains(name)) {
+  if (!accepts_arrays.contains(name) &&
+      !statistics_signatures().contains(name)) {
     std::vector<Value> args;
     bool any_array = false;
     size_t rows = 1, columns = 1;
@@ -1306,6 +1309,12 @@ Value SheetEngine::Impl::function(const Expr &e) const {
         }
       return Value::array(rows, columns, std::move(result));
     }
+  }
+  if (name == "STANDARDIZE") {
+    long double value = n(0), mean = n(1), sigma = n(2);
+    if (sigma <= 0)
+      return error("#NUM!");
+    return numeric(static_cast<double>((value - mean) / sigma));
   }
   if (statistics_signatures().contains(name)) {
     std::vector<double> numbers;

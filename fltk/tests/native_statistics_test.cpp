@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
       std::cout << encode(eval(Text(line))).dump() << '\n';
     return 0;
   }
-  assert(statistics_signatures().size() == 10);
+  assert(statistics_signatures().size() == 14);
   for (const auto &[name, arity] : statistics_signatures()) {
     assert(arity.first == 1 && arity.second == 255);
     assert(eval(name + "()").string == "#VALUE!");

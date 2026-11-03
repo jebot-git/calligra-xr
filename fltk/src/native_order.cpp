@@ -72,7 +72,8 @@ const NativeSignatures &order_signatures() {
       {"QUARTILE", {2, 2}},    {"QUARTILE.EXC", {2, 2}},
       {"PERCENTRANK", {2, 3}}, {"PERCENTRANK.EXC", {2, 3}},
       {"MODE", {1, 255}},      {"MODE.SNGL", {1, 255}},
-      {"MODE.MULT", {1, 255}}, {"MEDIAN", {1, 255}}};
+      {"MODE.MULT", {1, 255}}, {"MEDIAN", {1, 255}},
+      {"TRIMMEAN", {2, 2}}};
   return names;
 }
 Text order_name(const Text &name) {
@@ -163,6 +164,21 @@ V NativeOrderData::evaluate(const Text &name,
   if (parameters.empty() || parameters.size() > 2)
     return V::error("#VALUE!");
   double x = number(parameters[0]);
+  if (name == "TRIMMEAN") {
+    if (x < 0 || x >= 1)
+      return V::error("#NUM!");
+    size_t trim =
+        static_cast<size_t>(std::floor(static_cast<double>(n) * x / 2));
+    long double total = 0, correction = 0;
+    for (size_t i = trim; i < n - trim; ++i) {
+      long double next = data[i], sum = total + next;
+      correction += std::abs(total) >= std::abs(next) ? (total - sum) + next
+                                                      : (next - sum) + total;
+      total = sum;
+    }
+    return V::numeric(
+        static_cast<double>((total + correction) / (n - 2 * trim)));
+  }
   if (name == "SMALL" || name == "LARGE") {
     x = std::trunc(x);
     if (x < 1 || x > static_cast<double>(n))

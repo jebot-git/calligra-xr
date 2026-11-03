@@ -673,6 +673,37 @@ and other unavailable dependencies remain unfinished. Native dispatch now
 covers 332 of 641 retained names (aliases included), with 309 remaining. This
 count measures catalogue coverage, not numerical or interoperability fidelity.
 
+Higher moments include `SKEW`, `SKEWP`/`SKEW.P`, `KURT` and `KURTP`.
+Shifted, scaled observations and compensated extended-precision moment sums
+retain small differences around large offsets and avoid cubed/fourth-power
+overflow. Skewness needs three numeric observations; kurtosis needs four.
+Insufficient or constant samples return `#DIV/0!`. `KURTP` uses population
+excess kurtosis, matching the retained help example; the old implementation's
+sample-variance denominator was inconsistent with that definition.
+
+`TRIMMEAN` sorts the numeric dataset, removes the same floored count from each
+end and computes a compensated mean. Its trim fraction must be at least zero
+and below one. Trim-fraction arrays reuse the sorted dataset. `STANDARDIZE`
+maps arrays element by element and uses extended intermediates for `(x-mean)/sigma`,
+requiring positive sigma. `VARIANCE` and Microsoft-prefixed standard-deviation/
+variance aliases dispatch to the existing native aggregates.
+
+`fltk/tests/moments_reference.py` records two old skewness caches whose large-
+offset precision disagrees with independent Decimal arithmetic; native results
+match the independent inputs. Native/Calc error-label conventions and a trailing
+omitted-argument parser limitation remain explicit. Full calculation settings,
+reference unions and general locale/model interoperability remain unfinished.
+
+Sheets GUI validation now has a fully native Wayland path:
+`fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria` and `order`
+are also supported. A test-only input helper, Cage's headless backend and nested
+DomeD provide private virtual keyboard/pointer input and render captures. The
+fixture uses no X server and never directs input to the user's desktop. It
+checks painted/calculated values, editing/history, native saved caches and
+save/reopen. The old Xvfb-based harness is retained for X11-enabled development
+systems. Neither input helper nor protocol test infrastructure is installed.
+
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,
 logical and type tests, rounding, powers/logarithms/trigonometry, basic text

@@ -418,3 +418,34 @@ if(BUILD_TESTING)
   target_compile_options(calligra-native-order-test PRIVATE -UNDEBUG)
   add_test(NAME native-order COMMAND calligra-native-order-test)
 endif()
+
+if(BUILD_TESTING)
+  add_executable(calligra-native-moments-test tests/native_moments_test.cpp)
+  target_link_libraries(calligra-native-moments-test PRIVATE calligra-fltk-document)
+  target_compile_options(calligra-native-moments-test PRIVATE -UNDEBUG)
+  add_test(NAME native-moments COMMAND calligra-native-moments-test)
+endif()
+
+if(BUILD_TESTING)
+  find_program(WAYLAND_SCANNER_EXECUTABLE wayland-scanner REQUIRED)
+  pkg_check_modules(TEST_WAYLAND REQUIRED IMPORTED_TARGET wayland-client xkbcommon)
+  foreach(protocol virtual-keyboard wlr-virtual-pointer)
+    if(protocol STREQUAL virtual-keyboard)
+      set(short_name virtual-keyboard)
+    else()
+      set(short_name virtual-pointer)
+    endif()
+    set(protocol_xml ${CMAKE_CURRENT_SOURCE_DIR}/tests/wayland/${protocol}-unstable-v1.xml)
+    add_custom_command(OUTPUT ${short_name}-client.h ${short_name}-protocol.c
+      COMMAND ${WAYLAND_SCANNER_EXECUTABLE} client-header ${protocol_xml} ${short_name}-client.h
+      COMMAND ${WAYLAND_SCANNER_EXECUTABLE} private-code ${protocol_xml} ${short_name}-protocol.c
+      DEPENDS ${protocol_xml})
+  endforeach()
+  add_executable(calligra-wayland-test-input tests/wayland/input.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/virtual-keyboard-client.h
+    ${CMAKE_CURRENT_BINARY_DIR}/virtual-keyboard-protocol.c
+    ${CMAKE_CURRENT_BINARY_DIR}/virtual-pointer-client.h
+    ${CMAKE_CURRENT_BINARY_DIR}/virtual-pointer-protocol.c)
+  target_include_directories(calligra-wayland-test-input PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+  target_link_libraries(calligra-wayland-test-input PRIVATE PkgConfig::TEST_WAYLAND)
+endif()

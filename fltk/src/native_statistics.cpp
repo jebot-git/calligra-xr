@@ -25,12 +25,26 @@ const NativeSignatures &statistics_signatures() {
   static const NativeSignatures names = [] {
     NativeSignatures out;
     for (auto name : Text("AVERAGEA AVEDEV DEVSQ DEVSQA GEOMEAN HARMEAN "
-                          "STDEVA STDEVPA VARA VARPA")
+                          "STDEVA STDEVPA VARA VARPA SKEW SKEWP KURT KURTP")
                          .split(' '))
       out[name] = {1, 255};
     return out;
   }();
   return names;
+}
+Text statistics_name(const Text &name) {
+  auto base = name;
+  if (base.startsWith("_XLFN."))
+    base = base.mid(6);
+  if (base.startsWith("COM.MICROSOFT."))
+    base = base.mid(14);
+  static const std::map<Text, Text> aliases = {
+      {"SKEW.P", "SKEWP"},   {"VARIANCE", "VAR"}, {"STDEV.S", "STDEV"},
+      {"STDEV.P", "STDEVP"}, {"VAR.S", "VAR"},    {"VAR.P", "VARP"}};
+  if (auto found = aliases.find(base); found != aliases.end())
+    return found->second;
+  return statistics_signatures().contains(base) || base == "STANDARDIZE" ? base
+                                                                         : name;
 }
 bool statistics_includes_text(const Text &name) {
   return name == "AVERAGEA" || name == "DEVSQA" || name == "STDEVA" ||
@@ -48,6 +62,45 @@ NativeValue statistics_function(const Text &name,
   for (double value : values)
     if (!std::isfinite(value))
       return NativeValue::error("#NUM!");
+  if (name == "SKEW" || name == "SKEWP" || name == "KURT" || name == "KURTP") {
+    bool skew = name.startsWith("SKEW");
+    if (values.size() < (skew ? 3u : 4u))
+      return NativeValue::error("#DIV/0!");
+    // Shift before scaling to preserve small differences around a large origin.
+    // Normalized deviations keep cubed/fourth powers bounded even at extreme
+    // double magnitudes; compensated passes retain cancellation in odd moments.
+    long double origin = values.front(), scale = 0, n = values.size();
+    for (long double value : values)
+      scale = std::max(scale, std::abs(value - origin));
+    if (!scale)
+      return NativeValue::error("#DIV/0!");
+    Sum offsets;
+    for (long double value : values)
+      offsets.add((value - origin) / scale);
+    long double mean = offsets.get() / n;
+    Sum second, third, fourth;
+    for (long double value : values) {
+      long double delta = (value - origin) / scale - mean,
+                  square = delta * delta;
+      second.add(square);
+      third.add(square * delta);
+      fourth.add(square * square);
+    }
+    long double m2 = second.get() / n, m3 = third.get() / n,
+                m4 = fourth.get() / n;
+    if (m2 <= 0)
+      return NativeValue::error("#DIV/0!");
+    if (skew) {
+      long double result = m3 / (m2 * std::sqrt(m2));
+      if (name == "SKEW")
+        result *= std::sqrt(n * (n - 1)) / (n - 2);
+      return numeric(result);
+    }
+    long double excess = m4 / (m2 * m2) - 3;
+    return numeric(name == "KURTP" ? excess
+                                   : (n - 1) / ((n - 2) * (n - 3)) *
+                                         ((n + 1) * excess + 6));
+  }
   if (name == "GEOMEAN" || name == "HARMEAN") {
     long double minimum = *std::min_element(values.begin(), values.end());
     if (minimum <= 0)

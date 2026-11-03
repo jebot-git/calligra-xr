@@ -96,7 +96,8 @@ int main(int argc, char **argv) {
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
               for (auto name :
-                   Text("SMALL LARGE RANK RANK.EQ RANK.AVG MEDIAN MODE "
+                   Text("SKEW SKEWP SKEW.P KURT KURTP TRIMMEAN STANDARDIZE "
+                        "SMALL LARGE RANK RANK.EQ RANK.AVG MEDIAN MODE "
                         "MODE.SNGL MODE.MULT PERCENTILE PERCENTILE.INC "
                         "PERCENTILE.EXC PERCENTRANK PERCENTRANK.INC "
                         "PERCENTRANK.EXC QUARTILE QUARTILE.INC QUARTILE.EXC "
@@ -214,7 +215,7 @@ int main(int argc, char **argv) {
       std::cout << encode(eval(Text(line))).dump() << '\n';
     return 0;
   }
-  assert(order_signatures().size() == 14);
+  assert(order_signatures().size() == 15);
   for (auto [formula, expected] : std::vector<std::pair<Text, double>>{
            {"SMALL(A1:A5,2)", 4},
            {"LARGE(A1:A5,2)", 8},
