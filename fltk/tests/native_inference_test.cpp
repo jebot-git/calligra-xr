@@ -118,6 +118,10 @@ int main() {
   engine.define_matrix(1, 5, 8, 1, 5);
   assert(engine.value(1, 5, 8).number == .2 &&
          engine.value(1, 5, 10).number == .3);
+  engine.set(0, 3, 20, "=IFERROR(NATIVE_MISSING(),5)");
+  assert(eval("ZTEST(A1:A5,C1:C25,1)").incomplete);
+  assert(eval("PROB({1,2,3},{.2,.3,.5},C1:C25)").incomplete);
+  assert(eval("IFERROR(T.TEST(A1:A5,B1:B5,C1:C25,2),77)").incomplete);
   using NativeExact::Sample;
   Sample s(std::vector<double>{1E308, 1E308, 1E308});
   assert(s.difference(1E308) == 0 && s.variance() == 0);

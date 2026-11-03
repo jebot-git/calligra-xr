@@ -644,7 +644,9 @@ struct SheetEngine::Impl {
     if (row < region.row || row >= region.row + region.rows ||
         column < region.column || column >= region.column + region.columns)
       return error("#VALUE!");
-    return value({region.sheet, row, column}).scalar();
+    auto result = value({region.sheet, row, column});
+    calculation_incomplete = calculation_incomplete || result.incomplete;
+    return result.scalar();
   }
   std::vector<Value> flatten(const Expr &source, bool *collection = nullptr,
                              size_t *slots = nullptr) const {
