@@ -521,6 +521,7 @@ class Parser {
                      : op == "&"              ? 20
                      : op == "+" || op == "-" ? 30
                      : op == "*" || op == "/" ? 40
+                     : op == "~"              ? 70
                      : op == "^"              ? 50
                                               : -1;
       if (priority < minimum)
@@ -649,7 +650,15 @@ struct SheetEngine::Impl {
     }
     return result;
   }
-  std::optional<Area> area(const Expr &expr) const;
+  std::optional<std::vector<Area>> references(const Expr &) const;
+  std::optional<Area> area(const Expr &expr) const {
+    auto list = references(expr);
+    if (!list)
+      return {};
+    if (list->size() != 1)
+      throw error("#VALUE!");
+    return list->front();
+  }
   Value materialize(const Area &region) const {
     if (region.size() > 1'000'000)
       return error("#LIMIT!");
@@ -676,11 +685,11 @@ struct SheetEngine::Impl {
   std::vector<Value> flatten(const Expr &source, bool *collection = nullptr,
                              size_t *slots = nullptr) const {
     auto expr = expanded(source);
-    auto region = area(expr);
-    if (!region || region->size() == 1) {
+    auto list = references(expr);
+    if (!list) {
       auto result = evaluate(expr);
       if (collection)
-        *collection = result.isArray() || region.has_value();
+        *collection = result.isArray();
       if (slots)
         *slots = result.isArray() ? result.rows * result.columns : 1;
       if (result.isArray())
@@ -690,32 +699,42 @@ struct SheetEngine::Impl {
     if (collection)
       *collection = true;
     if (slots)
-      *slots = region->size();
-    int s = region->sheet, r = region->row, c = region->column;
-    int r2 = r + region->rows - 1, c2 = c + region->columns - 1;
+      *slots = 0;
     std::vector<Value> out;
-    auto it = cells.lower_bound({s, r, 0});
-    auto matrix = matrix_owners.lower_bound({s, r, 0});
-    auto eligible = [&](auto iterator, const auto &map) {
-      return iterator != map.end() && std::get<0>(iterator->first) == s &&
-             std::get<1>(iterator->first) <= r2;
-    };
-    while (eligible(it, cells) || eligible(matrix, matrix_owners)) {
-      Address position;
-      if (!eligible(matrix, matrix_owners) ||
-          (eligible(it, cells) && it->first < matrix->first)) {
-        position = it->first;
-        ++it;
-      } else if (!eligible(it, cells) || matrix->first < it->first) {
-        position = matrix->first;
-        ++matrix;
-      } else {
-        position = it->first;
-        ++it;
-        ++matrix;
+    for (const auto &entry : *list) {
+      const auto *region = &entry;
+      if (slots)
+        *slots += region->size();
+      int s = region->sheet, r = region->row, c = region->column;
+      int r2 = r + region->rows - 1, c2 = c + region->columns - 1;
+      auto it = cells.lower_bound({s, r, 0});
+      auto matrix = matrix_owners.lower_bound({s, r, 0});
+      auto eligible = [&](auto iterator, const auto &map) {
+        return iterator != map.end() && std::get<0>(iterator->first) == s &&
+               std::get<1>(iterator->first) <= r2;
+      };
+      while (eligible(it, cells) || eligible(matrix, matrix_owners)) {
+        Address position;
+        if (!eligible(matrix, matrix_owners) ||
+            (eligible(it, cells) && it->first < matrix->first)) {
+          position = it->first;
+          ++it;
+        } else if (!eligible(it, cells) || matrix->first < it->first) {
+          position = matrix->first;
+          ++matrix;
+        } else {
+          position = it->first;
+          ++it;
+          ++matrix;
+        }
+        if (std::get<2>(position) >= c && std::get<2>(position) <= c2) {
+          if (out.size() >= 1'000'000)
+            throw error("#LIMIT!");
+          auto result = value(position);
+          calculation_incomplete = calculation_incomplete || result.incomplete;
+          out.push_back(result.scalar());
+        }
       }
-      if (std::get<2>(position) >= c && std::get<2>(position) <= c2)
-        out.push_back(value(position).scalar());
     }
     return out;
   }
@@ -736,27 +755,61 @@ struct SheetEngine::Impl {
   NativeRegressionMatrix regression_matrix(const Expr &) const;
   Value regression(const Expr &, const Text &, bool array_caller) const;
 };
-std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
+std::optional<std::vector<Area>>
+SheetEngine::Impl::references(const Expr &source) const {
+  DepthGuard guard(reference_depth);
   auto expr = expanded(source);
+  if (expr->kind == Node::Binary && expr->name == "~") {
+    auto left = references(expr->args[0]), right = references(expr->args[1]);
+    if (!left || !right) {
+      for (size_t i = 0; i < 2; ++i)
+        if (!(i ? right : left)) {
+          auto v = evaluate(expr->args[i]);
+          if (v.isError())
+            throw v;
+        }
+      throw error("#VALUE!");
+    }
+    if (left->size() + right->size() > 4096)
+      throw error("#LIMIT!");
+    left->insert(left->end(), right->begin(), right->end());
+    return left;
+  }
   if (expr->kind == Node::Reference) {
     auto [s, r, c] = expr->first;
-    return Area{s, r, c, 1, 1};
+    return std::vector<Area>{{s, r, c, 1, 1}};
   }
   if (expr->kind == Node::Range) {
     auto [s, r, c] = expr->first;
     auto [last_s, last_r, last_c] = expr->last;
     if (s != last_s)
       throw error("#REF!");
-    return Area{s, std::min(r, last_r), std::min(c, last_c),
-                std::abs(last_r - r) + 1, std::abs(last_c - c) + 1};
+    return std::vector<Area>{{s, std::min(r, last_r), std::min(c, last_c),
+                              std::abs(last_r - r) + 1,
+                              std::abs(last_c - c) + 1}};
   }
   if (expr->kind != Node::Function)
     return {};
   auto &name = expr->name;
   size_t count = expr->args.size();
+  if (name == "IF" && count >= 2 && count <= 3) {
+    auto condition = evaluate(expr->args[0]);
+    if (condition.isArray())
+      return {};
+    size_t selected = truth(condition) ? 1 : 2;
+    return selected < count ? references(expr->args[selected]) : std::nullopt;
+  }
+  if (name == "CHOOSE" && count >= 2 && count <= 255) {
+    auto index = evaluate(expr->args[0]);
+    if (index.isArray())
+      return {};
+    double selected = std::trunc(number(index));
+    if (selected < 1 || selected >= count)
+      throw error("#VALUE!");
+    return references(expr->args[size_t(selected)]);
+  }
   if (name != "INDEX" && name != "OFFSET" && name != "INDIRECT")
     return {};
-  DepthGuard guard(reference_depth);
   auto integer = [&](size_t i) {
     if (i >= count)
       throw error("#VALUE!");
@@ -798,20 +851,27 @@ std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
       throw error("#REF!");
     }
     if (target->kind != Node::Reference && target->kind != Node::Range &&
-        target->kind != Node::Name)
+        target->kind != Node::Name &&
+        !(target->kind == Node::Binary && target->name == "~"))
       throw error("#REF!");
-    auto result = area(target);
+    auto result = references(target);
     if (!result)
       throw error("#REF!");
     return result;
   }
   if (name == "INDEX") {
-    if (count < 2 || count > 3)
+    if (count < 1 || count > 4)
       throw error("#VALUE!");
-    auto source = area(expr->args[0]);
-    if (!source)
+    auto list = references(expr->args[0]);
+    if (!list)
       return {};
-    int row = integer(1), column = count > 2 ? integer(2) : 1;
+    int selected =
+        count > 3 && expr->args[3]->kind != Node::Omitted ? integer(3) : 1;
+    if (selected < 1 || size_t(selected) > list->size())
+      throw error("#REF!");
+    auto source = std::optional<Area>((*list)[selected - 1]);
+    int row = count > 1 ? integer(1) : 0;
+    int column = count > 2 ? integer(2) : (source->columns == 1 ? 1 : 0);
     if (count == 2 && source->rows == 1) {
       column = row;
       row = 1;
@@ -826,7 +886,7 @@ std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
       source->column += column - 1;
       source->columns = 1;
     }
-    return source;
+    return std::vector<Area>{*source};
   }
   if (count < 3 || count > 5)
     throw error("#VALUE!");
@@ -842,7 +902,8 @@ std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
   if (row < 1 || column < 1 || row + rows - 1 > KS_rowMax ||
       column + columns - 1 > KS_colMax)
     throw error("#REF!");
-  return Area{result->sheet, int(row), int(column), int(rows), int(columns)};
+  return std::vector<Area>{
+      {result->sheet, int(row), int(column), int(rows), int(columns)}};
 }
 Value SheetEngine::Impl::evaluate(const Expr &e) const {
   auto result = evaluate_node(e);
@@ -900,6 +961,13 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
     });
   }
   case Node::Binary:
+    if (e->name == "~") {
+      auto list = references(e);
+      if (list->size() != 1)
+        return error("#VALUE!");
+      return array_context ? materialize(list->front())
+                           : intersect(list->front());
+    }
     return binary(e->name, evaluate(e->args[0]), evaluate(e->args[1]));
   case Node::Function:
     return function(e);
@@ -1565,7 +1633,9 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     add("STANDARDIZE", 3, 3);
     add("COUNTBLANK", 1, 1);
     add("CHOOSE", 2, 255);
-    add("INDEX MATCH LOOKUP", 2, 3);
+    add("MATCH LOOKUP", 2, 3);
+    add("INDEX", 1, 4);
+    add("AREAS ISREF", 1, 1);
     add("VLOOKUP HLOOKUP", 3, 4);
     add("OFFSET", 3, 5);
     add("INDIRECT", 1, 2);
@@ -1909,6 +1979,28 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       args.push_back(arg(i));
     return engineering_function(name, args);
   }
+  if (name == "AREAS" || name == "ISREF") {
+    try {
+      auto list = references(e->args[0]);
+      if (name == "ISREF") {
+        if (!list)
+          (void)arg(0); // Preserve unavailable provenance without propagating
+                        // an ordinary error.
+        return Value::logical(list.has_value());
+      }
+      if (!list) {
+        auto v = arg(0);
+        return v.isError() ? v : error("#VALUE!");
+      }
+      return numeric(list->size());
+    } catch (const Value &failure) {
+      if (name != "ISREF")
+        return failure;
+      auto result = Value::logical(false);
+      result.incomplete = failure.incomplete;
+      return result;
+    }
+  }
   if (name == "ROWS" || name == "COLUMNS") {
     if (auto region = area(e->args[0]))
       return numeric(name == "ROWS" ? region->rows : region->columns);
@@ -1960,9 +2052,12 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     auto data = arg(0);
     if (data.isError())
       return data;
-    int row = e->args[1]->kind == Node::Omitted ? 0 : integer(1);
-    int column =
-        count > 2 ? (e->args[2]->kind == Node::Omitted ? 0 : integer(2)) : 1;
+    if (count > 3 && e->args[3]->kind != Node::Omitted && integer(3) != 1)
+      return error("#REF!");
+    int row = count < 2 || e->args[1]->kind == Node::Omitted ? 0 : integer(1);
+    int column = count > 2
+                     ? (e->args[2]->kind == Node::Omitted ? 0 : integer(2))
+                     : (data.columns == 1 ? 1 : 0);
     if (count == 2 && data.rows == 1) {
       column = row;
       row = 1;

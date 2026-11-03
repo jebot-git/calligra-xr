@@ -164,7 +164,7 @@ def main():
         )
         if not valid:
             failures.append(r)
-    assert len(rows) == 336 and len(unavailable) == 3 and len(deviations) == 31, (
+    assert len(rows) == 336 and len(unavailable) == 0 and len(deviations) == 31, (
         len(rows),
         len(unavailable),
         len(deviations),
@@ -269,7 +269,7 @@ def main():
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     assert not failures, failures[:5]
     print(
-        f'PASS {report["agreeing_retained_caches"]} retained result caches and {len(cases)} independent cases; 31 documented cache differences and three unavailable dependencies retained separately'
+        f"PASS {report['agreeing_retained_caches']} retained result caches and {len(cases)} independent cases; 31 documented cache differences retained separately; all three union-dependent ranks now calculate"
     )
 
 

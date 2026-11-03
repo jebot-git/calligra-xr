@@ -43,8 +43,8 @@ FORMULAS = [
     f"DCOUNT(Records;;{CRIT})",
     f"DCOUNTA(Records;0;{CRIT})",
     f"DSUM(Records;N(COLUMN([.A1]))+1;{CRIT})",
-    "DSUM(Records;2;UnavailableCriteria)",
-    "IFERROR([.R1];77)",
+    "SUM(UnionScores)",
+    "SUM(INDEX(UnionScores;0;0;AREAS(UnionScores)))",
     "DSUM(Records;2;[.$M$12:.$M$13])",
     'DGET(Records;"Name";{"Name"|"beta"})',
 ]
@@ -86,8 +86,8 @@ def expected(money=2, excel=False):
         3,
         3,
         money + 6,
-        "#PARSE!",
-        77,
+        2 * money + 28,
+        money,
         sum(r[1] for r in records(money) if r[1] is not None and r[1] >= 5),
         "beta",
     ]
@@ -179,7 +179,7 @@ def produce(directory):
     names = NamedExpressions()
     names.addElement(
         NamedExpression(
-            name="UnavailableCriteria",
+            name="UnionCriteria",
             basecelladdress="$Database.$H$12",
             expression=UNION,
         )
@@ -187,6 +187,13 @@ def produce(directory):
     names.addElement(
         NamedExpression(
             name="Threshold", basecelladdress="$Database.$P$13", expression="of:=5"
+        )
+    )
+    names.addElement(
+        NamedExpression(
+            name="UnionScores",
+            basecelladdress="$Database.$B$4",
+            expression="of:=[$Database.$B$4:.$B$8]~[$Database.$B$4]",
         )
     )
     doc.spreadsheet.addElement(names)
@@ -255,11 +262,14 @@ def produce(directory):
         (13, 16, 5),
     ]:
         ws.cell(row, col, v)
+    book.defined_names.add(
+        DefinedName("UnionScores", attr_text="'Database'!$B$4:$B$8,'Database'!$B$4")
+    )
     book.defined_names.add(DefinedName("Records", attr_text="'Database'!$A$3:$D$9"))
     book.defined_names.add(DefinedName("Threshold", attr_text="5"))
     book.defined_names.add(
         DefinedName(
-            "UnavailableCriteria",
+            "UnionCriteria",
             attr_text="'Database'!$H$12:$H$13,'Database'!$I$12:$J$13",
         )
     )
@@ -284,16 +294,10 @@ def verify_caches(path, money=2, source_cache=True, excel=False):
         rows = table.findall(TABLE + "table-row")
         for c, want in enumerate(expected(money, excel)):
             v = rows[0].findall(TABLE + "table-cell")[c]
-            if c in (17, 18):
-                if source_cache:
-                    assert v.get(OFFICE + "value") == "901", (path, c, v.attrib)
-            else:
-                assert same(
-                    v.get(
-                        OFFICE + ("string-value" if isinstance(want, str) else "value")
-                    ),
-                    want,
-                ), (path, c, want, v.attrib)
+            assert same(
+                v.get(OFFICE + ("string-value" if isinstance(want, str) else "value")),
+                want,
+            ), (path, c, want, v.attrib)
         for c, want in enumerate([903, 904, 905, 0, "true", 0, 10, 10, 5]):
             v = rows[1].findall(TABLE + "table-cell")[c]
             if c < 3:
@@ -307,7 +311,7 @@ def verify_caches(path, money=2, source_cache=True, excel=False):
             expressions = [
                 e
                 for e in root.iter(TABLE + "named-expression")
-                if e.get(TABLE + "name") == "UnavailableCriteria"
+                if e.get(TABLE + "name") == "UnionCriteria"
             ]
             assert len(expressions) == 1
             expression = expressions[0].get(TABLE + "expression")
@@ -333,7 +337,7 @@ def verify_caches(path, money=2, source_cache=True, excel=False):
             union = [
                 e
                 for e in root.iter(TABLE + "named-expression")
-                if e.get(TABLE + "name") == "UnavailableCriteria"
+                if e.get(TABLE + "name") == "UnionCriteria"
             ]
             assert len(union) == 1 and union[0].get(TABLE + "expression") == UNION
             threshold = [
@@ -384,7 +388,7 @@ def verify(path, test_bin_dir, directory, money=2):
         zip(rows[0][0], expected(money, excel), strict=True)
     ):
         assert same(got.get("value", got["display"]), want), (path, c, want, got)
-        assert got["incomplete"] == (c in (17, 18)), (path, c, got)
+        assert not got["incomplete"], (path, c, got)
     for c, want in enumerate(["#VALUE!", 77, 5, 0, "TRUE", 0, 10, 10, 5]):
         got = rows[0][1][c]
         assert same(got.get("value", got["display"]), want), (path, c, want, got)

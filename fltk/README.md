@@ -644,7 +644,7 @@ range. Multiple ranges require identical two-dimensional geometry. Single-
 criterion sum/average targets start at their reference's top-left and inherit
 criteria geometry, clipping at sheet bounds. Named and dynamic references,
 typed array inputs, array criteria and fixed matrix results are supported.
-General locale parsing and reference-list unions remain unfinished. ISO and
+General locale parsing remains unfinished. ISO and
 US English date criteria use the workbook's serial epoch. Formula text
 conversion of typed dates/durations uses their numeric value, independently of
 formatted grid display. This is broader function coverage, not full calculation
@@ -667,8 +667,7 @@ rank fractions avoid floating-point truncation loss. Inclusive singleton rank is
 one per OpenFormula; exclusive singleton rank uses one half. The retained Calc
 corpus has rounding, singleton and older mode-order cache differences, recorded
 explicitly in `order_reference.py`. One rank case also exposes an inherited
-binary duration-subtraction/`INT` boundary discrepancy; reference-list unions
-and other unavailable dependencies remain unfinished. Catalogue counts measure
+binary duration-subtraction/`INT` boundary discrepancy; reference intersection and other unavailable dependencies remain unfinished. Catalogue counts measure
 dispatch coverage, not numerical or interoperability fidelity.
 
 Higher moments include `SKEW`, `SKEWP`/`SKEW.P`, `KURT` and `KURTP`.
@@ -690,7 +689,7 @@ variance aliases dispatch to the existing native aggregates.
 offset precision disagrees with independent Decimal arithmetic; native results
 match the independent inputs. Native/Calc error-label conventions and a trailing
 omitted-argument semantic limitation remain explicit. Full calculation settings,
-reference unions and general locale/model interoperability remain unfinished.
+reference intersection and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
@@ -921,7 +920,7 @@ package declarations,
 so they no longer prevent unrelated workbook calculations from loading. Formula
 cells whose result is an empty reference produce numeric zero; functions that
 inspect a blank reference directly retain its empty-cell type. Number-locale
-parsing and reference-list evaluation remain unfinished. Ambiguous decimal/grouping
+parsing and legacy nonrectangular database criteria remain unfinished. Ambiguous decimal/grouping
 commas in numeric database comparisons produce incomplete `#VALUE!` and preserve
 source caches, including through IFERROR; they are not compared lexically with
 numeric data or guessed from the machine locale.
@@ -934,9 +933,32 @@ reference unions. `database_producer.py` checks independent editable ODS/XLSX
 fixtures, named database metadata, matrix outputs, row-relative criteria, blank
 references and raw source caches for unavailable names, locales and N inputs.
 
-The current inventory dispatches 457 of 641 retained names, including aliases,
-with 184 remaining. The remaining catalogue,
-reference unions/omitted arguments, duration precision and complete calculation
+The native reference model follows the [OpenFormula ordered-reference contract](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part4-formula/OpenDocument-v1.3-os-part4-formula.html)
+for `~` unions in aggregates, named
+expressions, INDIRECT, scalar-condition IF and scalar-index CHOOSE. Overlapping
+areas and duplicate cells remain in sequence. Sparse aggregation counts absent
+slots separately, including repeated whole-column blanks, and preserves
+unavailable provenance through numeric IFERROR results. Arrays and functions
+requiring a single rectangle reject a multi-area list. AREAS reports its area
+count and ISREF inspects reference identity without reading ordinary cell errors.
+INDEX accepts an optional fourth area selector and omitted row/column selectors;
+2D row-only selection returns the complete row. Area selection retains reference
+identity for subsequent ROWS/COLUMNS, aggregates and array materialization.
+Reference lists are bounded to 4,096 areas and collected values to one million.
+
+`references_reference.py` independently enumerates ordered, overlapping and
+cross-sheet areas with Python values and exact Fraction moments, checking 2,983
+formulas, updated raw ODF caches and save/reopen. Native tests cover sparse blank
+multiplicity, typed values, alias cycles, INDEX errors, lazy reference selection,
+quoted Unicode sheet names, metadata and incomplete provenance. Legacy
+whitespace-separated named ranges and nonrectangular database criteria remain
+unavailable; ODF database criteria require a rectangle. Relative named-expression
+base/caller semantics, reference intersection/general range operators and 3D
+ranges also remain unfinished.
+
+The current inventory dispatches 459 of 641 retained names, including aliases,
+with 182 remaining. The remaining catalogue,
+omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
 Words pause and Stage-last priorities remain in force.
 
