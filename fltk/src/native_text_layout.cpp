@@ -7,6 +7,7 @@
 #include "native_tabs.h"
 #include "native_text_keep.h"
 #include "native_text_shaper.h"
+#include "native_page_stories.h"
 #include <charconv>
 #include <cmath>
 #include <limits>
@@ -94,6 +95,7 @@ struct Reader {
   std::vector<XmlDocument> documents;
   size_t text_size = 0, tab_records = 0;
   bool styles_source = false;
+  bool page_fields_resolved = false;
   XmlElement styles_root;
   std::optional<TextParagraph> frame_base;
   Text frame_paragraph_style;
@@ -535,6 +537,13 @@ struct Reader {
     if (style.hasAttributeNS(STYLE, "master-page-name"))
       p.master = style.attributeNS(STYLE, "master-page-name");
     auto e = child(style, STYLE, "paragraph-properties");
+    if (e.hasAttributeNS(STYLE, "page-number")) {
+      if (e.attributeNS(STYLE, "page-number") == "auto")
+        p.page_number.reset();
+      else
+        p.page_number =
+            size_t(integer(e, STYLE, "page-number", 1, 0, 1000000000));
+    }
     if (e.hasAttributeNS(FO, "margin"))
       p.left = p.right = p.before = p.after =
           length(e.attributeNS(FO, "margin"));
@@ -695,6 +704,11 @@ struct Reader {
         else if (e.namespaceURI() == TEXT &&
                  e.localName() ==
                      "soft-page-break") { /* Reflow from styles and metrics. */
+        } else if (page_fields_resolved && e.namespaceURI() == TEXT &&
+                   (e.localName() == "page-number" ||
+                    e.localName() == "page-count")) {
+          inlines(paragraph, e, current, color, background, decorations,
+                  depth + 1);
         } else {
           note(flow.unsupported, "Inline fields, notes and anchored objects");
           inlines(paragraph, e, current, color, background, decorations,
@@ -1398,8 +1412,11 @@ struct Reader {
           if (!child(props, STYLE, "columns").isNull())
             note(flow.unsupported, "Multi-column text frames");
         }
-        if (!children(master, STYLE).empty())
-          note(flow.unsupported, "Headers and footers");
+        for (auto node : children(master, STYLE))
+          if (!TextList{"header", "header-first", "header-left", "footer",
+                        "footer-first", "footer-left"}
+                   .contains(node.localName()))
+            note(flow.unsupported, "Unsupported master-page content");
         check_page(p);
         if (flow.first_master.empty())
           flow.first_master = p.name;
@@ -2290,11 +2307,10 @@ OdfTextReader::OdfTextReader(const OdfPackage &package)
   impl_->reader.scan(package.xml);
   impl_->reader.load_images(package);
 }
-TextFlow OdfTextReader::frame(const XmlElement &container,
-                              const TextParagraph &base,
-                              const Text &paragraph_style,
-                              bool styles_source) const {
-  auto &reader = impl_->reader;
+static TextFlow read_frame(Reader &reader, const XmlElement &container,
+                           std::optional<TextParagraph> base,
+                           const Text &paragraph_style, bool styles_source,
+                           bool resolved_page_fields = false) {
   reader.flow = {};
   reader.text_size = 0;
   reader.tab_records = 0;
@@ -2306,11 +2322,24 @@ TextFlow OdfTextReader::frame(const XmlElement &container,
   reader.block_target = nullptr;
   reader.table_budget = reader.table_depth = 0;
   reader.styles_source = styles_source;
+  reader.page_fields_resolved = resolved_page_fields;
   reader.frame_base = base;
   reader.frame_paragraph_style = paragraph_style;
   reader.blocks(container);
   reader.finish_tables();
   return std::move(reader.flow);
+}
+TextFlow OdfTextReader::frame(const XmlElement &container,
+                              const TextParagraph &base,
+                              const Text &paragraph_style,
+                              bool styles_source) const {
+  return read_frame(impl_->reader, container, base, paragraph_style,
+                    styles_source);
+}
+TextFlow OdfTextReader::story(const XmlElement &container, bool styles_source,
+                              bool resolved_page_fields) const {
+  return read_frame(impl_->reader, container, {}, {}, styles_source,
+                    resolved_page_fields);
 }
 
 Text read_source_list_style(const OdfPackage &package, const XmlElement &item) {
@@ -2378,6 +2407,7 @@ TextFlow read_text_flow(const OdfPackage &package) {
     if (total > 4'000'000)
       fail("Document exceeds native layout text limit");
   }
+  read_page_stories(package, reader.flow);
   return std::move(reader.flow);
 }
 
@@ -2615,16 +2645,24 @@ TextBoxLayout layout_text_box(const TextFlow &flow, double width,
 
 LayoutParagraph table_paragraph_layouter(const TextFlow &flow,
                                          NativeTextShaper &shaper) {
+  return table_paragraph_layouter(
+      flow,
+      [&shaper](const Text &text, const TextFont &font) {
+        return shaper.shape(text, font).metrics;
+      },
+      &shaper);
+}
+LayoutParagraph table_paragraph_layouter(const TextFlow &flow,
+                                         const MeasureText &measure,
+                                         NativeTextShaper *shaper) {
   struct Context {
     MeasureText measure;
     ParagraphBoxes paragraphs;
-    Context(const TextFlow &flow, NativeTextShaper &shaper)
-        : measure([&shaper](const Text &text, const TextFont &font) {
-            return shaper.shape(text, font).metrics;
-          }),
-          paragraphs(flow, measure, &shaper) {}
+    Context(const TextFlow &flow, const MeasureText &value,
+            NativeTextShaper *shaper)
+        : measure(value), paragraphs(flow, measure, shaper) {}
   };
-  auto context = std::make_shared<Context>(flow, shaper);
+  auto context = std::make_shared<Context>(flow, measure, shaper);
   return [context](const TextBlock &block, double width) {
     return context->paragraphs(block, width);
   };
@@ -2632,7 +2670,9 @@ LayoutParagraph table_paragraph_layouter(const TextFlow &flow,
 
 static TextPagination paginate_impl(const TextFlow &flow,
                                     const MeasureText &measure,
-                                    NativeTextShaper *shaper) {
+                                    NativeTextShaper *shaper,
+                                    const std::vector<size_t> &known_numbers) {
+  size_t total_pages = std::max(size_t(1), known_numbers.size());
   if (!measure)
     fail("Native text measurement is required");
   TextPagination result;
@@ -2675,25 +2715,45 @@ static TextPagination paginate_impl(const TextFlow &flow,
     check_page(p);
     return p;
   };
-  auto new_page = [&](bool follow) {
+  PageStoryLayouter stories(measure, shaper);
+  auto reset_page = [&](bool first) {
+    auto &page = result.pages.back();
+    page.style = style();
+    std::optional<size_t> previous, next;
+    if (result.pages.size() > 1)
+      previous = result.pages[result.pages.size() - 2].number;
+    if (result.pages.size() < known_numbers.size())
+      next = known_numbers[result.pages.size()];
+    stories.prepare(page, result.pages.size(), total_pages, first,
+                    result.unsupported, previous, next);
+  };
+  auto new_page = [&](bool follow, std::optional<size_t> restart = {}) {
     if (result.pages.size() >= 10000)
       fail("Document exceeds native page limit");
+    Text previous =
+        result.pages.empty() ? Text{} : result.pages.back().style.name;
     if (follow && !result.pages.empty())
       master = result.pages.back().style.next;
-    result.pages.push_back({style(), {}});
+    auto current = style();
+    bool first = result.pages.empty() || !follow || previous != current.name;
+    size_t number = restart.value_or(
+        result.pages.empty() ? 1 : result.pages.back().number + 1);
+    result.pages.emplace_back();
+    result.pages.back().number = number;
+    reset_page(first);
   };
   new_page(false);
-  double y = result.pages.back().style.top, previous_after = 0;
+  double y = result.pages.back().body_top, previous_after = 0;
   bool pending_break = false;
-  auto advance = [&](bool follow) {
-    new_page(follow);
-    y = result.pages.back().style.top;
+  auto advance = [&](bool follow, std::optional<size_t> restart = {}) {
+    new_page(follow, restart);
+    y = result.pages.back().body_top;
     previous_after = 0;
   };
   auto page_empty = [&] {
     const auto &page = result.pages.back();
     return page.lines.empty() && page.cells.empty() && page.paints.empty() &&
-           y <= page.style.top + 1e-7;
+           y <= page.body_top + 1e-7;
   };
   ParagraphBoxes cell_paragraphs(flow, measure, shaper);
   NativeBlockLayouter table_layout(
@@ -2717,11 +2777,13 @@ static TextPagination paginate_impl(const TextFlow &flow,
       bool assigned_master = !table.master.empty();
       if (assigned_master) {
         master = table.master;
-        if (page_empty())
-          result.pages.back().style = style();
-        else
-          advance(false);
-        y = result.pages.back().style.top;
+        if (page_empty()) {
+          if (table.page_number)
+            result.pages.back().number = *table.page_number;
+          reset_page(true);
+        } else
+          advance(false, table.page_number);
+        y = result.pages.back().body_top;
       } else if ((table.break_before || pending_break) && !page_empty())
         advance(table.master.empty());
       pending_break = false;
@@ -2731,8 +2793,8 @@ static TextPagination paginate_impl(const TextFlow &flow,
         const auto &page = result.pages.back().style;
         double gap =
             first ? std::max(previous_after, std::max(0., table.before)) : 0;
-        double bottom = page.height - page.bottom;
-        double capacity = std::max(.01, bottom - page.top);
+        double bottom = result.pages.back().body_bottom;
+        double capacity = std::max(.01, bottom - result.pages.back().body_top);
         auto keep = keeps.following(
             blocks, root, page.width - page.left - page.right, capacity);
         if (first && keep.whole_fits && gap + keep.whole <= capacity + 1e-7 &&
@@ -2785,11 +2847,13 @@ static TextPagination paginate_impl(const TextFlow &flow,
     bool assigned_master = !p.master.empty();
     if (assigned_master) {
       master = p.master;
-      if (page_empty())
-        result.pages.back().style = style();
-      else
-        advance(false);
-      y = result.pages.back().style.top;
+      if (page_empty()) {
+        if (p.page_number)
+          result.pages.back().number = *p.page_number;
+        reset_page(true);
+      } else
+        advance(false, p.page_number);
+      y = result.pages.back().body_top;
     } else if ((p.break_before || pending_break) && !page_empty())
       advance(p.master.empty());
     pending_break = false;
@@ -2814,9 +2878,9 @@ static TextPagination paginate_impl(const TextFlow &flow,
       std::span<WrappedLine> lines(wrapped.data() + line_offset,
                                    wrapped.size() - line_offset);
       double gap = first ? std::max(previous_after, std::max(0., p.before)) : 0;
-      double bottom = page.height - page.bottom;
+      double bottom = result.pages.back().body_bottom;
       double height = heights.back() - heights[line_offset];
-      double capacity = bottom - page.top;
+      double capacity = bottom - result.pages.back().body_top;
       auto keep = keeps.following(
           blocks, root, page.width - page.left - page.right, capacity);
       double group_height = keep.linked ? keep.whole : height;
@@ -2904,11 +2968,33 @@ static TextPagination paginate_impl(const TextFlow &flow,
   }
   return result;
 }
+static TextPagination paginate_resolved(const TextFlow &flow,
+                                        const MeasureText &measure,
+                                        NativeTextShaper *shaper) {
+  std::vector<size_t> numbers;
+  std::set<std::vector<size_t>> seen;
+  for (size_t pass = 0; pass < 8; ++pass) {
+    auto result = paginate_impl(flow, measure, shaper, numbers);
+    bool fields = false;
+    std::vector<size_t> actual;
+    for (const auto &page : result.pages) {
+      actual.push_back(page.number);
+      for (const auto &story : page.stories)
+        fields |= story.source->page_field || story.source->count_field;
+    }
+    if (!fields || actual == numbers)
+      return result;
+    numbers = std::move(actual);
+    if (!seen.insert(numbers).second)
+      fail("Header/footer page-field layout does not converge");
+  }
+  fail("Header/footer page-count layout exceeds native iteration limit");
+}
 TextPagination paginate_text(const TextFlow &flow, const MeasureText &measure) {
-  return paginate_impl(flow, measure, nullptr);
+  return paginate_resolved(flow, measure, nullptr);
 }
 TextPagination paginate_text(const TextFlow &flow, NativeTextShaper &shaper) {
-  return paginate_impl(
+  return paginate_resolved(
       flow,
       [&](const Text &text, const TextFont &font) {
         return shaper.shape(text, font).metrics;

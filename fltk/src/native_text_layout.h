@@ -139,16 +139,19 @@ struct TextParagraph {
   enum Alignment { Left, Center, Right, Justify, Start, End } alignment = Start;
   enum Direction { Auto, LTR, RTL } direction = Auto;
   bool break_before = false, break_after = false;
+  std::optional<size_t> page_number;
   bool keep_together = false, keep_next = false;
   int orphans = 2, widows = 2;
   std::optional<TextListLabel> list;
 };
+struct TextPageStories;
 struct TextPageStyle {
   Text name, next;
   double width = 595.275590551, height = 841.88976378;
   double left = 56.692913386, right = 56.692913386;
   double top = 56.692913386, bottom = 56.692913386;
   TextColor background{255, 255, 255};
+  std::shared_ptr<const TextPageStories> stories;
 };
 // Blocks preserve source paragraph identity while tables add a structural grid.
 // Repeated ODF rows/cells share their source blocks; editing remains source
@@ -214,6 +217,7 @@ struct TextTableColumn {
 struct TextTable {
   XmlElement source; // Stable source identity for structural editing.
   Text name, master;
+  std::optional<size_t> page_number;
   std::vector<Text> unsupported;
   std::vector<TextTableColumn> columns;
   std::vector<TextTableRow> rows;
@@ -304,6 +308,15 @@ struct TextPage {
   std::vector<TextLine> lines;
   std::vector<TextPaint> paints;
   std::vector<TextCellBox> cells;
+  struct Story {
+    std::shared_ptr<const struct TextPageStory> source;
+    std::shared_ptr<const struct TextBoxLayout> content;
+    TextRect bounds;
+  };
+  std::vector<Story> stories;
+  double body_top = 0, body_bottom = 0;
+  bool first_master_page = true;
+  size_t number = 1;
 };
 struct TextPagination {
   std::vector<TextPage> pages;
@@ -317,6 +330,8 @@ public:
   TextFlow frame(const XmlElement &, const TextParagraph &base,
                  const Text &paragraph_style = {},
                  bool styles_source = false) const;
+  TextFlow story(const XmlElement &, bool styles_source = true,
+                 bool resolved_page_fields = false) const;
 
 private:
   struct Impl;

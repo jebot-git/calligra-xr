@@ -118,8 +118,7 @@ TextTableBorder border(const Text &value) {
   }
   return result;
 }
-void cell_properties(TextCellStyle &cell, const XmlElement &style) {
-  auto p = child(style, STYLE, "table-cell-properties");
+void box_properties(TextCellStyle &cell, const XmlElement &p) {
   if (p.hasAttributeNS(FO, "background-color"))
     cell.background = color(p.attributeNS(FO, "background-color"));
   if (p.hasAttributeNS(FO, "padding"))
@@ -169,7 +168,14 @@ void cell_properties(TextCellStyle &cell, const XmlElement &style) {
       fail("Invalid table cell vertical alignment");
   }
 }
+void cell_properties(TextCellStyle &cell, const XmlElement &style) {
+  box_properties(cell, child(style, STYLE, "table-cell-properties"));
+}
 } // namespace
+void apply_text_box_properties(TextCellStyle &style,
+                               const XmlElement &properties) {
+  box_properties(style, properties);
+}
 struct OdfTableModelReader::Impl {
   using Key = std::pair<Text, Text>;
   std::map<Key, XmlElement> common, content, master;
@@ -274,6 +280,18 @@ TextTable OdfTableModelReader::read(const XmlElement &node,
                  if (s.hasAttributeNS(STYLE, "master-page-name"))
                    table.master = s.attributeNS(STYLE, "master-page-name");
                  auto p = child(s, STYLE, "table-properties");
+                 if (p.hasAttributeNS(STYLE, "page-number")) {
+                   auto value = p.attributeNS(STYLE, "page-number");
+                   if (value == "auto")
+                     table.page_number.reset();
+                   else {
+                     bool valid = false;
+                     auto number = value.toLongLong(&valid);
+                     if (!valid || number < 0 || number > 1000000000)
+                       fail("Invalid table page number");
+                     table.page_number = size_t(number);
+                   }
+                 }
                  if (p.hasAttributeNS(STYLE, "width"))
                    table.width = positive_length(p.attributeNS(STYLE, "width"));
                  if (p.hasAttributeNS(STYLE, "rel-width")) {

@@ -283,88 +283,98 @@ void TextPageCanvas::draw() {
         auto *host = dynamic_cast<Fl_Gl_Window *>(window());
         unsigned char r, g, b;
         Fl::get_color(FL_FOREGROUND_COLOR, r, g, b);
+        auto draw_lines = [&](const std::vector<TextLine> &lines, bool body) {
+          for (const auto &line : lines) {
+            if (top + (line.y + line.height) * zoom < y() ||
+                top + line.y * zoom > y() + h())
+              continue;
+            if (!line.shaped || !host)
+              throw std::runtime_error(
+                  "Native page glyph positions are missing");
+            SceneTransform transform{zoom,
+                                     0,
+                                     0,
+                                     zoom,
+                                     left + line.x * zoom,
+                                     top + line.baseline * zoom};
+            glyphs_->draw_paints(
+                text_backgrounds(
+                    *line.shaped,
+                    relative_text_clip(line.clip, line.x, line.baseline)),
+                transform, *host);
+            if (body && active_selection) {
+              const auto &range = *active_selection;
+              auto begin = std::min(range.anchor, range.cursor),
+                   end = std::max(range.anchor, range.cursor);
+              if (range.anchor_cells && display_span) {
+                std::vector<TextCellAddress> path;
+                for (auto c = line.cell_context; c; c = c->nested)
+                  path.push_back(c->address);
+                auto portion =
+                    display_map_.portion(line.paragraph, path, *display_span);
+                if (portion) {
+                  begin = portion->first;
+                  end = portion->second;
+                } else
+                  begin = end = 0;
+              }
+              size_t base = edit_map_.global(line.paragraph, 0);
+              size_t length = edit_map_.paragraph_size(line.paragraph);
+              if (end > base && begin <= base + length) {
+                auto rectangles = text_selection_rects(
+                    line, begin > base ? begin - base : 0,
+                    end > base ? end - base : 0,
+                    line.end == length && end > base + length);
+                unsigned char sr, sg, sb;
+                Fl::get_color(FL_SELECTION_COLOR, sr, sg, sb);
+                std::vector<TextPaint> paints;
+                for (auto rect : rectangles) {
+                  if (Fl::compose_state) {
+                    rect.y = line.baseline + 1;
+                    rect.height = 1;
+                  }
+                  paints.push_back({rect,
+                                    {sr, sg, sb, Fl::compose_state ? 1. : .4},
+                                    TextPaint::Fill,
+                                    false,
+                                    line.clip});
+                }
+                glyphs_->draw_paints(paints, {zoom, 0, 0, zoom, left, top},
+                                     *host);
+              }
+            }
+            glyphs_->draw(*line.shaped, transform, {r, g, b}, *host,
+                          relative_text_clip(line.clip, line.x, line.baseline),
+                          false);
+            glyphs_->draw_tabs(
+                line.tabs, transform, {r, g, b}, *host,
+                relative_text_clip(line.clip, line.x, line.baseline));
+            if (line.label && line.label->shaped) {
+              transform.e = left + line.label->x * zoom;
+              glyphs_->draw(
+                  *line.label->shaped, transform, {r, g, b}, *host,
+                  relative_text_clip(line.clip, line.label->x, line.baseline));
+            }
+            if (line.label && line.label->image) {
+              transform.e = left + line.label->x * zoom;
+              transform.f = top + (line.baseline + line.label->y) * zoom;
+              images.draw(line.label->image->asset, transform,
+                          line.label->width, line.label->height, *host,
+                          relative_text_clip(line.clip, line.label->x,
+                                             line.baseline + line.label->y));
+            }
+          }
+        };
+        for (const auto &story : page.stories) {
+          if (host)
+            glyphs_->draw_paints(story.content->paints,
+                                 {zoom, 0, 0, zoom, left, top}, *host);
+          draw_lines(story.content->lines, false);
+        }
         if (host)
           glyphs_->draw_paints(page.paints, {zoom, 0, 0, zoom, left, top},
                                *host);
-        for (const auto &line : page.lines) {
-          if (top + (line.y + line.height) * zoom < y() ||
-              top + line.y * zoom > y() + h())
-            continue;
-          if (!line.shaped || !host)
-            throw std::runtime_error("Native page glyph positions are missing");
-          SceneTransform transform{zoom,
-                                   0,
-                                   0,
-                                   zoom,
-                                   left + line.x * zoom,
-                                   top + line.baseline * zoom};
-          glyphs_->draw_paints(
-              text_backgrounds(
-                  *line.shaped,
-                  relative_text_clip(line.clip, line.x, line.baseline)),
-              transform, *host);
-          if (active_selection) {
-            const auto &range = *active_selection;
-            auto begin = std::min(range.anchor, range.cursor),
-                 end = std::max(range.anchor, range.cursor);
-            if (range.anchor_cells && display_span) {
-              std::vector<TextCellAddress> path;
-              for (auto c = line.cell_context; c; c = c->nested)
-                path.push_back(c->address);
-              auto portion =
-                  display_map_.portion(line.paragraph, path, *display_span);
-              if (portion) {
-                begin = portion->first;
-                end = portion->second;
-              } else
-                begin = end = 0;
-            }
-            size_t base = edit_map_.global(line.paragraph, 0);
-            size_t length = edit_map_.paragraph_size(line.paragraph);
-            if (end > base && begin <= base + length) {
-              auto rectangles = text_selection_rects(
-                  line, begin > base ? begin - base : 0,
-                  end > base ? end - base : 0,
-                  line.end == length && end > base + length);
-              unsigned char sr, sg, sb;
-              Fl::get_color(FL_SELECTION_COLOR, sr, sg, sb);
-              std::vector<TextPaint> paints;
-              for (auto rect : rectangles) {
-                if (Fl::compose_state) {
-                  rect.y = line.baseline + 1;
-                  rect.height = 1;
-                }
-                paints.push_back({rect,
-                                  {sr, sg, sb, Fl::compose_state ? 1. : .4},
-                                  TextPaint::Fill,
-                                  false,
-                                  line.clip});
-              }
-              glyphs_->draw_paints(paints, {zoom, 0, 0, zoom, left, top},
-                                   *host);
-            }
-          }
-          glyphs_->draw(*line.shaped, transform, {r, g, b}, *host,
-                        relative_text_clip(line.clip, line.x, line.baseline),
-                        false);
-          glyphs_->draw_tabs(
-              line.tabs, transform, {r, g, b}, *host,
-              relative_text_clip(line.clip, line.x, line.baseline));
-          if (line.label && line.label->shaped) {
-            transform.e = left + line.label->x * zoom;
-            glyphs_->draw(
-                *line.label->shaped, transform, {r, g, b}, *host,
-                relative_text_clip(line.clip, line.label->x, line.baseline));
-          }
-          if (line.label && line.label->image) {
-            transform.e = left + line.label->x * zoom;
-            transform.f = top + (line.baseline + line.label->y) * zoom;
-            images.draw(line.label->image->asset, transform, line.label->width,
-                        line.label->height, *host,
-                        relative_text_clip(line.clip, line.label->x,
-                                           line.baseline + line.label->y));
-          }
-        }
+        draw_lines(page.lines, true);
       } catch (const std::exception &error) {
         render_error_ = error.what();
         fl_font(dx::font, dx::size);
@@ -858,6 +868,22 @@ int TextPageCanvas::handle(int event) {
     if (cancel_composition)
       cancel_composition();
     take_focus();
+    double zoom = scale(), page_top = y() + 12 - scroll_;
+    for (const auto &page : pagination.pages) {
+      double left = x() + (w() - page.style.width * zoom) / 2;
+      double px = (Fl::event_x() - left) / zoom,
+             py = (Fl::event_y() - page_top) / zoom;
+      for (const auto &story : page.stories)
+        if (px >= story.bounds.x && px <= story.bounds.x + story.bounds.width &&
+            py >= story.bounds.y &&
+            py <= story.bounds.y + story.bounds.height) {
+          // Story-local paragraph offsets must never address the body caret.
+          if (edit_story)
+            edit_story(*story.source);
+          return 1;
+        }
+      page_top += page.style.height * zoom + 24;
+    }
     if (Fl::event_button() == FL_RIGHT_MOUSE) {
       if (input)
         input(event);

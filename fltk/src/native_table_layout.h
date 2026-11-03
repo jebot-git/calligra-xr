@@ -9,6 +9,8 @@ using LayoutParagraphFrom = std::function<std::shared_ptr<const TextBoxLayout>(
     const TextBlock &, double, size_t)>;
 // Shares pagination's prepared paragraph cache and supports narrow cell areas.
 LayoutParagraph table_paragraph_layouter(const TextFlow &, NativeTextShaper &);
+LayoutParagraph table_paragraph_layouter(const TextFlow &, const MeasureText &,
+                                         NativeTextShaper * = nullptr);
 const TextParagraph &block_paragraph(const TextFlow &, const TextBlock &);
 const TextTable &block_table(const TextFlow &, const TextBlock &);
 TextRect intersect_text_rect(TextRect, TextRect);

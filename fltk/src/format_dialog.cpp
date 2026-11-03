@@ -637,6 +637,91 @@ character_styles_dialog(Fl_Window &window, OdfPackage working,
                         std::optional<Text> selected) {
   return styles_dialog(window, std::move(working), selected, true);
 }
+std::optional<WordsStoryDialogResult>
+page_story_dialog(Fl_Window &window, const OdfPackage &package,
+                  WordsStoryAddress selected) {
+  auto pages = words_page_styles(package);
+  const int width = 590, height = 400,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Header and footer");
+  background.hint.copy_label(
+      "Edit text and formatting, then choose Finish to return");
+  Fl_Choice page(x + 155, y + 50, 400, 30, "Page style:");
+  page.value(0);
+  for (size_t i = 0; i < pages.size(); ++i) {
+    page.add(" ");
+    page.replace(int(i), pages[i].label.toUtf8().c_str());
+    if (pages[i].name == selected.master)
+      page.value(int(i));
+  }
+  Fl_Choice kind(x + 155, y + 95, 240, 30, "Content:");
+  kind.add("Header|Footer");
+  kind.value(selected.kind == TextPageStory::Footer ? 1 : 0);
+  Fl_Choice variant(x + 155, y + 140, 240, 30, "Pages:");
+  variant.add("Default|First|Left (even numbered)");
+  variant.value(int(selected.variant));
+  Fl_Choice region(x + 155, y + 185, 240, 30, "Region:");
+  region.add("Full width|Left|Center|Right");
+  region.value(int(selected.region));
+  Fl_Check_Button displayed(x + 155, y + 230, 340, 28, "Show on pages");
+  Fl_Box scope(x + 20, y + 265, width - 40, 28,
+               "Changes apply to all pages using this page style and variant");
+  scope.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  buttons.apply.label("Edit");
+  bool changed = false;
+  struct State {
+    Panel &panel;
+    bool &changed;
+  } state{panel, changed};
+  for (auto *choice : {&page, &kind, &variant, &region})
+    choice->callback(
+        [](Fl_Widget *, void *data) {
+          auto &s = *static_cast<State *>(data);
+          s.changed = s.panel.done = s.panel.accepted = true;
+        },
+        &state);
+  auto address = [&] {
+    return WordsStoryAddress{pages.at(size_t(std::max(0, page.value()))).name,
+                             kind.value() ? TextPageStory::Footer
+                                          : TextPageStory::Header,
+                             TextPageStory::Variant(variant.value()),
+                             WordsStoryAddress::Region(region.value())};
+  };
+  auto update = [&] {
+    auto a = address();
+    auto found = read_text_flow(package).masters.at(a.master).stories;
+    auto story =
+        found ? (a.kind == TextPageStory::Header ? found->headers
+                                                 : found->footers)[a.variant]
+              : nullptr;
+    displayed.value(!story || story->displayed);
+  };
+  update();
+  Fl_Group::current(previous);
+  while (true) {
+    changed = false;
+    if (!panel.run(page))
+      return {};
+    if (changed) {
+      update();
+      continue;
+    }
+    try {
+      WordsStoryEdit check(package, address());
+      return WordsStoryDialogResult{address(), bool(displayed.value())};
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      background.hint.redraw();
+    }
+  }
+}
 std::optional<OdfPackage> page_setup_dialog(Fl_Window &window,
                                             OdfPackage working,
                                             const Text &page_style) {

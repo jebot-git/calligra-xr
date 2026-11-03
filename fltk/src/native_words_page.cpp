@@ -107,7 +107,7 @@ WordsPageInfo words_page_style(const OdfPackage &package, const Text &name) {
   fail("The selected page style no longer exists");
 }
 bool format_words_page(OdfPackage &package, const Text &name,
-                       const WordsPageFormat &format) {
+                       const WordsPageFormat &format, bool ensure_master) {
   check(package);
   if (package.read_only())
     fail("This document is read-only");
@@ -117,7 +117,7 @@ bool format_words_page(OdfPackage &package, const Text &name,
       fail("Page dimensions and margins must be between 0 and 10000 points");
   auto original = words_page_style(package, name).geometry;
   auto next = original;
-  if (format.empty())
+  if (format.empty() && !ensure_master)
     return false;
   bool changed = false;
   for (auto [value, target] :
@@ -136,7 +136,7 @@ bool format_words_page(OdfPackage &package, const Text &name,
       next.width - next.left - next.right < 1 ||
       next.height - next.top - next.bottom < 1)
     fail("Page margins must leave at least one point of printable space");
-  if (!changed)
+  if (!changed && !(ensure_master && name.empty()))
     return false;
   auto candidate = package;
   candidate.xml = read_document_xml(package.xml.toByteArray());

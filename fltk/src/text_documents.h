@@ -21,6 +21,8 @@ class TextDocument {
 public:
     TextDocument();
     void load(const Text&);
+    // Load an isolated in-memory editing package without temporary files.
+    void load_package(OdfPackage);
     void save(const Text&);
     Text text() const;
     void set_text(const Text&);

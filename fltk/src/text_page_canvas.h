@@ -15,6 +15,7 @@ public:
   std::function<int(int)> input;
   std::function<void(size_t, size_t)> erase;
   std::function<void()> cancel_composition;
+  std::function<void(const TextPageStory &)> edit_story;
   TextPageCanvas(int x, int y, int w, int h);
   ~TextPageCanvas() override;
   void set_flow(const TextFlow &);

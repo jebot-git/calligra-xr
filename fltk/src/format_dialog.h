@@ -4,6 +4,7 @@
 #include "native_words_page.h"
 #include "native_words_tabs.h"
 #include "native_words_tables.h"
+#include "native_words_story.h"
 #include <FL/Fl_Window.H>
 namespace DomeOffice {
 std::optional<WordsCharacterFormat>
@@ -21,6 +22,12 @@ std::optional<WordsStylesDialogResult>
 character_styles_dialog(Fl_Window &, OdfPackage, std::optional<Text> selected);
 std::optional<OdfPackage> page_setup_dialog(Fl_Window &, OdfPackage,
                                             const Text &page_style);
+struct WordsStoryDialogResult {
+  WordsStoryAddress address;
+  bool displayed = true;
+};
+std::optional<WordsStoryDialogResult>
+page_story_dialog(Fl_Window &, const OdfPackage &, WordsStoryAddress);
 std::optional<WordsTabsFormat>
 tab_stops_dialog(Fl_Window &, OdfPackage, size_t begin, size_t end,
                  const std::vector<TextCellAddress> &cells = {},

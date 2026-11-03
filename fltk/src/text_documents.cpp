@@ -267,6 +267,18 @@ void TextDocument::save(const Text& p)
     imported_office_ = false;
     saved_state_ = state_;
 }
+void TextDocument::load_package(OdfPackage candidate) {
+  if (candidate.kind() != Kind::Words)
+    fail("Words requires a text document");
+  candidate.xml = read_document_xml(candidate.xml.toByteArray());
+  (void)read_text_flow(candidate);
+  package_ = std::move(candidate);
+  imported_office_ = false;
+  edit_.reset();
+  typing_format_.reset();
+  clear_history();
+  ++revision_;
+}
 Text TextDocument::text() const { return joined(package_.body()); }
 void TextDocument::begin_edit(TextSelection selection)
 {

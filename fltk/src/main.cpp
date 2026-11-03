@@ -83,6 +83,11 @@ enum Command {
     ParagraphStyles,
     CharacterStyles,
     PageSetup,
+    PageStories,
+    FinishStory,
+    CancelStory,
+    InsertPageNumber,
+    InsertPageCount,
     TabStops,
     InsertTable,
     DeleteTable,
@@ -320,6 +325,17 @@ public:
     Fl_Text_Editor* editor = nullptr;
     TextPageCanvas* text_pages = nullptr;
     Fl_Button* page_button = nullptr;
+    Fl_Button* finish_story_button = nullptr;
+    Fl_Button* cancel_story_button = nullptr;
+    struct StoryContext {
+        WordsStoryEdit edit;
+        std::unique_ptr<TextDocument> parent;
+        TextSelection selection;
+        uint64_t revision;
+        bool page_view, displayed;
+    };
+    std::optional<StoryContext> story_context;
+    std::optional<WordsStoryAddress> pending_story;
     bool page_view = false;
     int page_menu = -1, text_menu = -1;
     uint64_t text_font_revision = 0, page_revision = 0;
@@ -376,8 +392,10 @@ public:
         add("&File/&Save", FL_CTRL + 's', Save);
         add("&File/Save &as…", FL_CTRL + FL_SHIFT + 's', SaveAs);
         add("&File/&Print…", FL_CTRL + 'p', Print);
-        if (kind == Kind::Words)
+        if (kind == Kind::Words) {
             add("&File/Page &setup…", 0, PageSetup);
+            add("&File/&Header and footer…", 0, PageStories);
+        }
         add("&File/&Quit", FL_CTRL + 'q', Quit);
         add("&Edit/&Undo", FL_CTRL + 'z', Undo);
         add("&Edit/&Redo", FL_CTRL + FL_SHIFT + 'z', Redo);
@@ -397,6 +415,8 @@ public:
             add("&Format/Character/&Strikethrough", 0, Strikethrough);
             add("&Format/&Paragraph…", 0, ParagraphFormat);
             add("&Format/&Tabs…", 0, TabStops);
+            add("&Insert/Page &number", 0, InsertPageNumber);
+            add("&Insert/Page &count", 0, InsertPageCount);
             add("&Table/&Insert table…", 0, InsertTable);
             add("&Table/&Delete table", 0, DeleteTable);
             add("&Table/Rows/Insert &above", 0, RowBefore);
@@ -499,6 +519,16 @@ public:
             text_pages->input = [this](int event) { return page_input(event); };
             text_pages->erase = [this](size_t begin, size_t end) { erase_words(begin, end); };
             text_pages->cancel_composition = [this] { cancel_word_composition(); };
+            text_pages->edit_story = [this](const TextPageStory& story) {
+                if (story_context || queued_format || formatting_dialog)
+                    return;
+                WordsStoryAddress address { story.master, story.kind, story.variant };
+                for (auto node : children(story.source, "urn:oasis:names:tc:opendocument:xmlns:style:1.0"))
+                    if (node.localName().startsWith("region-"))
+                        address.region = WordsStoryAddress::Left;
+                pending_story = address;
+                command(PageStories);
+            };
             content->resizable(editor);
         } else {
             slides = new Fl_Hold_Browser(12, 62, 170, 674);
@@ -645,6 +675,12 @@ public:
                 office->command(office->page_view ? TextView : PageLayout);
             },
                 this);
+            finish_story_button = new Fl_Button(560, 10, 94, 32, "Finish");
+            cancel_story_button = new Fl_Button(664, 10, 94, 32, "Cancel");
+            finish_story_button->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(FinishStory); }, this);
+            cancel_story_button->callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(CancelStory); }, this);
+            finish_story_button->hide();
+            cancel_story_button->hide();
         }
         status = new Fl_Box(12, 750, 1076, 24);
         status->align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE);
@@ -735,6 +771,7 @@ public:
             text_pages->select = {};
             text_pages->input = {};
             text_pages->erase = {};
+            text_pages->edit_story = { };
         }
         if (editor) {
             if (kind == Kind::Words) {
@@ -766,7 +803,12 @@ public:
     void title()
     {
         std::string app = kind == Kind::Words ? "Words" : kind == Kind::Sheets ? "Sheets" : "Stage";
-        window.copy_label(((file.empty() ? "Untitled" : FileInfo(qs(file.c_str())).fileName().toStdString())
+        std::string scope;
+        if (story_context) {
+            const auto& address = story_context->edit.address();
+            scope = std::string(address.kind == TextPageStory::Header ? "Header" : "Footer") + " [" + utf8(address.master) + "] — ";
+        }
+        window.copy_label((scope + (file.empty() ? "Untitled" : FileInfo(qs(file.c_str())).fileName().toStdString())
             + (modified ? " *" : "") + " — Calligra " + app)
                 .c_str());
     }
@@ -974,6 +1016,8 @@ public:
                     office->word_tabs();
                 else if (action == PageSetup)
                     office->word_page_setup();
+                else if (action == PageStories)
+                    office->word_story();
                 else if (action == ParagraphStyles || action == CharacterStyles)
                     office->word_styles(action == CharacterStyles);
                 else
@@ -1156,6 +1200,125 @@ public:
         sync_pages();
         if (result)
             message("Tab stops updated");
+    }
+    void word_page_field(bool page_count)
+    {
+        if (!story_context)
+            throw std::runtime_error("Choose Header and footer to insert a page field there");
+        cancel_word_composition();
+        finish_word_edit();
+        auto previous = word_selection();
+        auto selection = previous;
+        try {
+            if (auto prepared = words->prepare_cell_edit(selection))
+                selection = *prepared;
+            else
+                words->begin_edit(previous);
+            auto snapshot = words->style_snapshot();
+            auto begin = std::min(selection.anchor, selection.cursor);
+            auto end = std::max(selection.anchor, selection.cursor);
+            auto typing = words->has_typing_format() ? std::optional(words->format_info(selection).character) : std::nullopt;
+            insert_words_page_field(snapshot, begin, end - begin, page_count);
+            if (typing)
+                format_words_characters(snapshot, begin, begin + 1, *typing);
+            auto next = selection;
+            next.anchor = next.cursor = begin + 1;
+            next.anchor_cells.reset();
+            words->commit_structure(std::move(snapshot), selection, next, words->revision());
+            words->end_edit(next);
+            fill_buffer(words->text());
+            restore_word_selection(next);
+        } catch (...) {
+            words->cancel_edit();
+            words->end_edit();
+            fill_buffer(words->text());
+            restore_word_selection(previous);
+            throw;
+        }
+        modified = words->modified();
+        title();
+        sync_pages();
+        message(page_count ? "Page count inserted" : "Page number inserted");
+    }
+    void word_story()
+    {
+        if (kind != Kind::Words || !words || story_context)
+            return;
+        if (words->read_only())
+            throw std::runtime_error("This document is read-only");
+        cancel_word_composition();
+        finish_word_edit();
+        auto previous = word_selection();
+        auto revision = words->revision();
+        auto snapshot = words->style_snapshot();
+        refresh_pages();
+        auto page = text_pages->caret_page().value_or(text_pages->current_page());
+        WordsStoryAddress selected;
+        selected.master = text_pages->pagination.pages.at(page).style.name;
+        if (pending_story) {
+            selected = *pending_story;
+            pending_story.reset();
+        }
+        formatting_dialog = true;
+        std::optional<WordsStoryDialogResult> choice;
+        try {
+            choice = page_story_dialog(window, snapshot, selected);
+        } catch (...) {
+            formatting_dialog = false;
+            throw;
+        }
+        formatting_dialog = false;
+        if (!choice)
+            return;
+        WordsStoryEdit edit(snapshot, choice->address);
+        auto next = std::make_unique<TextDocument>();
+        next->load_package(edit.document());
+        NativeTextShaper shaper(Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+        (void)paginate_text(edit.editing_flow(next->style_snapshot()), shaper);
+        story_context.emplace(StoryContext { std::move(edit), std::move(words), previous, revision, page_view, choice->displayed });
+        words = std::move(next);
+        fill_buffer(words->text());
+        text_pages->images.clear();
+        text_pages->reset_editing();
+        restore_word_selection({ 0, 0 });
+        refresh_pages();
+        command(PageLayout);
+        page_button->hide();
+        finish_story_button->show();
+        cancel_story_button->show();
+        modified = words->modified();
+        title();
+        message("Editing header/footer. Finish applies changes; Cancel returns without applying them.");
+    }
+    void finish_story(bool apply)
+    {
+        if (!story_context)
+            return;
+        cancel_word_composition();
+        finish_word_edit();
+        auto& context = *story_context;
+        if (apply) {
+            auto result = context.edit.finish(words->style_snapshot(), context.displayed);
+            NativeTextShaper shaper(Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
+            (void)paginate_text(read_text_flow(result), shaper);
+            context.parent->commit_styles(std::move(result), context.selection, context.revision);
+        }
+        auto previous = context.selection;
+        bool previous_view = context.page_view;
+        words = std::move(context.parent);
+        story_context.reset();
+        fill_buffer(words->text());
+        text_pages->images.clear();
+        text_pages->reset_editing();
+        restore_word_selection(previous);
+        refresh_pages();
+        command(previous_view ? PageLayout : TextView);
+        finish_story_button->hide();
+        cancel_story_button->hide();
+        page_button->show();
+        modified = words->modified();
+        title();
+        message(apply ? "Header/footer changes applied" : "Header/footer changes discarded");
     }
     void word_page_setup()
     {
@@ -1481,7 +1644,7 @@ public:
     }
     void refresh_pages()
     {
-        text_pages->set_flow(words->flow());
+        text_pages->set_flow(story_context ? story_context->edit.editing_flow(words->style_snapshot()) : words->flow());
         text_font_revision = dx::font_revision;
         page_revision = words->revision();
         if (!pending_word_cells.empty())
@@ -1631,11 +1794,26 @@ public:
     {
         if ((printing || formatting_dialog || queued_format) && c != Quit) return;
         guard([&] {
+            if (story_context) {
+                if (c == PageSetup || c == PageStories)
+                    throw std::runtime_error("Finish header/footer editing before changing page setup or choosing another header/footer");
+                if (c == New || c == Open || c == Quit) {
+                    int action = fl_choice("Finish header/footer editing before leaving?", "Cancel", "Discard", "Apply");
+                    if (!action)
+                        return;
+                    finish_story(action == 2);
+                } else if (c == Save || c == SaveAs || c == Print)
+                    finish_story(true);
+            }
             if (kind == Kind::Words && cancel_word_composition() && (c == Undo || c == Redo))
                 return;
             if (canvas && canvas->dragging())
                 canvas->finish_drag();
-            if (c == New) {
+            if (c == InsertPageNumber || c == InsertPageCount) {
+                word_page_field(c == InsertPageCount);
+            } else if (c == FinishStory || c == CancelStory) {
+                finish_story(c == FinishStory);
+            } else if (c == New) {
                 if (discard())
                     reset();
             } else if (c == Open) {
@@ -1707,7 +1885,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
+            } else if (c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);
@@ -1902,6 +2080,13 @@ public:
                     { "attached", desktop_menu->attached() } } } };
         data["print_dialog"] = printing;
         data["format_dialog"] = formatting_dialog;
+        data["story_editor"] = nullptr;
+        if (story_context) {
+            const auto& a = story_context->edit.address();
+            data["story_editor"] = { { "master", utf8(a.master) }, { "kind", a.kind == TextPageStory::Header ? "header" : "footer" },
+                { "variant", int(a.variant) }, { "region", int(a.region) }, { "displayed", story_context->displayed },
+                { "parent_text", utf8(story_context->parent->text()) } };
+        }
         data["window_size"] = { window.w(), window.h() };
         if (kind == Kind::Sheets) {
             data["cell"] = { { "sheet", sheet }, { "row", grid->selected_row + 1 },
@@ -1928,7 +2113,7 @@ public:
             data["editing"]["collapsed"] = selection.collapsed();
             data["editing"]["selected_text"] = utf8(words->selected_text(selection));
             size_t shaped_lines = 0, glyphs = 0, missing = 0;
-            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array(), papers = Json::array();
+            Json labels = Json::array(), image_labels = Json::array(), tabs = Json::array(), cells = Json::array(), papers = Json::array(), stories = Json::array();
             size_t table_paints = 0;
             std::vector<std::string> unsupported;
             for (const auto& feature : text_pages->pagination.unsupported)
@@ -1936,7 +2121,38 @@ public:
             size_t page_index = 0;
             for (const auto& page : text_pages->pagination.pages) {
                 papers.push_back({ { "name", utf8(page.style.name) }, { "width", page.style.width }, { "height", page.style.height },
-                    { "left", page.style.left }, { "right", page.style.right }, { "top", page.style.top }, { "bottom", page.style.bottom } });
+                    { "left", page.style.left }, { "right", page.style.right }, { "top", page.style.top }, { "bottom", page.style.bottom },
+                    { "body_top", page.body_top }, { "body_bottom", page.body_bottom }, { "number", page.number }, { "first_master_page", page.first_master_page } });
+                for (const auto& story : page.stories) {
+                    std::string text;
+                    Json story_lines = Json::array();
+                    for (const auto& line : story.content->lines) {
+                        std::string line_text;
+                        for (const auto& fragment : line.fragments)
+                            line_text += utf8(fragment.text);
+                        if (!text.empty())
+                            text += "\n";
+                        text += line_text;
+                        story_lines.push_back({ { "text", line_text }, { "x", line.x }, { "y", line.y }, { "baseline", line.baseline } });
+                        if (line.shaped) {
+                            ++shaped_lines;
+                            glyphs += line.shaped->glyphs.size();
+                            missing += line.shaped->missing_glyphs;
+                        }
+                        if (line.label && line.label->shaped) {
+                            glyphs += line.label->shaped->glyphs.size();
+                            missing += line.label->shaped->missing_glyphs;
+                        }
+                        for (const auto& tab : line.tabs)
+                            if (tab.leader) {
+                                glyphs += tab.leader->glyphs.size();
+                                missing += tab.leader->missing_glyphs;
+                            }
+                    }
+                    stories.push_back({ { "page", page_index }, { "kind", story.source->kind == TextPageStory::Header ? "header" : "footer" },
+                        { "variant", int(story.source->variant) }, { "master", utf8(story.source->master) }, { "text", text },
+                        { "x", story.bounds.x }, { "y", story.bounds.y }, { "width", story.bounds.width }, { "height", story.bounds.height }, { "lines", story_lines } });
+                }
                 table_paints += page.paints.size();
                 for (const auto& cell : page.cells)
                     cells.push_back({ { "table", cell.table }, { "row", cell.row }, { "column", cell.column }, { "rows", cell.rows }, { "columns", cell.columns }, { "header", cell.header }, { "continued", cell.continued }, { "page", page_index }, { "x", cell.rect.x }, { "y", cell.rect.y }, { "width", cell.rect.width }, { "height", cell.rect.height }, { "page_width", page.style.width }, { "page_height", page.style.height } });
@@ -1984,6 +2200,7 @@ public:
                 { "caret_page", text_pages->caret_page() ? *text_pages->caret_page() + 1 : 0 },
                 { "pages", text_pages->pagination.pages.size() },
                 { "paper_styles", papers },
+                { "stories", stories },
                 { "page", text_pages->current_page() + 1 },
                 { "render_error", text_pages->render_error() },
                 { "rasterizations", text_pages->rasterizations() },

@@ -62,8 +62,8 @@ orientation and millimetre-based dimensions/margins. It resolves the caret's
 page in either view. Native pagination rejects an unusable candidate before
 source commit. Shared layouts are isolated for one master, while private layouts
 stay in place. Unchanged fields retain their source units and properties;
-headers/footers remain preserved source data rather than editable/rendered
-features. Creation of missing layout/styles parts and exact undo share the
+headers/footers retain their source data. Their native rendering and scoped
+editing are described in the latest increment below. Creation of missing layout/styles parts and exact undo share the
 existing archive-part transaction.
 
 Native table insertion/deletion now has a structural source/package transaction
@@ -215,7 +215,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Area | Working in this build | Still required for a full port |
 | --- | --- | --- |
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
-| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, remaining table styles/optimal sizing and reflow performance, complex paragraph-level list reparenting, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, headers/footers, notes, images/anchors, tracked changes and print/PDF fidelity |
+| Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, scoped header/footer editing and native rendering with dynamic page fields, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, remaining table styles/optimal sizing and reflow performance, complex paragraph-level list reparenting, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, advanced header/footer geometry and anchored content, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
 | Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, shape editing tools, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
@@ -687,3 +687,37 @@ deduplication. Complex paragraph-level reparenting after nested lists, remaining
 list/numbering controls, table sizing, value/reference adjustment, large-document
 performance and broader section/column/header/footer/note/image-anchor behavior
 remain unfinished. Words stays first, Sheets functions next, Stage last.
+
+
+## Native Words headers and footers — 2026-11-03
+
+Words now renders source-scoped header/footer flows in the GPU page view and
+native PDF/CUPS path. Default, first and left variants follow master transitions
+and logical page numbering; explicit suppression retains its source. Three
+regions share a row with left/center/right alignment. Borders, background,
+padding, margins, minimum/fixed height and dynamic spacing reserve body space.
+Page-number/count fields resolve after pagination, including restarts, fixed
+caches, previous/next pages, number formats and adjustments. A bounded fixed
+point rejects unstable field-dependent pagination.
+
+The Header and footer command and page-story clicks open a scope selector.
+The existing native Words editor then operates on that story/region, with its
+text, formatting, list and table transactions. Finish merges one parent archive
+transaction and restores the body caret/view; Cancel preserves parent history.
+Save/Print apply the scope before acting on the full parent document. Page
+setup and scope switching require finishing the current scope. Body text,
+unrelated stories/archive data and separate body automatic styles are retained.
+New identities/table names avoid body collisions. Shared named styles remain
+shared, and deletion still checks the projected-away body's references.
+
+Page fields remain atomic rich source nodes. Their editing caches do not change
+the document-page values; insertion creates native dynamic fields. First-page
+creation upgrades older content/styles to ODF 1.3. Missing masters/layout/styles
+parts can be created and restored exactly by undo. A direct header/footer can
+be converted into regions without dropping its existing content.
+
+This is an increment toward Words, not complete layout parity. Mirrored page
+usage/blank-page insertion, anchored images/shapes, notes, sections/columns,
+box shadows, additional field types and broader document-corpus fidelity remain.
+Content-based table sizing, formula/reference updates, richer lists and large
+file performance also remain. Sheets functions follow Words; Stage stays last.

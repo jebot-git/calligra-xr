@@ -364,6 +364,10 @@ PrintResult print_pdf(const TextDocument &document, const Text &path,
   pdf.result.unsupported = pagination.unsupported;
   for (const auto &page : pagination.pages) {
     pdf.page(page.style.width, page.style.height, page.style.background);
+    for (const auto &story : page.stories) {
+      pdf.paints(story.content->paints);
+      pdf.lines(story.content->lines);
+    }
     pdf.paints(page.paints);
     pdf.lines(page.lines);
     pdf.end_page();

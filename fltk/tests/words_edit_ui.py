@@ -22,11 +22,11 @@ import zipfile
 
 from odf.opendocument import OpenDocumentText
 from odf.style import (Map, MasterPage, PageLayout, PageLayoutProperties,
-                       ParagraphProperties, Style, TextProperties, ListLevelProperties,
-                       TableProperties, TableCellProperties)
+                       ParagraphProperties, Style, TextProperties, HeaderStyle, FooterStyle, HeaderFooterProperties, ListLevelProperties,
+                       TableProperties, TableCellProperties, Header, Footer)
 from odf.table import Table, TableCell, TableColumn, TableRow, TableHeaderRows, CoveredTableCell
 from odf.text import (A, LineBreak, List, ListHeader, ListItem, ListLevelStyleNumber,
-                      ListStyle, P, S, Section, Span, Tab)
+                      ListStyle, P, S, Section, Span, Tab, PageNumber, PageCount)
 from PIL import Image
 from Xlib import X, XK, display
 from Xlib.error import XError
@@ -152,6 +152,42 @@ def produce(path, conditional=False, repeated=False):
         archive.writestr('Extras/opaque.bin', b'\0keep\xff')
 
 
+def produce_stories(path):
+    doc = OpenDocumentText()
+    layout = PageLayout(name='StoryPage')
+    layout.addElement(PageLayoutProperties(pagewidth='250pt', pageheight='200pt', margin='10pt'))
+    head_style = HeaderStyle()
+    head_style.addElement(HeaderFooterProperties(minheight='20pt', marginbottom='5pt',
+        padding='2pt', border='1pt solid #220000', backgroundcolor='#fafaff'))
+    layout.addElement(head_style)
+    foot_style = FooterStyle()
+    foot_style.addElement(HeaderFooterProperties(minheight='18pt', margintop='4pt'))
+    layout.addElement(foot_style)
+    doc.automaticstyles.addElement(layout)
+    header_font = Style(name='HeaderFont', family='paragraph')
+    header_font.addElement(TextProperties(fontfamily='monospace', fontsize='10pt', color='#cc2222'))
+    doc.styles.addElement(header_font)
+    body_font = Style(name='BodyFont', family='paragraph')
+    body_font.addElement(TextProperties(fontfamily='monospace', fontsize='16pt', color='#226622'))
+    doc.styles.addElement(body_font)
+    next_page = Style(name='NextPage', family='paragraph', parentstylename=body_font)
+    next_page.addElement(ParagraphProperties(breakbefore='page'))
+    doc.styles.addElement(next_page)
+    master = MasterPage(name='StoryMaster', pagelayoutname=layout)
+    header = Header(); header.addElement(P(stylename=header_font, text='Header alpha'))
+    footer = Footer(); paragraph = P(stylename=header_font, text='Page ')
+    paragraph.addElement(PageNumber(selectpage='current', text='9'))
+    paragraph.addText('/'); paragraph.addElement(PageCount(text='9'))
+    footer.addElement(paragraph)
+    master.addElement(header); master.addElement(footer)
+    doc.masterstyles.addElement(master)
+    doc.text.addElement(P(stylename=body_font, text='BodyOne'))
+    doc.text.addElement(P(stylename=next_page, text='BodyTwo'))
+    doc.save(str(path))
+    with zipfile.ZipFile(path, 'a') as archive:
+        archive.writestr('Extras/opaque.bin', b'\0keep\xff')
+
+
 def plain(node):
     if node.tag == TEXT + 's':
         return ' ' * int(node.get(TEXT + 'c', '1'))
@@ -168,6 +204,7 @@ parser.add_argument('--artifacts', type=Path, required=True)
 parser.add_argument('--wayland', action='store_true')
 parser.add_argument('--wait-timeout', type=float, default=25, help='Observation timeout in seconds; increase for instrumented builds')
 parser.add_argument('--ime', action='store_true', help='Exercise Fcitx/Anthy on the private Wayland connection')
+parser.add_argument('--stories-only', action='store_true', help='Run header/footer rendering, rich editing, fields and exact parent history')
 parser.add_argument('--page-only', action='store_true', help='Run the focused native page fixture without the full editing regression')
 parser.add_argument('--rudimentary-only', action='store_true', help='Verify basic native editing, save/reopen and history with the current system font')
 parser.add_argument('--grid-repeat-only', action='store_true', help='Run repeated-row caret/undo UI checks')
@@ -327,6 +364,8 @@ try:
         source = art / 'editing.odt'
         if (args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only) and args.nested_fixture:
             source.write_bytes(args.nested_fixture.read_bytes())
+        elif args.stories_only:
+            produce_stories(source)
         else:
             produce(source,repeated=args.grid_repeat_only or args.repeated_edit_only or args.table_sizing_only or args.range_lists_only or args.empty_cell_only or args.repeated_format_only or args.repeated_lists_only or args.merge_only or args.subdivide_only or args.range_edit_only or args.display_range_only or args.cell_format_only or args.geometry_only)
         report = art / 'report.json'
@@ -358,6 +397,15 @@ try:
             with urllib.request.urlopen(request, timeout=2) as response:
                 response.read()
             wait(lambda: scene()['focused'] == window['id'])
+            if args.stories_only:
+                # Request a client size above Words' minimum, so the private
+                # compositor and FLTK agree on the drawable/hit-test geometry.
+                for action in ({'op':'desktop_resize','id':window['id'],'w':1100,'h':680},
+                               {'op':'desktop_move','id':window['id'],'x':60,'y':50}):
+                    request=urllib.request.Request(f'http://127.0.0.1:{port}/api/action',
+                        data=json.dumps(action).encode(),headers={'Content-Type':'application/json'})
+                    with urllib.request.urlopen(request,timeout=2) as response:response.read()
+                wait(lambda: data()['window_size']==[1100,680])
             time.sleep(.3)
         else:
             host = wait(lambda: next((w for w in xd.screen().root.query_tree().children
@@ -499,6 +547,129 @@ try:
             for char in value:
                 name = {'/': 'slash', ' ': 'space', '.': 'period', '#': 'numbersign', '-': 'minus', "'": 'apostrophe', '"': 'quotedbl', ',': 'comma'}.get(char, char)
                 key(name, ('Shift_L',) if char.isupper() or char in '#\"' else ())
+
+        if args.stories_only:
+            original = data()['text']
+            assert original == 'BodyOne\nBodyTwo'
+            wait(lambda: len(data()['page_layout']['stories']) == 4)
+            assert [s['text'] for s in data()['page_layout']['stories']] == ['Header alpha', 'Page 1/2', 'Header alpha', 'Page 2/2']
+            assert not data()['page_layout']['unsupported'] and not data()['page_layout']['missing_glyphs']
+            picture = capture_window('stories-original')
+            assert color_count(picture, (204,34,34)) > 10
+            assert color_count(picture, (34,102,34)) > 10
+            original_xml = save('story-original')[1]
+            original_caret = data()['editing']['cursor']
+            paper = data()['page_layout']['paper_styles'][0]
+            viewport = data()['page_layout']['viewport']
+            zoom = min(1.5, max(.05, (viewport[2]-48)/paper['width']))
+            story = data()['page_layout']['stories'][0]
+            left = viewport[0]+(viewport[2]-paper['width']*zoom)/2
+            click(round(left+(story['x']+10)*zoom), round(viewport[1]+12+(story['y']+10)*zoom))
+            wait(lambda: data()['format_dialog'])
+            assert data()['editing']['cursor'] == original_caret
+            key('Escape'); wait(lambda: not data()['format_dialog'])
+            assert not data()['modified']
+
+            def choose(x, y, value):
+                click(x,y); key('Home')
+                if value:key('Down',count=value)
+                key('Return'); time.sleep(.15)
+
+            def open_story(kind=0, variant=0, region=0):
+                menu_action('Header and footer…'); wait(lambda: data()['format_dialog'])
+                width,height=data()['window_size']; x,y=(width-590)//2,(height-400)//2
+                if kind:choose(x+260,y+110,kind)
+                if variant:choose(x+260,y+155,variant)
+                if region:choose(x+260,y+200,region)
+                click(x+515,y+365)
+                wait(lambda: not data()['format_dialog'] and data()['story_editor'] is not None)
+                assert data()['story_editor']['parent_text'] == original
+                assert data()['page_layout']['visible']
+
+            def finish_story():
+                click(607,26)
+                wait(lambda: data()['story_editor'] is None and data()['text'] == original)
+                assert not data()['page_layout']['render_error']
+
+            open_story()
+            check_text('Header alpha')
+            select_all(); key('b',('Control_L',)); key('End',('Control_L',))
+            type_text('XYZ'); check_text('Header alphaXYZ')
+            key('z',('Control_L',),count=3); check_text('Header alpha')
+            key('y',('Control_L',),count=3); check_text('Header alphaXYZ')
+            capture_window('story-rich-editor')
+            finish_story()
+            wait(lambda: data()['page_layout']['stories'][0]['text']=='Header alphaXYZ')
+            assert save('story-header-edited',lambda _:None)[1] == original_xml
+            with zipfile.ZipFile(source) as z: edited_styles=z.read('styles.xml')
+            key('z',('Control_L',)); assert save('story-header-undone')[1]==original_xml
+            key('y',('Control_L',)); assert save('story-header-redone',lambda raw: raw==edited_styles)[1]==original_xml
+            with zipfile.ZipFile(source) as z: assert z.read('styles.xml') == edited_styles
+
+            open_story(1)
+            check_text('Page 9/9')
+            key('Home',('Control_L',)); type_text('F')
+            key('End',('Control_L',)); type_text(' of ')
+            menu_action('Page count'); check_text('FPage 9/9 of 1')
+            select_all(); key('b',('Control_L',))
+            # Saving in a story applies it and saves the parent, not the projection.
+            assert save('story-footer-saved',lambda _:None)[1] == original_xml
+            wait(lambda: data()['story_editor'] is None)
+            assert [s['text'] for s in data()['page_layout']['stories'] if s['kind']=='footer']==['FPage 1/2 of 2','FPage 2/2 of 2']
+            with zipfile.ZipFile(source) as z:
+                footer_styles=z.read('styles.xml'); tree=ET.fromstring(footer_styles)
+                assert len(tree.findall('.//'+TEXT+'page-count'))==2
+                assert tree.find('.//'+TEXT+'page-number').text=='9'
+            capture_window('stories-header-footer-edited')
+
+            # First-page creation upgrades ODF 1.2 while retaining body text.
+            open_story(variant=1)
+            check_text(''); type_text('FirstTitle'); finish_story()
+            first_root,first_xml=save('story-first-created',lambda _:None)
+            assert first_root.get('{urn:oasis:names:tc:opendocument:xmlns:office:1.0}version')=='1.3'
+            assert [s['text'] for s in data()['page_layout']['stories'] if s['kind']=='header']==['FirstTitle','Header alphaXYZ']
+            with zipfile.ZipFile(source) as z:first_styles=z.read('styles.xml')
+            key('z',('Control_L',)); assert save('story-first-undone',lambda raw:None)[1]==original_xml
+            with zipfile.ZipFile(source) as z: assert z.read('styles.xml') == footer_styles
+            key('y',('Control_L',)); assert save('story-first-redone',lambda _:None)[1]==first_xml
+            with zipfile.ZipFile(source) as z: assert z.read('styles.xml') == first_styles
+
+            # Creating a center region preserves existing direct content as left.
+            open_story(region=2)
+            check_text(''); type_text('Center'); finish_story()
+            assert save('story-region-created',lambda _:None)[1]==first_xml
+            with zipfile.ZipFile(source) as z:
+                region_styles=z.read('styles.xml'); tree=ET.fromstring(region_styles)
+                header=tree.find('.//'+STYLE+'header')
+                assert plain(header.find(STYLE+'region-left'))=='Header alphaXYZ'
+                assert plain(header.find(STYLE+'region-center'))=='Center'
+                assert header.find(TEXT+'p') is None
+            key('z',('Control_L',)); save('story-region-undone',lambda _:None)
+            with zipfile.ZipFile(source) as z: assert z.read('styles.xml') == first_styles
+            assert data()['editing']['can_redo']
+            open_story(); key('End',('Control_L',)); type_text('Discard')
+            click(710,26)
+            wait(lambda: data()['story_editor'] is None)
+            assert data()['editing']['can_redo']
+            save('story-cancelled',lambda _:None)
+            with zipfile.ZipFile(source) as z: assert z.read('styles.xml') == first_styles
+            key('y',('Control_L',)); save('story-region-redone',lambda _:None)
+            with zipfile.ZipFile(source) as z: assert z.read('styles.xml') == region_styles
+            capture_window('stories-final')
+            key('q',('Control_L',)); assert process.wait(timeout=20)==0
+            reopened=art/'story-reopened.json'
+            process=start([args.bin_dir.resolve()/'calligra-words-fltk',source,'--report',reopened,'--quit-after-ms','1800'],client,'story-reopened')
+            assert process.wait(timeout=20)==0
+            restored=json.loads(reopened.read_text())
+            assert restored['text']==original and not restored['modified'] and restored['story_editor'] is None
+            assert any(s['text']=='FirstTitle' for s in restored['page_layout']['stories'])
+            assert not restored['page_layout']['missing_glyphs'] and not restored['page_layout']['unsupported']
+            (art/'results.json').write_text(json.dumps({'native_wayland':args.wayland,
+                'header_footer_pixels':True,'scoped_rich_editor':True,'page_fields':True,
+                'first_page_and_regions':True,'exact_body_and_archive_history':True,
+                'cancel_preserves_parent_redo':True,'save_reopen':True},indent=2)+'\n')
+            print('PASS native header/footer rendering, rich editing, page fields, variants, regions, exact parent undo and save/reopen',flush=True)
+            raise FormatComplete
 
         layout_report = {}
         if args.page_only:

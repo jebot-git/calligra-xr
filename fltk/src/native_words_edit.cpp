@@ -39,6 +39,9 @@ std::vector<Block> blocks(const XmlElement &parent) {
 void supported(const XmlElement &e) {
   for (auto n = e.firstChild(); !n.isNull(); n = n.nextSibling())
     if (n.isElement()) {
+      if (n.namespaceURI() == TEXT &&
+          TextList{"page-number", "page-count"}.contains(n.localName()))
+        continue;
       if (n.namespaceURI() != TEXT ||
           !TextList{"span", "a", "s", "tab", "line-break", "meta"}.contains(
               n.localName()))
@@ -135,6 +138,15 @@ void slice(XmlElement source, XmlElement target, size_t begin, size_t end,
           copy.setAttributeNS(TEXT, "text:c", last - first);
         target.appendChild(copy);
       } else {
+        if (n.namespaceURI() == TEXT &&
+            TextList{"page-number", "page-count"}.contains(n.localName())) {
+          if (first != offset || last != next)
+            fail(
+                "Page fields are atomic; select the whole field to replace it");
+          target.appendChild(n.cloneNode(true));
+          offset = next;
+          continue;
+        }
         auto copy = n.cloneNode(false);
         slice(n, copy, first - offset, last - offset, tail && last == end);
         target.appendChild(copy);
@@ -885,6 +897,53 @@ void replace_words_text(OdfPackage &package, size_t begin, size_t count,
     if (changed_list || replacements.size() > 1)
       (void)read_text_flow(package);
   }
+}
+void insert_words_page_field(OdfPackage &package, size_t begin, size_t count,
+                             bool page_count) {
+  if (package.kind() != Kind::Words || package.read_only())
+    fail("This document cannot be edited");
+  const Text marker(1, char32_t(0xfffc));
+  replace_words_text(package, begin, count, marker, true);
+  auto all = blocks(package.body());
+  for (const auto &block : all)
+    if (begin >= block.start && begin < block.start + block.text.size()) {
+      size_t position = begin - block.start;
+      std::function<bool(XmlElement, size_t)> replace = [&](XmlElement parent,
+                                                            size_t offset) {
+        for (auto n = parent.firstChild(); !n.isNull(); n = n.nextSibling()) {
+          auto holder = package.xml.createElement("holder");
+          holder.appendChild(n.cloneNode(true));
+          auto value = plain_text(holder);
+          if (offset >= value.size()) {
+            offset -= value.size();
+            continue;
+          }
+          if (n.isText() || n.isCDATASection()) {
+            if (value[offset] != marker[0])
+              fail("Page field insertion lost its source marker");
+            if (offset)
+              parent.insertBefore(
+                  package.xml.createTextNode(value.left(offset)), n);
+            auto field = package.xml.createElementNS(
+                TEXT, page_count ? "text:page-count" : "text:page-number");
+            if (!page_count)
+              field.setAttributeNS(TEXT, "text:select-page", "current");
+            set_plain_text(field, "1");
+            parent.insertBefore(field, n);
+            if (offset + 1 < value.size())
+              parent.insertBefore(
+                  package.xml.createTextNode(value.mid(offset + 1)), n);
+            parent.removeChild(n);
+            return true;
+          }
+          return replace(n, offset);
+        }
+        return false;
+      };
+      if (replace(block.node, position))
+        return;
+    }
+  fail("Page field insertion has no editable source");
 }
 WordsRangeClear clear_words_selection(const OdfPackage &original,
                                       const WordsTextPoint &anchor,

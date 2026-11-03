@@ -742,6 +742,10 @@ XmlNode leaf_slice(XmlNode node, size_t first, size_t last) {
     return node.ownerDocument().createTextNode(
         node.nodeValue().mid(first, last - first));
   auto copy = node.cloneNode(true);
+  if (node.namespaceURI() == TEXT &&
+      TextList{"page-number", "page-count"}.contains(node.localName()) &&
+      (first || last != node_text(node).size()))
+    fail("Page fields are atomic; select the whole field to format it");
   if (node.localName() == "s")
     copy.setAttributeNS(TEXT, "text:c", last - first);
   if (first)
@@ -804,6 +808,16 @@ void format_inlines(XmlElement parent, size_t begin, size_t end,
           parent.insertBefore(leaf_slice(n, b, length), n);
         parent.removeChild(n);
       } else if (n.namespaceURI() == TEXT &&
+                 TextList{"page-number", "page-count"}.contains(
+                     n.localName())) {
+        if (first != offset || last != offset + length)
+          fail("Page fields are atomic; select the whole field to format it");
+        auto span = n.ownerDocument().createElementNS(TEXT, "text:span");
+        span.setAttributeNS(TEXT, "text:style-name",
+                            styles.text_style({}, format));
+        parent.insertBefore(span, n);
+        span.appendChild(n);
+      } else if (n.namespaceURI() == TEXT &&
                  (n.localName() == "span" || n.localName() == "a" ||
                   n.localName() == "meta"))
         format_inlines(n, first - offset, last - offset, format, styles,
@@ -850,6 +864,15 @@ void assign_character_inlines(XmlElement parent, size_t begin, size_t end,
                                        : std::vector<Text>{reference}));
       if (b < length)
         result.push_back(styled_node(leaf_slice(source, b, length), inherited));
+    } else if (source.namespaceURI() == TEXT &&
+               TextList{"page-number", "page-count"}.contains(
+                   source.localName())) {
+      if (first != offset || last != offset + length)
+        fail("Page fields are atomic; select the whole field to format it");
+      result.push_back(styled_node(source.cloneNode(true),
+                                   reference.empty()
+                                       ? std::vector<Text>{}
+                                       : std::vector<Text>{reference}));
     } else if (source.namespaceURI() == TEXT &&
                (source.localName() == "span" || source.localName() == "a" ||
                 source.localName() == "meta")) {

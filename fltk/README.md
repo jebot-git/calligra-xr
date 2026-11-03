@@ -157,8 +157,25 @@ CUPS test queues.
   private layouts are updated without accumulating unused definitions. Other
   masters, source units/properties, headers and footer data are retained.
   Page definitions use the same archive-part undo, including creating a missing
-  styles part and restoring its absence. Existing headers/footers remain a
-  rendering limitation; page setup does not add their editor.
+  styles part and restoring its absence.
+  Native page layout and PDF/CUPS printing now render headers and footers,
+  with default, first and left variants, three aligned regions, box borders,
+  padding/background, minimum/fixed height and dynamic spacing. Dynamic page
+  numbers/counts respect numbering restarts and adjacent-page fields. Body
+  pagination reserves their space without mixing their source offsets into
+  body editing. File → Header and footer, or clicking an existing header/footer,
+  selects the page style, variant and region. The scoped editor reuses Words
+  text, formatting, list and table commands. Finish applies one parent undo
+  step; Cancel retains the parent and its redo history. Save applies the story
+  and saves the complete document. Show on pages suppresses a variant while
+  retaining its source. Insert → Page number / Page count adds dynamic fields;
+  fields show stored values while editing and update on document pages. Select
+  a whole field to replace or format it. Header automatic styles stay in
+  styles.xml independently of same-named body styles; shared named-style edits
+  affect the document. Direct content is retained as the left region when
+  creating aligned regions. Adding first-page content upgrades older ODF
+  content/styles to version 1.3. Shadows, mirrored/blank-page rules, anchored
+  objects and broader header/footer fidelity remain unfinished.
   Table → Insert table adds a bordered grid at the caret in the body, a section,
   or an existing cell, with configurable rows/columns and an optional repeating
   first row. Rich paragraph text on either side is retained. New tables fit
@@ -397,7 +414,8 @@ parity. Embedded document fonts, complete complex-script style properties,
 font synthesis, arbitrary variable axes, color glyph painting, advanced
 justification/hyphenation and vertical text remain incomplete. Rich formatting
 controls, advanced table pagination/section layout, structural list editing, columns, notes,
-headers/footers, anchored shapes and page-style details remain to be ported.
+advanced header/footer behavior, anchored shapes and page-style details remain
+to be ported.
 Words paints native table grids in ordered page flow and repeats complete
 header groups. Independent source cursors split long cells, continue merged cells
 and nested tables, and rewrap their remaining text when the next master changes

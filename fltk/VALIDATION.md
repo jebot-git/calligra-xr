@@ -2474,3 +2474,42 @@ note/image-anchor editing, list controls, reference adjustment and large-documen
 performance remain. Words stays first, Sheets functions next, Stage last; the
 full goal remains active. Artifacts:
 `/home/blux/de-xr/artifacts/calligra-words-table-resize-20261102`.
+
+
+## Native Words headers/footers and scoped editing — 2026-11-03
+
+All 55 applicable optimized Release suites and 55 ASan/UBSan suites pass,
+including core leak detection. The three legacy outline-font-assumption suites
+(native-text-shaping, native-text-hit, native-text-editing) remain excluded and
+are not counted as passing. The new page-story suite checks geometry, variants,
+regions, fields/restarts, dynamic spacing, fixed clipping, table content,
+source-scoped style shadows, body/source retention, atomic field edits,
+identity/table-name collisions, shared-style deletion guards, missing parts,
+ODF-version upgrades and exact archive/selection undo.
+
+Independent odfpy GUI fixtures pass on native Wayland and X11, plus an instrumented
+Wayland run. Real input covers header/footer clicks, scoped typing/formatting,
+field insertion, first-page and regional creation, parent undo/redo, cancellation
+retaining redo, Save applying the scope, and reopen. The private Wayland harness
+requests a size above Words' minimum to keep compositor and client geometry in
+agreement. The existing rudimentary native editing/save/reopen regression passes.
+GUI leak detection is disabled for third-party desktop/font state.
+
+Twenty-three story documents pass native export, exact style/opaque archive
+retention, headless PDF generation and real private CUPS submission. All 51 new
+print pages were visually reviewed; ODF reopen pixels match, and captured CUPS
+PDF bytes match the generated PDFs. The three-application baseline contributes
+three additional CUPS jobs; all nine accepted baseline pages remain pixel-identical.
+No system printer queue or desktop/display-manager session was changed/restarted.
+
+Version-matched unmodified OASIS schemas validate 111 final core, GUI and export
+packages using Jing. The optional --jing-jar/--java schema-test arguments retain
+libxml2 diagnostics as well. Libxml2 rejects a page-count field wrapped in a
+text span, while Jing accepts it against the same original schema; expanding
+that schema's equivalent name-class choice also isolates the libxml2 discrepancy.
+Jing's -i omits RELAX NG DTD Compatibility checks that reject the ODF schema
+itself. XML identity uniqueness is checked separately across archive parts.
+The local Java/Jing tools are validation-only artifacts, not runtime dependencies.
+
+Artifacts: /home/blux/de-xr/artifacts/calligra-words-header-footer-20261103.
+The full Words goal remains active; remaining behavior is listed in PORT_STATUS.md.

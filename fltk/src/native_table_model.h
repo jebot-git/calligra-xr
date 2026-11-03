@@ -2,6 +2,7 @@
 #pragma once
 #include "native_text_layout.h"
 namespace DomeOffice {
+void apply_text_box_properties(TextCellStyle &, const XmlElement &properties);
 // Immutable source-scoped style catalogue. Nested parsers share the expansion
 // budget and return the original source block identities for repeated content.
 class OdfTableModelReader {
