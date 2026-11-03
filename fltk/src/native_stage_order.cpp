@@ -57,6 +57,10 @@ PresentationPosition Presentation::reorder_shape(int slide_index, int index,
   default:
     throw std::runtime_error("Invalid object ordering scope");
   }
+  auto original_target = shape.source;
+  if (scope == NativeOrderScope::ContainingGroup)
+    original_target = original_target.parentNode().toElement();
+  scene(slide_index).require_editable(original_target);
   const auto parent = target.parentNode().toElement();
   if (parent.namespaceURI() != DRAW ||
       (parent.localName() != "page" && parent.localName() != "g"))
@@ -93,8 +97,10 @@ PresentationPosition Presentation::reorder_shape(int slide_index, int index,
   items.insert(items.begin() + next, item);
   // Explicit consecutive indices resolve ties, missing values and saturated
   // source indices without changing XML child order or keyboard navigation.
-  for (size_t i = 0; i < items.size(); ++i)
-    items[i].node.setAttributeNS(DRAW, "draw:z-index", Text::number(i));
+  std::vector<XmlElement> ordered;
+  for (auto item : items)
+    ordered.push_back(item.node);
+  native_layer_stacking_indices(parent, ordered, scene(slide_index).layers);
   auto reader = std::make_shared<OdfTextReader>(candidate);
   auto scenes = read_presentation_scenes(candidate, reader);
   PresentationPosition position{slide_index, -1, -1};

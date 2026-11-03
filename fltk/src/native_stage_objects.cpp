@@ -441,6 +441,7 @@ PresentationPosition Presentation::remove_shape(int slide_index,
   if (read_only())
     fail("This presentation is read-only");
   const auto &shape = scene(slide_index).shapes.at(shape_index);
+  scene(slide_index).require_editable(shape.source);
   if (shape.master || shape.source.isNull())
     fail("Master objects are not editable");
   std::set<Text> ids, names;

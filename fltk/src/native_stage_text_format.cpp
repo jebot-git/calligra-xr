@@ -62,6 +62,7 @@ bool Presentation::format_box_characters(int slide, int box,
     throw std::runtime_error("This presentation is read-only");
   validate_words_format(format);
   auto frame = frame_text(*this, slide, box);
+  scene(slide).require_editable(frame.shape.source);
   auto [begin, end] = range(frame, selection);
   if (format.empty())
     return false;
@@ -100,6 +101,7 @@ bool Presentation::format_box_paragraphs(int slide, int box,
     throw std::runtime_error(
         "Page pagination controls do not apply to a slide text frame");
   auto frame = frame_text(*this, slide, box);
+  scene(slide).require_editable(frame.shape.source);
   auto [begin, end] = range(frame, selection);
   if (format.empty())
     return false;

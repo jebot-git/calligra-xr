@@ -25,6 +25,8 @@ void Presentation::begin_objects_drag(
     throw std::runtime_error("This presentation is read-only");
   const auto &model = scene(slide_index);
   auto refs = native_object_selection(model, selection);
+  for (auto ref : refs)
+    model.require_editable(native_object_source(model, ref));
   auto at = position(model, slide_index, refs);
   NativeObjectGesture gesture(model, refs, pointer, handle);
   drag_ = HandleDrag{package_.xml.toByteArray(), at, -1000, state_};
@@ -66,6 +68,8 @@ PresentationPosition Presentation::reorder_objects(
     throw std::runtime_error("This presentation is read-only");
   const auto &model = scene(slide_index);
   auto refs = native_object_selection(model, selection);
+  for (auto ref : refs)
+    model.require_editable(native_object_source(model, ref));
   auto before = position(model, slide_index, refs);
   OdfPackage candidate = package_;
   candidate.xml = read_document_xml(package_.xml.toByteArray());
@@ -80,6 +84,8 @@ PresentationPosition Presentation::reorder_objects(
   else if (scope != NativeOrderScope::Object)
     throw std::runtime_error("Invalid object ordering scope");
   operated = native_object_selection(model, operated);
+  for (auto ref : operated)
+    model.require_editable(native_object_source(model, ref));
   std::unordered_set<const void *> chosen, contexts;
   for (auto ref : operated) {
     auto node =
@@ -125,8 +131,10 @@ PresentationPosition Presentation::reorder_objects(
     if (!context_changed)
       continue;
     changed = true;
-    for (size_t i = 0; i < items.size(); ++i)
-      items[i].node.setAttributeNS(DRAW, "draw:z-index", Text::number(i));
+    std::vector<XmlElement> ordered;
+    for (auto item : items)
+      ordered.push_back(item.node);
+    native_layer_stacking_indices(parent, ordered, model.layers);
   }
   if (!changed)
     return before;
@@ -141,6 +149,8 @@ Presentation::remove_objects(int slide_index,
     throw std::runtime_error("This presentation is read-only");
   const auto &model = scene(slide_index);
   auto refs = native_object_selection(model, selection);
+  for (auto ref : refs)
+    model.require_editable(native_object_source(model, ref));
   auto before = position(model, slide_index, refs);
   std::vector<XmlElement> originals;
   for (auto ref : refs)

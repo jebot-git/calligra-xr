@@ -14,7 +14,7 @@ output need feature-appropriate independent checks.
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. The preceding
-stacking build c5481ba is installed and independently verified; subsequent
+group/selection build 02f4d64 is installed and independently verified; subsequent
 source/build/stage/installation claims require their own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
@@ -222,7 +222,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
 | Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, scoped header/footer editing and native rendering with dynamic page fields, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, remaining table styles/optimal sizing and reflow performance, complex paragraph-level list reparenting, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, advanced header/footer geometry and anchored content, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
-| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, direct affine resize/center-rotation/line-endpoint handles, embedded image insertion, scoped character/paragraph controls with future typing and selection history, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, stacking/group tools, animation/timing, transitions, speaker notes/view and export fidelity |
+| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, direct affine resize/center-rotation/line-endpoint handles, embedded image insertion, scoped character/paragraph controls with future typing and selection history, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, layer authoring, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
 | Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
@@ -263,8 +263,8 @@ page-column worktree is uninstalled and preserved.
 1. Work on native Stage layout/editing, preserving OpenDocument export and CUPS
    printing. Native movement and primitive/text creation/deletion are available;
    numeric position/size/rotation and embedded images are installed; richer text
-   formatting is installed; direct resize/rotation is the current increment, and
-   stacking/group tools remain unfinished.
+   formatting, direct resize/rotation, stacking and group/selection tools are installed.
+   Layer visibility/protection and separate screen/print scenes form the next increment.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1386,3 +1386,44 @@ Groups are partial ODF1.2 drawing functionality; layer display/protection,
 connector/chart/3D semantics, group-property/reference rewrites, frame editing and
 presentation details remain incomplete. Stage stays active, Words paused with
 experimental columns uninstalled, and further Sheets catalogue/settings waits.
+
+
+## Native Stage layer consumption and protection — 2026-11-03
+
+Native scenes resolve document, page and master-page layer sets using ODF1.2
+Part1 sections10.2.2–10.2.3,19.132,19.189 and19.207. A local set replaces the
+whole document set, including when empty. Each master uses its own effective
+set independently of the slide. Immutable shared policies avoid duplicating a
+large document layer catalog in every scene. Layer assignment does not reorder
+objects. Default display is always; default protection is false. The four
+standard display modes select screen, print, both or neither. Missing layer
+references render with default settings and an explicit unsupported diagnostic;
+this fallback does not claim that the missing definition has been recovered.
+Duplicate names/sets, missing names and invalid display/protection values reject
+scene construction. Legacy per-object display attributes remain separate
+consumer-compatibility behavior and are not strict ODF1.2 producer evidence.
+
+PDF/CUPS now build print-target scenes independently of the retained screen
+scenes and their editor/selection indices. Print-only content is rendered and
+screen-only content is excluded, including on masters and locally overridden
+pages. Printing does not replace the editing scene or change revision/history.
+Native source guards protect text/formatting, shape modifiers, geometry,
+movement, group/batch operations, ordering, deletion and whole-slide deletion.
+Guards traverse selected source subtrees, including hidden and unrendered
+protected members. An editable member of a mixed group can still be edited
+individually. Protected visible objects remain selectable for inspection, with
+the text editor and transform/adjustment controls inactive. Rejected writes
+preserve source, saved state and undo/redo. Ordering editable peers retains
+protected z-index spelling/absence; if fixed labels leave no integer slot
+without changing protected source or XML/navigation order, the command rejects
+atomically. Broader stacking-label/navigation rewriting remains open.
+
+Independent strict ODF1.2 documents exercise all display modes, page/master
+replacement, an empty local set, protected text and hidden protected group
+members. Model, actual native Wayland controls/pixels, raw source/archive,
+export/reopen, PDF raster and private CUPS checks provide separate evidence.
+Layer creation/property/assignment controls, missing-reference repair, and
+broader group/property/connector/frame/presentation semantics remain unfinished.
+This is partial ODF1.2 functionality; source/build/stage and installation require
+separate receipts. Stage remains active, Words paused and further Sheets work
+waits.

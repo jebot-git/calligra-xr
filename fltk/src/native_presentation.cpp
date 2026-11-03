@@ -164,8 +164,11 @@ struct Catalog {
   std::map<std::string, int> editor_ids;
   size_t nodes = 0, points = 0;
   bool legacy_polar_order = false;
-  Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader)
-      : source_package(package),
+  SceneTarget target;
+  SceneLayers document_layers;
+  Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader,
+          SceneTarget target_)
+      : source_package(package), target(target_),
         text_reader(reader ? std::move(reader)
                            : std::make_shared<OdfTextReader>(package)) {
     legacy_polar_order = enhanced_legacy_polar_order(package);
@@ -193,9 +196,11 @@ struct Catalog {
           else if (e.localName() == "page-layout")
             source.layouts[name] = e;
         }
-      } else if (group.localName() == "master-styles")
+      } else if (group.localName() == "master-styles") {
+        document_layers = document_layers.scoped(group);
         for (auto e : children(group, STYLE, "master-page"))
           masters[e.attributeNS(STYLE, "name")] = e;
+      }
     }
   }
   std::vector<XmlElement> chain(const Source &source, const Text &family,
@@ -416,7 +421,9 @@ struct Catalog {
           continue;
         auto key = path + "/" + std::to_string(order++);
         auto display = node.attributeNS(DRAW, "display", "always");
-        if (display == "none" || display == "printer")
+        if (!slide.layers.visible(node, target) || display == "none" ||
+            (target == SceneTarget::Screen && display == "printer") ||
+            (target == SceneTarget::Print && display == "screen"))
           continue;
         bool supported =
             TextList{"frame",   "rect",     "ellipse", "circle",      "path",
@@ -436,10 +443,12 @@ struct Catalog {
   }
   void shapes(const XmlElement &parent, const Source &source,
               const SceneTransform &transform, SlideScene &slide, bool master,
-              int depth = 0, const std::string &path = {}) {
+              const SceneLayers &layers, int depth = 0,
+              const std::string &path = {}) {
     if (depth > 256)
       fail("Presentation group nesting exceeds the limit");
-    for (auto node = parent.firstChild(); !node.isNull(); node = node.nextSibling())
+    for (auto node = parent.firstChild(); !node.isNull();
+         node = node.nextSibling())
       if (node.isElement() && node.namespaceURI().contains("animation"))
         note(slide.unsupported, "Animations and transitions");
     const auto items = native_stacking_children(parent);
@@ -454,7 +463,12 @@ struct Catalog {
       }
       auto name = node.localName();
       auto display = node.attributeNS(DRAW, "display", "always");
-      if (display == "none" || display == "printer")
+      if (layers.missing(node))
+        note(slide.unsupported,
+             "Missing drawing layer (displayed with default settings)");
+      if (!layers.visible(node, target) || display == "none" ||
+          (target == SceneTarget::Screen && display == "printer") ||
+          (target == SceneTarget::Print && display == "screen"))
         continue;
       if (master && node.attributeNS(PRESENTATION, "placeholder") == "true") {
         note(slide.unsupported, "Master placeholder fields");
@@ -466,13 +480,14 @@ struct Catalog {
         valid(group);
         if (node.hasAttributeNS(DRAW, "style-name"))
           note(slide.unsupported, "Group paint effects");
-        shapes(node, source, group, slide, master, depth + 1,
+        shapes(node, source, group, slide, master, layers, depth + 1,
                path + "/" + std::to_string(item.order));
         continue;
       }
       SceneShape shape;
       shape.parent_transform = transform;
       shape.master = master;
+      shape.layer_protected = layers.protected_object(node);
       if (!master)
         shape.source = node;
       shape.name = node.attributeNS(DRAW, "name");
@@ -659,6 +674,9 @@ struct Catalog {
             fail("Presentation shape coordinates exceed the limit");
         }
       }
+      if (shape.layer_protected)
+        for (auto &handle : shape.handles)
+          handle.editable = false;
       if (shape.editor_index >= 0)
         slide.editor_shapes.at(shape.editor_index) = slide.shapes.size();
       slide.shapes.push_back(std::move(shape));
@@ -666,6 +684,8 @@ struct Catalog {
   }
   SlideScene slide(const XmlElement &page, int index) {
     SlideScene slide;
+    slide.source = page;
+    slide.layers = document_layers.scoped(page);
     slide.name =
         page.attributeNS(DRAW, "name", Text("Slide %1").arg(index + 1));
     slide.master = page.attributeNS(DRAW, "master-page-name");
@@ -715,11 +735,11 @@ struct Catalog {
     if (foreground.fill)
       slide.background = foreground.fill_color;
     if (master_shapes && !master.isNull())
-      shapes(master, styles, {}, slide, true);
+      shapes(master, styles, {}, slide, true, document_layers.scoped(master));
     editor_ids.clear();
     collect_editors(page, slide);
     slide.editor_shapes.resize(slide.editable_sources.size());
-    shapes(page, content, {}, slide, false);
+    shapes(page, content, {}, slide, false, slide.layers);
     return slide;
   }
 };
@@ -900,10 +920,11 @@ int SlideScene::hit_test(ScenePoint p) const {
 }
 std::vector<SlideScene>
 read_presentation_scenes(const OdfPackage &package,
-                         std::shared_ptr<OdfTextReader> reader) {
+                         std::shared_ptr<OdfTextReader> reader,
+                         SceneTarget target) {
   if (package.kind() != Kind::Stage)
     fail("Slide scenes require a presentation");
-  Catalog catalog(package, std::move(reader));
+  Catalog catalog(package, std::move(reader), target);
   auto pages = children(package.body(), DRAW, "page");
   if (pages.empty() || pages.size() > 4096)
     fail("Invalid presentation page count");

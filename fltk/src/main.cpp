@@ -1980,12 +1980,15 @@ public:
         boxes->value(box);
         const bool single = refs.size() == 1 && refs.front().ancestors == 0;
         fill_buffer(!single || current.boxes.isEmpty() || box < 0 ? Text() : current.boxes[box].text);
-        if (!single || box < 0 || current.boxes.isEmpty() || !current.boxes[box].image.isEmpty()) editor->deactivate();
+        if (!single || box < 0 || current.boxes.isEmpty() || !current.boxes[box].image.isEmpty()
+            || !scene.editable(scene.shapes.at(selected_shape).source)) editor->deactivate();
         canvas->box = box;
         canvas->selected_shape = selected_shape;
         canvas->selected_objects = std::move(refs);
         canvas->selection_visible = !presenting;
         canvas->adjustable = !presenting && !readonly();
+        for (auto ref : canvas->selected_objects)
+            if (!scene.editable(native_object_source(scene, ref))) canvas->adjustable = false;
         canvas->redraw();
         message("Slide " + std::to_string(slide + 1) + " of " + std::to_string(stage->count()));
     }
@@ -2375,6 +2378,8 @@ public:
                 presenting = !presenting;
                 canvas->selection_visible = !presenting;
                 canvas->adjustable = !presenting && !readonly();
+                for (auto ref : canvas->selected_objects)
+                    if (!stage->scene(slide).editable(native_object_source(stage->scene(slide), ref))) canvas->adjustable = false;
                 window.presentation = presenting;
                 if (presenting) {
                     canvas_x = canvas->x();
@@ -2633,6 +2638,8 @@ public:
                 auto bounds = shape.bounds();
                 objects.push_back({ { "name", utf8(shape.name) }, { "master", shape.master },
                     { "tag", utf8(shape.source.localName()) }, { "text", utf8(shape.text) },
+                    { "layer_protected", shape.layer_protected },
+                    { "object_editable", !shape.master && model.editable(shape.source) },
                     { "id", utf8(shape.source.attributeNS("http://www.w3.org/XML/1998/namespace", "id")) },
                     { "transform", { t.a, t.b, t.c, t.d, t.e, t.f } },
                     { "bounds", { bounds.x, bounds.y, bounds.width, bounds.height } } });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_text_layout.h"
+#include "native_layers.h"
 #include <optional>
 namespace DomeOffice {
 struct ScenePoint {
@@ -71,6 +72,7 @@ struct SceneShape {
   XmlElement source; // Own-slide source; masters cannot be edited.
   int editor_index = -1;
   bool master = false;
+  bool layer_protected = false;
   SceneRect bounds() const;
   bool hit(ScenePoint) const;
 };
@@ -83,9 +85,14 @@ struct SlideScene {
   std::vector<XmlElement> editable_sources;
   std::vector<size_t> editor_shapes;
   std::vector<Text> unsupported;
+  XmlElement source;
+  SceneLayers layers;
+  bool editable(XmlElement, bool descendants = true) const;
+  void require_editable(XmlElement, bool descendants = true) const;
   int hit_test(ScenePoint) const; // Shape index; masters are not editable.
 };
 std::vector<SlideScene>
 read_presentation_scenes(const OdfPackage &,
-                         std::shared_ptr<OdfTextReader> = {});
+                         std::shared_ptr<OdfTextReader> = {},
+                         SceneTarget = SceneTarget::Screen);
 } // namespace DomeOffice

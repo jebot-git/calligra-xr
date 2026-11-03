@@ -21,6 +21,7 @@ void Presentation::begin_shape_move(int slide, int shape_index,
   if (read_only())
     throw std::runtime_error("This presentation is read-only");
   const auto &shape = scene(slide).shapes.at(shape_index);
+  scene(slide).require_editable(shape.source);
   if (shape.master || shape.source.isNull())
     throw std::runtime_error("This shape is not editable");
   auto inverse = shape.parent_transform.inverse();
@@ -44,6 +45,7 @@ void Presentation::move_shape_to(int slide, int shape_index,
       drag_->position.shape != shape_index)
     throw std::runtime_error("This shape is not being moved");
   const auto &shape = scene(slide).shapes.at(shape_index);
+  scene(slide).require_editable(shape.source);
   auto delta =
       ScenePoint{pointer.x - drag_->pointer.x, pointer.y - drag_->pointer.y};
   if (delta.x == 0 && delta.y == 0) {

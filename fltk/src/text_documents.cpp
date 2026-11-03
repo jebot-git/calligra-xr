@@ -1039,6 +1039,11 @@ const SlideScene& Presentation::scene(int index) const
     }
     return scenes_.at(index);
 }
+std::vector<SlideScene> Presentation::print_scenes() const
+{
+    (void)scene(0);
+    return read_presentation_scenes(package_, text_reader_, SceneTarget::Print);
+}
 Slide Presentation::slide(int index) const
 {
     const auto& native = scene(index);
@@ -1095,6 +1100,7 @@ void Presentation::remove_slide(int index, int selectedBox, int selectedShape)
     if (pages.size() < 2)
         fail("Keep at least one slide");
     if (index < 0 || index >= pages.size()) fail("Invalid slide");
+    scene(index).require_editable(pages.at(index));
     const auto before = package_.xml.toByteArray();
     package_.body().removeChild(pages.at(index));
     scenes_.clear(); ++revision_;
@@ -1108,6 +1114,7 @@ void Presentation::set_box_text(int slideIndex, int boxIndex, const Text &text,
     if (text.size() > 4000000)
         fail("Text frame exceeds native layout text limit");
     auto frame = scene(slideIndex).editable_sources.at(boxIndex);
+    scene(slideIndex).require_editable(frame);
     auto box = child(frame, DRAW, "text-box");
     if (box.isNull() && (!children(frame, TEXT, "p").empty() ||
                          !children(frame, TEXT, "h").empty()))
@@ -1137,6 +1144,7 @@ void Presentation::replace_box_text(int slideIndex, int boxIndex, size_t begin,
         fail("This presentation is read-only");
     const auto &current = scene(slideIndex);
     auto frame = current.editable_sources.at(boxIndex);
+    current.require_editable(frame);
     auto box = child(frame, DRAW, "text-box");
     if (box.isNull() && (!children(frame, TEXT, "p").empty() ||
                          !children(frame, TEXT, "h").empty()))
@@ -1195,6 +1203,7 @@ void Presentation::begin_handle_drag(int slideIndex, int shapeIndex, int handleI
     end_text_edit();
     if (read_only()) fail("This presentation is read-only");
     const auto& shape = scene(slideIndex).shapes.at(shapeIndex);
+    scene(slideIndex).require_editable(shape.source);
     if (shape.master || shape.source.isNull() || !shape.handles.at(handleIndex).editable)
         fail("This adjustment handle is not editable");
     drag_ = HandleDrag { package_.xml.toByteArray(),
@@ -1219,6 +1228,7 @@ void Presentation::move_handle(int slideIndex, int shapeIndex, int handleIndex, 
     if (drag_ && (drag_->position.slide != slideIndex || drag_->position.shape != shapeIndex || drag_->handle != handleIndex))
         fail("Another adjustment handle is being dragged");
     const auto& shape = scene(slideIndex).shapes.at(shapeIndex);
+    scene(slideIndex).require_editable(shape.source);
     if (shape.master || shape.source.isNull() || shape.kind != SceneShape::Custom)
         fail("This shape is not adjustable");
     auto inverse = shape.transform.inverse();

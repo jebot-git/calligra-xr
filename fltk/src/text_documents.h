@@ -151,6 +151,7 @@ public:
     int count() const;
     Slide slide(int index) const;
     const SlideScene& scene(int index) const;
+    std::vector<SlideScene> print_scenes() const;
     uint64_t revision() const { return revision_; }
     void add_slide(const Text& title = "New slide", PresentationPosition previous = {});
     void remove_slide(int index, int selectedBox = 0, int selectedShape = -1);

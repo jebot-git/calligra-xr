@@ -24,12 +24,6 @@ PresentationPosition previous(const SlideScene &scene, int slide,
   position.objects = refs;
   return position;
 }
-void indices(const std::vector<XmlElement> &nodes) {
-  for (size_t i = 0; i < nodes.size(); ++i) {
-    auto node = nodes[i];
-    node.setAttributeNS(DRAW, "draw:z-index", Text::number(i));
-  }
-}
 bool identity(const SceneTransform &t) {
   return t.a == 1 && t.b == 0 && t.c == 0 && t.d == 1 && t.e == 0 && t.f == 0;
 }
@@ -97,6 +91,8 @@ Presentation::group_objects(int slide_index,
     fail("This presentation is read-only");
   const auto &model = scene(slide_index);
   auto refs = native_object_selection(model, selection);
+  for (auto ref : refs)
+    model.require_editable(native_object_source(model, ref));
   if (refs.size() < 2)
     fail("Select at least two objects or groups to group");
   auto before_position = previous(model, slide_index, refs);
@@ -144,7 +140,7 @@ Presentation::group_objects(int slide_index,
       order.push_back(group);
   }
   // The group occupies the frontmost selected object's stacking position.
-  indices(order);
+  native_layer_stacking_indices(parent, order, model.layers);
   return commit_object_structure(std::move(candidate), {group},
                                  std::move(before_position));
 }
@@ -157,6 +153,8 @@ Presentation::ungroup_objects(int slide_index,
     fail("This presentation is read-only");
   const auto &model = scene(slide_index);
   auto refs = native_object_selection(model, selection);
+  for (auto ref : refs)
+    model.require_editable(native_object_source(model, ref));
   auto before_position = previous(model, slide_index, refs);
   // A selected leaf ungroup command addresses its immediate containing group.
   auto groups = refs;
@@ -169,6 +167,7 @@ Presentation::ungroup_objects(int slide_index,
   std::vector<XmlElement> originals;
   for (auto ref : groups) {
     auto group = native_object_source(model, ref);
+    model.require_editable(group);
     ungroup_guard(package_, group);
     originals.push_back(group);
   }
@@ -209,7 +208,7 @@ Presentation::ungroup_objects(int slide_index,
     while (!group.firstChild().isNull())
       parent.insertBefore(group.firstChild(), group);
     parent.removeChild(group);
-    indices(order);
+    native_layer_stacking_indices(parent, order, model.layers);
   }
   return commit_object_structure(std::move(candidate), selected,
                                  std::move(before_position));

@@ -313,6 +313,17 @@ CUPS test queues.
   numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell
   editing, undo/redo, TSV paste and ODS saves. It does not export XLSX.
+- Stage honors ODF1.2 document/page/master layer display and protection.
+  A local layer set replaces the document set; an empty local set is meaningful.
+  Screen-only and print-only objects use separate scenes, so printing retains the
+  canvas selection/history while applying the correct layer visibility. Protected
+  visible objects can be inspected, with editing controls disabled. Text, geometry,
+  group/batch operations and slide/object deletion reject protected targets,
+  including hidden members of selected groups. Editable peers can be ordered
+  without changing protected z-index attributes where integer labels permit it;
+  otherwise the command rejects atomically. Missing layer references are displayed
+  with default settings and a diagnostic. Layer authoring/assignment controls and
+  automatic reference repair remain unfinished.
 - Stage loads ODP and imports PPTX text boxes and embedded PNG/JPEG images,
   dimensions, order and frame positions. It supports text editing, slide
   insertion/deletion, document-wide native undo/redo, ODP saves and a basic F5

@@ -11,6 +11,7 @@ void Presentation::begin_shape_transform(int slide, int index,
   if (read_only())
     throw std::runtime_error("This presentation is read-only");
   const auto &shape = scene(slide).shapes.at(index);
+  scene(slide).require_editable(shape.source);
   NativeShapeDrag gesture(shape, handle, pointer);
   // Keep only the immutable geometry/source needed for preview. Retaining
   // entire rich text or decoded image buffers here would duplicate large data.

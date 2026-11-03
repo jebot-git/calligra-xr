@@ -185,6 +185,9 @@ NativeShapeGeometry native_shape_geometry(const SceneShape &s) {
     out.position_enabled = out.width_enabled = out.rotation_enabled =
         s.transform.inverse().has_value();
     out.height_enabled = false;
+    if (s.layer_protected)
+      out.position_enabled = out.width_enabled = out.height_enabled =
+          out.rotation_enabled = false;
     return out;
   }
   out.origin = s.transform.map({});
@@ -206,6 +209,9 @@ NativeShapeGeometry native_shape_geometry(const SceneShape &s) {
     out.rotation = std::atan2(-m.c, m.d) * degrees;
   out.position_enabled = s.parent_transform.inverse().has_value();
   out.rotation_enabled = out.position_enabled && out.rotation.has_value();
+  if (s.layer_protected)
+    out.position_enabled = out.width_enabled = out.height_enabled =
+        out.rotation_enabled = false;
   return out;
 }
 NativeShapeGeometry Presentation::shape_geometry(int slide, int index) const {
@@ -310,6 +316,7 @@ void Presentation::set_shape_geometry(int slide, int index,
   if (read_only())
     fail("This presentation is read-only");
   const auto &shape = scene(slide).shapes.at(index);
+  scene(slide).require_editable(shape.source);
   auto before = package_.xml.toByteArray();
   auto candidate = read_document_xml(before);
   auto source = stage_candidate_source(shape.source, candidate);

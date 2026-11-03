@@ -2915,3 +2915,20 @@ layer semantics. Optimized regular-user staging and installed artifact ownership
 dependencies, actual Wayland input and reviewed CUPS output are separate gates.
 No desktop/display session is restarted. Words remains paused, columns preserved
 and uninstalled; further Sheets catalogue/settings work waits while Stage is active.
+
+
+## Stage ODF1.2 layer consumption — 2026-11-03
+
+`native-stage-layers` adds scoped display/default/protection cases, independent
+print scenes, rejected text/format/modifier/geometry/group/batch/slide writes,
+fixed protected stacking attributes and source/history/reopen checks. The
+independent `stage_layers_producer.py` corpus uses strict ODF1.2 layer sets on
+document, page and master scopes. `native_stage_layers_ui.py` exercises actual
+isolated native Wayland screen pixels, print-only hit exclusion, protected
+editor/handles, hidden group members, universal-menu errors and redo preservation.
+`stage_layers_print.py` checks actual private CUPS jobs, print-mode pixels,
+exact package/source invariants, unchanged later pages and reopened rasters.
+The current selected suite count is80, with the same three established outline
+font exclusions. Per-build/runtime counts, reviewed page matches, schemas and
+installed results are recorded separately in the stage-layers artifact receipts;
+these test definitions do not claim installation or full ODF1.2 conformance.

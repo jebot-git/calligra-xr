@@ -378,8 +378,8 @@ PrintResult print_pdf(const TextDocument &document, const Text &path,
 PrintResult print_pdf(const Presentation &document, const Text &path,
                       const PrintSettings &) {
   Pdf pdf(path);
-  for (int i = 0; i < document.count(); ++i) {
-    const auto &scene = document.scene(i);
+  const auto scenes = document.print_scenes();
+  for (const auto &scene : scenes) {
     pdf.page(scene.width, scene.height, scene.background);
     pdf.result.unsupported.insert(pdf.result.unsupported.end(),
                                   scene.unsupported.begin(),
