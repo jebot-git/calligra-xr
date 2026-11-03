@@ -3,6 +3,7 @@
 #include "native_formula.h"
 #include "native_distribution.h"
 #include "native_inference.h"
+#include "native_regression.h"
 #include "workbook.h"
 #include <cassert>
 #include <iostream>
@@ -38,7 +39,8 @@ void near(const V &v, double expected) {
 } // namespace
 int main(int argc, char **argv) {
   std::cout << std::unitbuf;
-  if (argc >= 3 && (std::string(argv[1]) == "--inference-fods" ||
+  if (argc >= 3 && (std::string(argv[1]) == "--regression-fods" ||
+                    std::string(argv[1]) == "--inference-fods" ||
                     std::string(argv[1]) == "--distribution-fods" ||
                     std::string(argv[1]) == "--fods" ||
                     std::string(argv[1]) == "--inspect-fods")) {
@@ -99,7 +101,12 @@ int main(int argc, char **argv) {
             bool selected = false;
             if (!formula.empty()) {
               auto decoded = Formula::decode(formula).toUpper();
-              if (std::string(argv[1]) == "--inference-fods") {
+              if (std::string(argv[1]) == "--regression-fods") {
+                auto end = decoded.indexOf('(');
+                selected =
+                    end > 1 && regression_signatures().contains(
+                                   regression_name(decoded.mid(1, end - 1)));
+              } else if (std::string(argv[1]) == "--inference-fods") {
                 auto end = decoded.indexOf('(');
                 selected =
                     end > 1 && inference_signatures().contains(

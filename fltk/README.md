@@ -627,8 +627,8 @@ return `#DIV/0!`; nonpositive observations or nonrepresentable results return
 `#NUM!`. Collected inputs are bounded to one million records. ODS save supplies required
 column declarations and a blank row for newly created/empty sheets and imports
 that lack them, preserving existing column groups and source caches. A function-name
-inventory is catalogue coverage only; full matrix regression, hypothesis tests,
-database and other retained groups remain unfinished.
+inventory is catalogue coverage only; logarithmic regression, database and
+other retained groups remain unfinished.
 
 Conditional aggregates now include `COUNTIF`/`COUNTIFS`, `SUMIF`/`SUMIFS` and
 `AVERAGEIF`/`AVERAGEIFS`. Criteria support comparisons, numeric text, logical
@@ -690,12 +690,12 @@ variance aliases dispatch to the existing native aggregates.
 `fltk/tests/moments_reference.py` records two old skewness caches whose large-
 offset precision disagrees with independent Decimal arithmetic; native results
 match the independent inputs. Native/Calc error-label conventions and a trailing
-omitted-argument parser limitation remain explicit. Full calculation settings,
+omitted-argument semantic limitation remain explicit. Full calculation settings,
 reference unions and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
---test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution` and `inference`
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution`, `inference` and `regression`
 are also supported. A test-only input helper, Cage's headless backend and nested
 DomeD provide private virtual keyboard/pointer input and render captures. The
 fixture uses no X server and never directs input to the user's desktop. It
@@ -721,8 +721,8 @@ no additional runtime math library or UI toolkit is introduced. Collection and
 integer-work budgets preserve incomplete `#LIMIT!` provenance for excessive
 work. A standalone one-million-observation exact-regression benchmark takes
 about 0.09 seconds in the local Release build; this excludes workbook loading
-and rendering. Full multiple-regression/matrix functions and other statistical,
-database and calculation-model work remain unfinished.
+and rendering. Logarithmic regression, other statistical, database and
+calculation-model work remain unfinished.
 
 Probability distributions now cover beta, binomial (including interval and
 critical probabilities), chi-square, exponential, F, Gamma, hypergeometric,
@@ -755,8 +755,8 @@ Incomplete calculations preserve imported caches even through `IFERROR`.
 cases, four fixed-matrix padding differences from Calc, five boundary-convention
 cache differences and one independently resolved inaccurate old chi-square
 inverse cache. Original fixtures are unchanged. Distribution support is broader
-coverage, not complete spreadsheet interoperability. Multiple regression, database
-functions and full calculation-model/settings fidelity remain unfinished.
+coverage, not complete spreadsheet interoperability. Logarithmic regression,
+database functions and full calculation-model/settings fidelity remain unfinished.
 
 Dataset probability/frequency and hypothesis tests include `PROB`, `FREQUENCY`,
 `FTEST`/`F.TEST`, `TTEST`/`T.TEST`, `ZTEST`/`Z.TEST` and
@@ -792,8 +792,40 @@ The retained Calc empty-array errors, singleton Z-test error and two constant-
 paired-difference zero caches remain explicit boundary/error differences.
 No function result is manufactured from a source cache.
 
-The current inventory dispatches 440 of 641 retained names, including aliases,
-with 201 remaining. Full matrix regression, database and the remaining catalogue,
+Matrix linear regression now includes `LINEST` and `TREND`. Equal-shaped inputs
+use one predictor and column-major observation order. A response column accepts
+predictor columns; a response row accepts predictor rows. Omitted/empty KnownX
+uses 1..k and omitted/empty NewX predicts the training inputs. Empty optional
+Const/Stats parameters use their defaults as an extension. Other functions do
+not acquire guessed empty-argument semantics: unsupported omissions remain
+incomplete and preserve source caches. INDEX accepts explicit empty selectors
+as zero, enabling whole row/column selection.
+
+Input slots convert to numbers, including blank zero and logical values; arbitrary
+text is an error. Sparse ranges retain their full geometry without allocating
+empty observations. Exact binary integer Gram products and rational symmetric LDL
+factorization identify a maximal independent predictor subset, retaining the
+intercept first. Removed predictors have zero coefficients and standard errors;
+degrees of freedom follow the selected rank. Rational coefficient sums cancel
+before forecast conversion, so an overflowing displayed slope can still yield a
+finite forecast. Five-row statistics include standard errors, R², residual error,
+F, degrees of freedom and regression/residual sums of squares. Undefined statistics
+are errors; no result is manufactured from a saved cache. The OpenFormula minimum
+observation constraint applies to the original predictor count, including when
+Stats is false. This can reject small samples accepted by other implementations.
+
+Matrix storage/output is limited to one million records/cells and arithmetic to
+50 million budgeted operations weighted by integer limb sizes. Exceeding a budget
+is incomplete `#LIMIT!`. Representable nonzero binary64 subnormal literals/XML
+values are retained even when strtod signals ERANGE; complete underflow/overflow
+remain invalid. Array-valued Const/Stats are not implemented as separate fits.
+`regression_reference.py` checks 434 formulas/4,976 cells against independent
+Fraction Gaussian elimination and 110-digit square roots; seven untouched retained
+TREND caches agree. `regression_producer.py` checks independent editable ODS/XLSX
+workbooks, fixed matrix results and raw ODS caches. LOGEST/GROWTH remain unfinished.
+
+The current inventory dispatches 442 of 641 retained names, including aliases,
+with 199 remaining. Logarithmic regression, database and the remaining catalogue,
 reference unions/omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
 Words pause and Stage-last priorities remain in force.

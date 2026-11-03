@@ -22,7 +22,15 @@ def main():
     parser.add_argument("--edited", type=Path, required=True)
     parser.add_argument(
         "--suite",
-        choices=("criteria", "order", "moments", "paired", "distribution", "inference"),
+        choices=(
+            "criteria",
+            "order",
+            "moments",
+            "paired",
+            "distribution",
+            "inference",
+            "regression",
+        ),
         default="criteria",
     )
     args = parser.parse_args()

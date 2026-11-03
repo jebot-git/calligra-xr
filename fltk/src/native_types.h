@@ -297,7 +297,10 @@ public:
     char *end = nullptr;
     errno = 0;
     double v = strtod(b.c_str(), &end);
-    bool valid = !b.empty() && end == b.data() + b.size() && errno != ERANGE;
+    // strtod may report ERANGE for representable nonzero subnormal results.
+    // Keep those binary64 values; overflow and complete underflow stay invalid.
+    bool valid = !b.empty() && end == b.data() + b.size() &&
+                 (errno != ERANGE || (v != 0 && std::isfinite(v)));
     if (ok)
       *ok = valid;
     return valid ? v : 0;

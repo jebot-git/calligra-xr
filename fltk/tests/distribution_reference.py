@@ -9,6 +9,7 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import subprocess
 import xml.etree.ElementTree as ET
 import mpmath as mp
@@ -364,7 +365,10 @@ def retained(binary):
         if r["actual"]["incomplete"]:
             # Omitted arguments/malformed syntax and a named undefined input
             # remain parser/model work. Keep their source caches untouched.
-            assert r["actual"]["display"] in ("#PARSE!", "#NAME?"), r
+            assert r["actual"]["display"] in ("#PARSE!", "#NAME?") or (
+                r["actual"]["display"] == "#VALUE!"
+                and re.search(r";\s*(?:;|\))", r["formula"])
+            ), r
             continue
         key = (Path(r["file"]).stem, r["sheet"], r["row"], r["column"])
         if key == ("chiinv", 1, 8, 1):

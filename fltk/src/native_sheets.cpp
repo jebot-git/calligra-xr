@@ -9,6 +9,7 @@
 #include "native_paired.h"
 #include "native_distribution.h"
 #include "native_inference.h"
+#include "native_regression.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -47,7 +48,8 @@ struct Node {
     Unary,
     Binary,
     Function,
-    Array
+    Array,
+    Omitted
   } kind = Literal;
   Value literal;
   Text name;
@@ -445,7 +447,12 @@ class Parser {
       auto p = node(Node::Function, name.toUpper());
       if (!take(')')) {
         do {
-          p->args.push_back(parse(0));
+          ws();
+          if (at < input.size() &&
+              (input[at] == ',' || input[at] == ';' || input[at] == ')'))
+            p->args.push_back(node(Node::Omitted));
+          else
+            p->args.push_back(parse(0));
         } while (take(',') || take(';'));
         if (!take(')'))
           fail();
@@ -706,6 +713,8 @@ struct SheetEngine::Impl {
   PairedValues paired_values(const Expr &, const Expr &,
                              bool scalar_coercion = true) const;
   Value inference(const Expr &, const Text &, bool array_caller) const;
+  NativeRegressionMatrix regression_matrix(const Expr &) const;
+  Value regression(const Expr &, const Text &, bool array_caller) const;
 };
 std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
   auto expr = expanded(source);
@@ -731,6 +740,8 @@ std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
   auto integer = [&](size_t i) {
     if (i >= count)
       throw error("#VALUE!");
+    if (name == "INDEX" && expr->args[i]->kind == Node::Omitted)
+      return 0;
     double n = std::trunc(number(evaluate(expr->args[i])));
     if (n < INT32_MIN || n > INT32_MAX)
       throw error("#REF!");
@@ -823,6 +834,10 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
   switch (e->kind) {
   case Node::Literal:
     return e->literal;
+  case Node::Omitted:
+    // Empty parameters are valid syntax. Only handlers with defined omission
+    // semantics consume this node; other cases retain their imported caches.
+    return Value::error("#VALUE!", true);
   case Node::Reference:
     return value(e->first).scalar();
   case Node::Range:
@@ -1263,10 +1278,109 @@ Value SheetEngine::Impl::inference(const Expr &e, const Text &name,
                                    : std::vector<Value>{a});
   });
 }
+NativeRegressionMatrix
+SheetEngine::Impl::regression_matrix(const Expr &source) const {
+  NativeRegressionMatrix out;
+  size_t work = 0;
+  auto charge = [&] {
+    if (++work > 50'000'000)
+      throw error("#LIMIT!");
+  };
+  auto put = [&](size_t offset, const Value &v) {
+    calculation_incomplete = calculation_incomplete || v.incomplete;
+    double x = number(v);
+    if (x != 0)
+      out.entries.emplace(offset, x);
+    if (out.entries.size() > 1'000'000)
+      throw error("#LIMIT!");
+  };
+  if (auto region = area(source)) {
+    out.rows = region->rows;
+    out.columns = region->columns;
+    int bottom = region->row + region->rows - 1;
+    auto cell = cells.lower_bound({region->sheet, region->row, 0});
+    auto matrix = matrix_owners.lower_bound({region->sheet, region->row, 0});
+    auto eligible = [&](auto it, const auto &map) {
+      return it != map.end() && std::get<0>(it->first) == region->sheet &&
+             std::get<1>(it->first) <= bottom;
+    };
+    while (eligible(cell, cells) || eligible(matrix, matrix_owners)) {
+      charge();
+      Address at;
+      if (!eligible(matrix, matrix_owners) ||
+          (eligible(cell, cells) && cell->first < matrix->first)) {
+        at = cell->first;
+        ++cell;
+      } else if (!eligible(cell, cells) || matrix->first < cell->first) {
+        at = matrix->first;
+        ++matrix;
+      } else {
+        at = cell->first;
+        ++cell;
+        ++matrix;
+      }
+      int column = std::get<2>(at);
+      if (column >= region->column &&
+          column < region->column + region->columns) {
+        auto v = value(at);
+        calculation_incomplete = calculation_incomplete || v.incomplete;
+        put(size_t(std::get<1>(at) - region->row) * out.columns + column -
+                region->column,
+            v.scalar());
+      }
+    }
+  } else {
+    auto v = evaluate(source);
+    calculation_incomplete = calculation_incomplete || v.incomplete;
+    if (v.isError())
+      throw v;
+    out.rows = v.isArray() ? v.rows : 1;
+    out.columns = v.isArray() ? v.columns : 1;
+    for (size_t r = 0; r < out.rows; ++r)
+      for (size_t c = 0; c < out.columns; ++c) {
+        charge();
+        put(r * out.columns + c, v.at(r, c));
+      }
+  }
+  return out;
+}
+Value SheetEngine::Impl::regression(const Expr &e, const Text &name,
+                                    bool array_caller) const {
+  auto omitted = [&](size_t i) {
+    return i >= e->args.size() || e->args[i]->kind == Node::Omitted;
+  };
+  auto flag = [&](size_t i, bool fallback) {
+    if (omitted(i))
+      return fallback;
+    Value v;
+    if (auto region = area(e->args[i]);
+        region && region->size() != 1 && !array_caller)
+      v = intersect(*region);
+    else
+      v = evaluate(e->args[i]);
+    calculation_incomplete = calculation_incomplete || v.incomplete;
+    if (v.isArray())
+      throw Value::error("#VALUE!", true);
+    return truth(v);
+  };
+  bool estimator = name == "LINEST";
+  auto y = regression_matrix(e->args[0]);
+  std::optional<NativeRegressionMatrix> x;
+  if (!omitted(1))
+    x = regression_matrix(e->args[1]);
+  bool intercept = flag(estimator ? 2 : 3, true);
+  NativeRegressionModel model(std::move(y), std::move(x), intercept);
+  if (estimator)
+    return model.coefficients(flag(3, false));
+  std::optional<NativeRegressionMatrix> query;
+  if (!omitted(2))
+    query = regression_matrix(e->args[2]);
+  return model.predict(query);
+}
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = inference_name(
+  const auto name = regression_name(inference_name(
       distribution_name(paired_name(statistics_name(order_name(conditional_name(
-          calendar_name(financial_name(engineering_name(e->name)))))))));
+          calendar_name(financial_name(engineering_name(e->name))))))))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1319,6 +1433,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : inference_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : regression_signatures())
+      out[name] = arity;
     return out;
   }();
   auto signature = signatures.find(name);
@@ -1348,7 +1464,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
                                  order_signatures().contains(name) ||
                                  statistics_signatures().contains(name) ||
                                  paired_signatures().contains(name) ||
-                                 inference_signatures().contains(name));
+                                 inference_signatures().contains(name) ||
+                                 regression_signatures().contains(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1457,6 +1574,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
 
   if (conditional_function(name))
     return conditional(e, name, caller_array_context);
+  if (regression_signatures().contains(name))
+    return regression(e, name, caller_array_context);
   if (inference_signatures().contains(name))
     return inference(e, name, caller_array_context);
   if (paired_signatures().contains(name))
@@ -1678,7 +1797,9 @@ Value SheetEngine::Impl::function(const Expr &e) const {
     auto data = arg(0);
     if (data.isError())
       return data;
-    int row = integer(1), column = count > 2 ? integer(2) : 1;
+    int row = e->args[1]->kind == Node::Omitted ? 0 : integer(1);
+    int column =
+        count > 2 ? (e->args[2]->kind == Node::Omitted ? 0 : integer(2)) : 1;
     if (count == 2 && data.rows == 1) {
       column = row;
       row = 1;

@@ -23,7 +23,15 @@ ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
     "--suite",
-    choices=("criteria", "order", "moments", "paired", "distribution", "inference"),
+    choices=(
+        "criteria",
+        "order",
+        "moments",
+        "paired",
+        "distribution",
+        "inference",
+        "regression",
+    ),
     required=True,
 )
 parser.add_argument("--bin-dir", type=Path, required=True)
