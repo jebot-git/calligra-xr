@@ -30,6 +30,7 @@ def main():
             "distribution",
             "inference",
             "regression",
+            "log_regression",
         ),
         default="criteria",
     )

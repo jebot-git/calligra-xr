@@ -20,8 +20,8 @@ class NativeRegressionModel {
 
 public:
   NativeRegressionModel(NativeRegressionMatrix y,
-                        std::optional<NativeRegressionMatrix> x,
-                        bool intercept);
+                        std::optional<NativeRegressionMatrix> x, bool intercept,
+                        bool logarithmic = false);
   NativeValue coefficients(bool statistics) const;
   NativeValue predict(const std::optional<NativeRegressionMatrix> &) const;
 };

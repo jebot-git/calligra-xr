@@ -31,6 +31,7 @@ parser.add_argument(
         "distribution",
         "inference",
         "regression",
+        "log_regression",
     ),
     required=True,
 )

@@ -1363,13 +1363,14 @@ Value SheetEngine::Impl::regression(const Expr &e, const Text &name,
       throw Value::error("#VALUE!", true);
     return truth(v);
   };
-  bool estimator = name == "LINEST";
+  bool estimator = name == "LINEST" || name == "LOGEST";
   auto y = regression_matrix(e->args[0]);
   std::optional<NativeRegressionMatrix> x;
   if (!omitted(1))
     x = regression_matrix(e->args[1]);
   bool intercept = flag(estimator ? 2 : 3, true);
-  NativeRegressionModel model(std::move(y), std::move(x), intercept);
+  NativeRegressionModel model(std::move(y), std::move(x), intercept,
+                              name == "LOGEST" || name == "GROWTH");
   if (estimator)
     return model.coefficients(flag(3, false));
   std::optional<NativeRegressionMatrix> query;

@@ -627,8 +627,7 @@ return `#DIV/0!`; nonpositive observations or nonrepresentable results return
 `#NUM!`. Collected inputs are bounded to one million records. ODS save supplies required
 column declarations and a blank row for newly created/empty sheets and imports
 that lack them, preserving existing column groups and source caches. A function-name
-inventory is catalogue coverage only; logarithmic regression, database and
-other retained groups remain unfinished.
+inventory is catalogue coverage only; database and other retained groups remain unfinished.
 
 Conditional aggregates now include `COUNTIF`/`COUNTIFS`, `SUMIF`/`SUMIFS` and
 `AVERAGEIF`/`AVERAGEIFS`. Criteria support comparisons, numeric text, logical
@@ -695,7 +694,7 @@ reference unions and general locale/model interoperability remain unfinished.
 
 Sheets GUI validation now has a fully native Wayland path:
 `fltk/tests/native_sheets_ui.py --suite moments --bin-dir BUILD/fltk
---test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution`, `inference` and `regression`
+--test-bin-dir BUILD/fltk --artifacts OUTPUT`. Suites `criteria`, `order`, `paired`, `distribution`, `inference`, `regression` and `log_regression`
 are also supported. A test-only input helper, Cage's headless backend and nested
 DomeD provide private virtual keyboard/pointer input and render captures. The
 fixture uses no X server and never directs input to the user's desktop. It
@@ -721,8 +720,7 @@ no additional runtime math library or UI toolkit is introduced. Collection and
 integer-work budgets preserve incomplete `#LIMIT!` provenance for excessive
 work. A standalone one-million-observation exact-regression benchmark takes
 about 0.09 seconds in the local Release build; this excludes workbook loading
-and rendering. Logarithmic regression, other statistical, database and
-calculation-model work remain unfinished.
+and rendering. Other statistical, database and calculation-model work remain unfinished.
 
 Probability distributions now cover beta, binomial (including interval and
 critical probabilities), chi-square, exponential, F, Gamma, hypergeometric,
@@ -755,8 +753,8 @@ Incomplete calculations preserve imported caches even through `IFERROR`.
 cases, four fixed-matrix padding differences from Calc, five boundary-convention
 cache differences and one independently resolved inaccurate old chi-square
 inverse cache. Original fixtures are unchanged. Distribution support is broader
-coverage, not complete spreadsheet interoperability. Logarithmic regression,
-database functions and full calculation-model/settings fidelity remain unfinished.
+coverage, not complete spreadsheet interoperability. Database functions and full
+calculation-model/settings fidelity remain unfinished.
 
 Dataset probability/frequency and hypothesis tests include `PROB`, `FREQUENCY`,
 `FTEST`/`F.TEST`, `TTEST`/`T.TEST`, `ZTEST`/`Z.TEST` and
@@ -822,10 +820,48 @@ remain invalid. Array-valued Const/Stats are not implemented as separate fits.
 `regression_reference.py` checks 434 formulas/4,976 cells against independent
 Fraction Gaussian elimination and 110-digit square roots; seven untouched retained
 TREND caches agree. `regression_producer.py` checks independent editable ODS/XLSX
-workbooks, fixed matrix results and raw ODS caches. LOGEST/GROWTH remain unfinished.
+workbooks, fixed matrix results and raw ODS caches. LOGEST/GROWTH use the logarithmic basis described below.
 
-The current inventory dispatches 442 of 641 retained names, including aliases,
-with 199 remaining. Logarithmic regression, database and the remaining catalogue,
+Exponential matrix regression includes `LOGEST` and `GROWTH`, with the same
+geometry, conversion, omission and independent-predictor rules as LINEST/TREND.
+Every Y slot must be positive: empty/zero/negative responses are errors. LOGEST
+exponentiates its coefficient row only; the other statistics describe ln(Y).
+A removed predictor and a disabled multiplicative intercept have factor one.
+GROWTH combines exact coefficient weights before exponentiation, so finite
+forecasts can survive individually overflowing growth factors.
+
+Each positive binary64 response is factored into powers of two and prime factors
+of its at-most-53-bit mantissa. Miller-Rabin tests on the first twelve prime bases
+are deterministic in this domain ([Sorenson/Webster](https://arxiv.org/abs/1509.00864));
+bounded deterministic Pollard-rho restarts split composites and exact products
+verify each decomposition. Each prime-log response basis uses the shared exact
+rational LDL fit. Rational coefficients combine within each logarithm basis
+before floating evaluation. This preserves exact geometric relationships such
+as ln(p*q)=ln(p)+ln(q), including zero residuals and dropped predictors, without
+an epsilon rule. Prime-log rational independence identifies exactly zero residual,
+regression and total sums of squares.
+
+Multiprecision evaluation uses 128..4096 bits with a further 32 guard bits. The
+starting precision accounts for the rational expression magnitudes; neighboring
+precision results must agree within one binary64 step. Positive sums of squared
+symbolic residuals and fitted/centered forms avoid subtraction of rounded normal
+products. Statistical sums also require 70-bit relative convergence. Work remains
+bounded to one million symbolic records and 50 million weighted operations,
+including factorization, rational arithmetic and multiprecision evaluations.
+Unresolved precision or work limits are incomplete `#LIMIT!` and preserve caches.
+This can limit large or particularly difficult logarithmic fits.
+
+`log_regression_reference.py` checks 234 formulas/1,955 cells with independent
+Fraction Gaussian weights and 160/1,200-digit logarithms. Of 68 retained matrix
+regression results, 58 numeric caches agree, nine errors retain native error labels,
+and one LINEST case still depends on unavailable FORMULA; its source cache is not
+used to manufacture a calculation. A composite passing the first seven prime
+Miller-Rabin bases is covered by an exact-zero-residual native test.
+`log_regression_producer.py` provides ODS/XLSX matrices for export, native Wayland
+editing/history/save/reopen, opaque data, raw saved caches and CUPS verification.
+
+The current inventory dispatches 444 of 641 retained names, including aliases,
+with 197 remaining. Database and the remaining catalogue,
 reference unions/omitted arguments, duration precision and complete calculation
 settings/model interoperability remain unfinished. The OpenDocument/CUPS floor,
 Words pause and Stage-last priorities remain in force.
