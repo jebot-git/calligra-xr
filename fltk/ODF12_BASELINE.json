@@ -98,8 +98,8 @@
         "Stage"
       ],
       "status": "partial",
-      "evidence": "Stage shapes, transforms, paths, masters, embedded images and text; direct affine resize/center-rotation/line-endpoint gestures with exact source/history and raster checks. Native sibling/containing-group stacking commands have candidate source/history and independent order checks.",
-      "remaining": "Layer visibility/protection and print/screen-only rules; group creation/ungrouping and multi-selection; complete connectors, custom geometry, fills/strokes, charts/3D/OLE/embedded content, Word anchors and authoring tools remain."
+      "evidence": "Stage shapes, transforms, paths, masters, embedded images and text; direct affine resize/center-rotation/line-endpoint gestures with exact source/history and raster checks. Native sibling/containing-group stacking commands have candidate source/history and independent order checks. Native grouping/one-level ungrouping, nested object/group selection, aggregate affine gestures, batch ordering/deletion and selection-aware history have independent source/model/UI checks.",
+      "remaining": "Layer visibility/protection and print/screen-only rules; full group styles/metadata/anchor/event/glue-point and identity-reference rewrites; object clipboard workflows; complete connectors, custom geometry, fills/strokes, charts/3D/OLE/embedded content, Word anchors and authoring tools remain."
     },
     {
       "id": "presentation",

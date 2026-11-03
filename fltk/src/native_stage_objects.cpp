@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "text_documents.h"
 #include "native_stage_source.h"
+#include "native_stage_identity.h"
 #include "native_image_input.h"
 #include "native_image.h"
 #include <cmath>
 #include <limits>
 #include <set>
 #include <sstream>
+#include <unordered_set>
 namespace DomeOffice {
 namespace {
 const Text STYLE = "urn:oasis:names:tc:opendocument:xmlns:style:1.0";
@@ -18,10 +20,15 @@ const Text SMIL = "urn:oasis:names:tc:opendocument:xmlns:smil-compatible:1.0";
 [[noreturn]] void fail(const char *message) {
   throw std::runtime_error(message);
 }
-template <class F> void walk(XmlElement root, F visit, XmlElement skip = {}) {
+template <class F>
+void walk(XmlElement root, F visit, XmlElement skip = {},
+          const std::vector<XmlElement> &skip_many = {}) {
+  std::unordered_set<const void *> excluded;
+  for (auto node : skip_many)
+    excluded.insert(node.identity());
   size_t count = 0;
   auto next = [&](auto &&self, XmlElement node) -> void {
-    if (node == skip)
+    if (node == skip || excluded.contains(node.identity()))
       return;
     if (++count > 1000000)
       fail("Presentation reference scan exceeds the limit");
@@ -107,8 +114,8 @@ Text unescape(Text value) {
   return Text(result);
 }
 void external_references(XmlElement root, XmlElement removed,
-                         const std::set<Text> &ids,
-                         const std::set<Text> &names) {
+                         const std::set<Text> &ids, const std::set<Text> &names,
+                         const std::vector<XmlElement> &removed_many = {}) {
   size_t comparisons = 0;
   walk(
       root,
@@ -142,7 +149,7 @@ void external_references(XmlElement root, XmlElement removed,
           }
         }
       },
-      removed);
+      removed, removed_many);
 }
 Text append_shape(OdfPackage &package, int slide_index, NativeShapeKind kind,
                   SceneRect rect, const Text &text, const Text &image_path = {},
@@ -300,6 +307,72 @@ Text image_path(const OdfPackage &package, const NativeImageInput &image) {
   fail("Presentation image name limit exceeded");
 }
 } // namespace
+void check_stage_group_identity_references(const OdfPackage &package,
+                                           XmlElement group) {
+  std::set<Text> ids, names;
+  for (const auto &uri : {XML, DRAW})
+    if (group.hasAttributeNS(uri, "id"))
+      ids.insert(group.attributeNS(uri, "id"));
+  if (group.hasAttributeNS(DRAW, "name"))
+    names.insert(group.attributeNS(DRAW, "name"));
+  auto check = [&](XmlElement root) {
+    external_references(root, {}, ids, names);
+    walk(root, [&](XmlElement node) {
+      for (const auto &id : tokens(node.attributeNS(DRAW, "nav-order")))
+        if (ids.contains(id))
+          fail("This group is referenced by navigation order");
+    });
+  };
+  check(package.xml.documentElement());
+  auto styles = package.entry("styles.xml");
+  if (!styles.empty())
+    check(read_document_xml(styles).documentElement());
+}
+std::set<Text>
+check_stage_removed_objects_references(const OdfPackage &package,
+                                       const std::vector<XmlElement> &removed) {
+  std::set<Text> ids, names;
+  for (auto object : removed)
+    walk(object, [&](XmlElement node) {
+      for (const auto &uri : {XML, DRAW})
+        if (node.hasAttributeNS(uri, "id"))
+          ids.insert(node.attributeNS(uri, "id"));
+      if (node.hasAttributeNS(DRAW, "name"))
+        names.insert(node.attributeNS(DRAW, "name"));
+      if (node.namespaceURI() == TEXT &&
+          TextList{"bookmark", "bookmark-start", "reference-mark",
+                   "reference-mark-start"}
+              .contains(node.localName()))
+        names.insert(node.attributeNS(TEXT, "name"));
+    });
+  external_references(package.xml.documentElement(), {}, ids, names, removed);
+  auto styles = package.entry("styles.xml");
+  if (!styles.empty())
+    external_references(read_document_xml(styles).documentElement(), {}, ids,
+                        names);
+  return ids;
+}
+void remove_stage_navigation_ids(XmlDocument &document,
+                                 const std::set<Text> &ids) {
+  walk(document.documentElement(), [&](XmlElement node) {
+    if (!node.hasAttributeNS(DRAW, "nav-order"))
+      return;
+    TextList kept;
+    bool changed = false;
+    for (const auto &id : tokens(node.attributeNS(DRAW, "nav-order"))) {
+      if (ids.contains(id))
+        changed = true;
+      else
+        kept << id;
+    }
+    if (!changed)
+      return;
+    if (kept.empty())
+      node.removeAttributeNS(DRAW, "nav-order");
+    else
+      node.setAttributeNS(DRAW, "draw:nav-order", kept.join(' '));
+  });
+}
 PresentationPosition
 Presentation::commit_insert(OdfPackage candidate, const Text &name,
                             int slide_index, PresentationPosition previous) {

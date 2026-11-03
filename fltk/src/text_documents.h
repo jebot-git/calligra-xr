@@ -6,6 +6,8 @@
 #include "native_stage_geometry.h"
 #include "native_shape_drag.h"
 #include "native_stage_order.h"
+#include "native_stage_selection.h"
+#include "native_object_gesture.h"
 #include "native_words_edit.h"
 #include "native_words_selection.h"
 #include "native_words_tables.h"
@@ -136,6 +138,7 @@ struct PresentationPosition {
     int slide = 0, box = 0;
     int shape = -1;
     std::optional<TextSelection> selection = std::nullopt;
+    std::vector<NativeObjectRef> objects = {};
     bool operator==(const PresentationPosition&) const = default;
 };
 class NativeImageInput;
@@ -172,11 +175,20 @@ public:
     void transform_shape_to(int slide, int shape, ScenePoint pointer, bool constrain = false);
     void move_shape_to(int slide, int shape, ScenePoint pointer);
     void move_shape(int slide, int shape, ScenePoint delta);
+    void begin_objects_move(int slide, const std::vector<NativeObjectRef> &, ScenePoint);
+    void begin_objects_transform(int slide, const std::vector<NativeObjectRef> &, NativeShapeHandle, ScenePoint);
+    void update_objects_drag(int slide, ScenePoint, bool constrain = false);
+    bool objects_dragging() const { return drag_ && drag_->object_gesture.has_value(); }
     PresentationPosition insert_shape(int slide, NativeShapeKind, SceneRect,
         const Text& text = {}, PresentationPosition previous = {});
     PresentationPosition insert_image(int slide, const NativeImageInput&, SceneRect,
         PresentationPosition previous = {});
     PresentationPosition remove_shape(int slide, int shape);
+    PresentationPosition group_objects(int slide, const std::vector<NativeObjectRef> &);
+    PresentationPosition ungroup_objects(int slide, const std::vector<NativeObjectRef> &);
+    PresentationPosition reorder_objects(int slide, const std::vector<NativeObjectRef> &, NativeShapeOrder,
+        NativeOrderScope = NativeOrderScope::Object);
+    PresentationPosition remove_objects(int slide, const std::vector<NativeObjectRef> &);
     PresentationPosition reorder_shape(int slide, int shape, NativeShapeOrder,
         NativeOrderScope = NativeOrderScope::Object);
     NativeShapeGeometry shape_geometry(int slide, int shape) const;
@@ -209,7 +221,8 @@ private:
         std::vector<ArchivePartChange> parts;
         size_t bytes() const
         {
-            size_t result = before.size() + after.size();
+            size_t result = before.size() + after.size()
+                + (previous.objects.size() + next.objects.size()) * sizeof(NativeObjectRef);
             for (const auto& part : parts)
                 result += part.before.size() + part.after.size();
             return result;
@@ -235,9 +248,14 @@ private:
         SceneTransform parent_inverse, original_transform;
         std::optional<NativeShapeDrag> transform_gesture;
         std::optional<SceneShape> original_shape;
+        std::optional<NativeObjectGesture> object_gesture;
     };
     std::optional<HandleDrag> drag_;
     void clear_history();
+    PresentationPosition commit_object_structure(OdfPackage,
+        const std::vector<XmlElement> &, PresentationPosition, bool allow_empty = false);
+    void begin_objects_drag(int, const std::vector<NativeObjectRef> &, ScenePoint,
+        std::optional<NativeShapeHandle>);
     void remember(Bytes, PresentationPosition, PresentationPosition, bool merge = false,
         std::vector<ArchivePartChange> parts = {});
     PresentationPosition commit_insert(OdfPackage, const Text& name, int slide,

@@ -2,7 +2,7 @@
 #pragma once
 #include "gpu_image.h"
 #include "gpu_text.h"
-#include "native_shape_drag.h"
+#include "native_object_gesture.h"
 #include <FL/Fl_Widget.H>
 namespace DomeOffice {
 struct SceneTextStats {
@@ -27,7 +27,7 @@ class SlideCanvas : public Fl_Widget {
 public:
   std::function<const SlideScene &()> scene;
   std::function<uint64_t()> revision;
-  std::function<void(int)>
+  std::function<void(int, bool, bool)>
       selected; // Scene shape index (including shapes without text).
   std::function<void()> remove_selected;
   enum Adjustment { Begin, Move, End, Cancel };
@@ -35,6 +35,12 @@ public:
   std::function<bool(Adjustment, int, int, ScenePoint)> adjustment;
   int box = -1;
   int selected_shape = -1;
+  std::vector<NativeObjectRef> selected_objects;
+  bool aggregate_selection() const {
+    return selected_objects.size() > 1 ||
+           (selected_objects.size() == 1 &&
+            selected_objects.front().ancestors > 0);
+  }
   bool selection_visible = true, adjustable = true;
   SlideCanvas(int, int, int, int);
   ~SlideCanvas() override;

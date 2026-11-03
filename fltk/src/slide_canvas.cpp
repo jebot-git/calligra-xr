@@ -293,6 +293,10 @@ struct SlideCanvas::Impl {
     scene_color(model.background);
     quad(screen, model.width, model.height);
     rendered = 0;
+    std::vector<bool> selected_flags(model.shapes.size());
+    if (canvas.selection_visible)
+      for (auto index : native_object_leaves(model, canvas.selected_objects))
+        selected_flags.at(index) = true;
     // Clip both page geometry and transformed frame contents in screen space.
     double dpi_x = double(window->pixel_w()) / window->w(),
            dpi_y = double(window->pixel_h()) / window->h();
@@ -384,8 +388,7 @@ struct SlideCanvas::Impl {
           }
         glPopAttrib();
       }
-      if (canvas.selection_visible && int(i) == canvas.selected_shape &&
-          !shape.master) {
+      if (canvas.selection_visible && selected_flags.at(i) && !shape.master) {
         unsigned char r, g, b;
         Fl::get_color(FL_SELECTION_COLOR, r, g, b);
         glColor4ub(r, g, b, 255);
@@ -440,8 +443,19 @@ struct SlideCanvas::Impl {
         outline(GL_LINE_LOOP);
         Fl::get_color(FL_SELECTION_COLOR, r, g, b);
       }
+      if (canvas.aggregate_selection()) {
+        const auto frame = native_object_frame(model, canvas.selected_objects);
+        const auto transform = screen * frame.transform;
+        glColor4ub(r, g, b, 255);
+        glBegin(GL_LINE_LOOP);
+        vertex(transform.map({0, 0}));
+        vertex(transform.map({frame.width, 0}));
+        vertex(transform.map({frame.width, frame.height}));
+        vertex(transform.map({0, frame.height}));
+        glEnd();
+      }
       for (const auto &handle : shape.handles)
-        if (handle.editable) {
+        if (!canvas.aggregate_selection() && handle.editable) {
           auto p = (screen * shape.transform).map(handle.position);
           glColor4ub(r, g, b, 255);
           glBegin(GL_QUADS);
@@ -470,6 +484,7 @@ SlideCanvas::~SlideCanvas() = default;
 void SlideCanvas::reset() {
   finish_drag();
   selected_shape = -1;
+  selected_objects.clear();
   impl_->current = nullptr;
   impl_->clear_images();
   redraw();
@@ -500,10 +515,17 @@ SlideCanvas::transform_handles() const {
   const auto &model = scene();
   if (size_t(selected_shape) >= model.shapes.size())
     return out;
-  const auto &shape = model.shapes[selected_shape];
+  std::optional<SceneShape> aggregate;
+  if (aggregate_selection())
+    aggregate = native_object_frame(model, selected_objects);
+  const auto &shape = aggregate ? *aggregate : model.shapes[selected_shape];
   if (shape.master || shape.source.isNull())
     return out;
-  const auto geometry = native_shape_geometry(shape);
+  auto geometry = native_shape_geometry(shape);
+  if (aggregate) {
+    geometry.width_enabled = geometry.width > 0;
+    geometry.height_enabled = geometry.height > 0;
+  }
   if (geometry.line) {
     if (geometry.position_enabled) {
       out.push_back({NativeShapeHandle::LineStart,
@@ -623,13 +645,14 @@ int SlideCanvas::handle(int event) {
     take_focus();
     if (!selection_visible) {
       if (selected)
-        selected(-1);
+        selected(-1, false, false);
       return 1;
     }
     const auto &model = scene();
     auto inverse = screen_transform(model).inverse();
     if (inverse) {
-      if (adjustable && adjustment && selected_shape >= 0 &&
+      if (adjustable && adjustment && !aggregate_selection() &&
+          !Fl::event_state(FL_CTRL) && selected_shape >= 0 &&
           size_t(selected_shape) < model.shapes.size()) {
         const auto &shape = model.shapes[selected_shape];
         auto transform = screen_transform(model) * shape.transform;
@@ -648,7 +671,8 @@ int SlideCanvas::handle(int event) {
             }
           }
       }
-      if (adjustable && adjustment && selected_shape >= 0) {
+      if (adjustable && adjustment && !Fl::event_state(FL_CTRL) &&
+          selected_shape >= 0) {
         const auto screen = screen_transform(model);
         for (const auto &handle : transform_handles()) {
           auto p = screen.map(handle.point);
@@ -668,19 +692,30 @@ int SlideCanvas::handle(int event) {
       int i = model.hit_test(
           inverse->map({double(Fl::event_x()), double(Fl::event_y())}));
       if (i >= 0) {
+        const bool toggle = Fl::event_state(FL_SHIFT),
+                   leaf = Fl::event_state(FL_CTRL);
         if (selected)
-          selected(i);
-        if (adjustable && adjustment) {
-          drag_shape_ = i;
+          selected(i, toggle, leaf);
+        if (toggle)
+          return 1;
+        if (adjustable && adjustment && selected_shape >= 0) {
+          drag_shape_ = selected_shape;
           drag_handle_ = -1;
           drag_screen_inverse_ = *inverse;
           drag_screen_start_ = {double(Fl::event_x()), double(Fl::event_y())};
           drag_moved_ = false;
-          if (!adjustment(Begin, i, -1, inverse->map(drag_screen_start_)))
+          if (!adjustment(Begin, drag_shape_, -1,
+                          inverse->map(drag_screen_start_)))
             drag_shape_ = -1;
         }
-      }
+      } else if (selected)
+        selected(-1, false, false);
     }
+    return 1;
+  }
+  if (event == FL_KEYDOWN && selection_visible &&
+      Fl::event_key() == FL_Escape && selected) {
+    selected(-1, false, false);
     return 1;
   }
   if (event == FL_KEYDOWN && !dragging() && adjustable && adjustment &&

@@ -2852,3 +2852,66 @@ dependency work was detected; after the UI clients exited, fresh builds and all
 no pending work. Regular-user optimized Release staging and installed
 hash/ownership/dependency/native-input/CUPS checks remain separate gates. No desktop session is restarted. These cases
 do not establish full ODF1.2 functionality, layer support or suite conformance.
+
+
+## Stage groups and complete object selections — 2026-11-03
+
+Artifact root: `/home/blux/de-xr/artifacts/calligra-stage-groups-20261103`.
+
+- The native grouping/selection model covers anonymous and nested groups, stable
+  source/render identities, sibling wrapping at the frontmost selected slot,
+  one-level ungrouping, original child source order and local geometry, source
+  styles/text/IDs/navigation/assets, exact one-command undo and saved points.
+  Reference/style/metadata/anchor/event/glue-point and read-only guards reject
+  unsupported destructive changes before publication. Legacy group transforms
+  are separate consumer probes and do not contribute to strict producer coverage.
+- Native multi-object tests independently check authored world matrices for
+  translation, selection scaling, center rotation, reflection, aspect constraints,
+  nested affine group/image/line moves, stable previews, cancel/return-to-start,
+  redo preservation, per-context selected-block ordering, containing-group child
+  identity, atomic deletion/internal references, navigation cleanup and empty
+  slides. Source frame dimensions/font declarations and non-content archive
+  entries remain unchanged. History accounts for complete selection vectors.
+- Group structure edits reproduced a source-addressing defect when adjacent text
+  nodes coalesced during XML serialization/parsing. Shared clone paths now use
+  element ranks and verify namespace/local names. A direct adjacent-text test and
+  grouping-existing-group regression cover the failure; the shared Words/Stage
+  suites retain their formatting/editing regressions.
+- All79 selected Release and79 ASan/UBSan tests pass. The same three established
+  outline-font cases remain excluded under the bitmap-font policy. Both final
+  build trees report no pending Ninja work. New grouping/gesture/selection source
+  allocations remain unsuppressed; GUI leak checking uses only the established
+  narrow Fontconfig/Mesa startup-cache suppressions.
+- Real private Cage-d/nested-DomeD Wayland input exercises Shift-toggle, Ctrl-leaf,
+  containing-group selection with retained other selections, wrapping existing
+  groups, Ctrl+G/Ctrl+Shift+G, GPU aggregate handles, disabled group text editing,
+  move/nudge/resize/rotation/mirroring, Escape/focus-loss/return cancellation,
+  empty/Select-all views, group/multiple ordering, complete selection history,
+  group deletion/undo, saving and reopening. The existing eight Arrange commands
+  retain their independent native UI regression. System FLTK is used without X
+  or Qt/GTK runtime maps. A known referenced-object deletion through the actual
+  desktop menu returns its D-Bus reply, displays the FLTK guard dialog, closes
+  through native input, and retains source, revision, saved state and redo.
+- An odfpy/stdlib producer and independent raw XML oracle check every generated
+  group structure, authored stacking, matrix action, text/style/ID/navigation and
+  archive change. Pointer quantization is propagated explicitly into position
+  and affine/raster tolerances. Twenty reviewed Stage pages come from ten actual
+  private CUPS jobs: original, independent grouped/ungrouped models, native
+  grouped/ungrouped, moved, resized, rotated, mirrored and nested-group saves.
+  PDF dimensions, exact captured PDF bytes, unchanged source files, all-page
+  export/reopen pixels and unaffected second slides are checked. Authored overlap
+  colors and the clipped red frame bounds provide separate raster oracles.
+  The tenth job exposed lexical capture-file sorting (9 after10); numeric job-ID
+  sorting fixes the shared private helper, and the full ten-job run passes.
+- Three additional suite baseline CUPS jobs cover nine pages, all pixel-identical
+  to installed c5481ba. Forty-two selected packages pass version-matched
+  content/styles schemas; thirty-nine selected packages pass the manifest schema
+  and implemented plain-package checks. The three original legacy baseline
+  inputs lacking manifest versions stay separate from repaired exports.
+
+The verified source/build/UI/printing corpus does not establish full ODF1.2
+functionality, external-application parity, group-property/reference rewrites or
+layer semantics. Optimized regular-user staging and installed artifact ownership,
+dependencies, actual Wayland input and reviewed CUPS output are separate gates.
+No desktop/display session is restarted. Words remains paused, columns preserved
+and uninstalled; further Sheets catalogue/settings work waits while Stage is active.

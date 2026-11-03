@@ -360,8 +360,25 @@ CUPS test queues.
   undo step; boundary commands preserve source, saved state and redo. Explicit
   stacking indices retain ties/missing-index source order, opaque sibling objects
   and existing groups. XML child order, keyboard navigation, IDs, geometry,
-  text and encoded assets remain intact. Group creation/ungrouping and multi-object
-  selection remain unfinished. The canvas now exposes
+  text and encoded assets remain intact. Shift-click adds or removes objects or
+  selected groups. Ctrl-click selects an individual member; Select containing
+  group expands only the primary selection, retaining other selected objects.
+  Ctrl+A on the canvas selects top-level objects/groups; an empty click or Escape
+  clears object selection. The lower text editor is active for a single text
+  object. Arrange → Group (Ctrl+G) wraps selected sibling objects/groups at the
+  frontmost selected stacking position, retaining their relative order. Ungroup
+  (Ctrl+Shift+G) promotes one group level and retains the group's stacking block.
+  Anonymous and nested groups support complete object-selection undo/redo.
+  Selected groups and multiple objects can be dragged, nudged, ordered and
+  deleted together. Selection handles resize, rotate and mirror their contents;
+  resizing an individual text frame instead reflows its text. Group transforms
+  keep local frame sizes, font declarations, text and image bytes intact.
+  Groups with unhandled styles, metadata, anchors, events, glue points or
+  references to their removed identity are protected from ungrouping. Known
+  external links, animations, connectors and chained frames guard deletion;
+  references inside a completely removed selection are removed with it.
+  Broader group-property and reference rewrites remain unfinished.
+  The canvas now exposes
   square frame resize handles, a circular rotation handle and line endpoints.
   Resize keeps the opposite anchor fixed through affine transforms; crossing
   the anchor mirrors the object while retaining positive ODF dimensions.

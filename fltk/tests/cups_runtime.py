@@ -106,7 +106,8 @@ JobSheets none none
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             result = subprocess.check_output(['lpstat', '-W', 'completed', '-o'], env=self.env, text=True)
-            files = sorted((self.directory / 'output').glob('*.pdf'))
+            # CUPS job IDs are numeric: job10 follows job9, not job1.
+            files = sorted((self.directory / 'output').glob('*.pdf'), key=lambda path: int(path.stem))
             if len(result.splitlines()) >= count and len(files) >= count:
                 return files
             time.sleep(.1)

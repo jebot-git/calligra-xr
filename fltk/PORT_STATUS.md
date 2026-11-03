@@ -14,7 +14,7 @@ output need feature-appropriate independent checks.
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. The preceding
-direct-transform build dfbcbc1 is installed and independently verified; subsequent
+stacking build c5481ba is installed and independently verified; subsequent
 source/build/stage/installation claims require their own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
@@ -1329,3 +1329,60 @@ Layer authoring and full group creation/ungrouping, multi-selection, drawing
 styles/connectors and broader ODF1.2 functionality remain open. Stage is active;
 Words stays paused, columns preserved/uninstalled, and further Sheets work waits.
 Source, build, stage and installed evidence remain separate gates.
+
+
+## Native Stage groups and object selection — 2026-11-03
+
+Group-aware object references address a rendered leaf or any containing group,
+including anonymous groups. Canonical selections discard duplicates/contained
+units without quadratic scans. History positions retain the complete selection
+and account for its memory. Neutral sibling grouping keeps original child source
+and z order; the new group occupies the frontmost selected slot. Ungrouping
+promotes one level with its stacking block intact. Legacy group transforms are
+flattened into child transforms as separate consumer-compatibility probes.
+Unhandled group-level styling/metadata/anchors/events/glue points and references
+to a removed group identity reject ungrouping atomically; their semantic rewrites
+remain outstanding ODF1.2 work.
+
+The native canvas adds Shift-click toggles, Ctrl-click individual-member selection,
+primary-only containing-group selection, canvas Select all, explicit empty
+selection and Ctrl+G/Ctrl+Shift+G grouping commands. GPU outlines show all selected
+members and an aggregate frame. The text editor is inactive for groups/multiple
+objects. One shared immutable gesture applies world translation, scaling,
+rotation or reflection to selected leaves through existing parent transforms.
+Group transforms are baked into supported child transforms, preserving valid
+strict ODF group structure. Original source is restored on cancel/focus loss or
+return-to-start, keeping redo. Frame sizes, font declarations and asset bytes stay
+unchanged; group resize scales content while individual-frame resize reflows text.
+Singular parent transforms, unsupported transformed contents and coordinate/count
+limits retain capability guards.
+
+Batch ordering retains stable selected blocks per immediate stacking context.
+Containing-group ordering from a leaf keeps that leaf selected. Batch deletion
+checks known external references against the entire removed selection, permits
+internal removed references, updates navigation and retains encoded archive
+assets. Complete candidates and selection identities validate before publication;
+new structural actions retain one undo command and previous/next selections.
+Numeric geometry remains a single-shape command; group geometry uses the canvas
+selection handles. Full object clipboard operations and richer group/property
+editing remain open.
+
+Structural group moves exposed a shared source-addressing defect: adjacent text
+nodes can coalesce when XML is serialized/reparsed. Element-only clone paths now
+retain source identity across that normalization and verify namespace/local name.
+Words scoped-format inspection and all Stage source callers share this helper.
+A direct adjacent-text regression and nested wrapper group/ungroup reproduce the
+old failure; complete shared-engine regression remains an acceptance gate.
+
+Generic command errors now record status and defer their existing FLTK dialog
+until after the desktop-menu D-Bus reply. Error messages remain ordered, avoid
+nested error dialogs and block editing while a modal error is active. The native
+Wayland test exercises a referenced-object deletion through the universal menu,
+closes the real dialog and verifies unchanged source/redo. This fixes the menu
+interaction without changing the reference protection.
+
+Source/build/UI/CUPS/schema evidence and installed receipts remain separate.
+Groups are partial ODF1.2 drawing functionality; layer display/protection,
+connector/chart/3D semantics, group-property/reference rewrites, frame editing and
+presentation details remain incomplete. Stage stays active, Words paused with
+experimental columns uninstalled, and further Sheets catalogue/settings waits.

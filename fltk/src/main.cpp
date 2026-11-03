@@ -24,6 +24,7 @@
 #include <FL/fl_draw.H>
 #include <FL/platform.H>
 #include <fstream>
+#include <deque>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -80,6 +81,7 @@ enum Command {
     ObjectGeometry,
     ObjectBack, ObjectBackward, ObjectForward, ObjectFront,
     GroupBack, GroupBackward, GroupForward, GroupFront,
+    GroupObjects, UngroupObjects, SelectParentGroup, SelectLeafObject,
     Present,
     Next,
     Previous,
@@ -368,7 +370,8 @@ public:
     bool modified = false, updating = false, presenting = false;
     int sheet = 0, slide = 0, box = 0, edit_row = 0, edit_col = 0;
     bool cell_pending = false;
-    bool printing = false;
+    bool printing = false, error_dialog_active = false;
+    std::deque<std::string> error_messages;
     Options options;
     std::vector<Fl_Widget*> presentation_hidden;
     int canvas_x = 0, canvas_y = 0, canvas_w = 0, canvas_h = 0;
@@ -475,6 +478,10 @@ public:
             add("&Arrange/Containing group/Move &backward", 0, GroupBackward);
             add("&Arrange/Containing group/Move &forward", 0, GroupForward);
             add("&Arrange/Containing group/Bring to &front", 0, GroupFront);
+            add("&Arrange/&Group", FL_CTRL + 'g', GroupObjects);
+            add("&Arrange/&Ungroup", FL_CTRL + FL_SHIFT + 'g', UngroupObjects);
+            add("&Arrange/Select containing &group", 0, SelectParentGroup);
+            add("&Arrange/Select &individual object", 0, SelectLeafObject);
             add("&Slide/&Add slide", FL_CTRL + 'm', AddSlide);
             add("&Slide/&Delete slide", 0, DeleteSlide);
             add("&Presentation/&Present", FL_F + 5, Present);
@@ -586,36 +593,50 @@ public:
             canvas->scene = [this]() -> const SlideScene& { return stage->scene(slide); };
             canvas->revision = [this] { return stage->revision(); };
             canvas->remove_selected = [this] { command(DeleteObject); };
-            canvas->selected = [this](int n) {
-                if (presenting) {
-                    command(Next);
-                    return;
-                }
+            canvas->selected = [this](int n, bool toggle, bool leaf) {
+                if (presenting) { command(Next); return; }
                 guard([&] {
                     commit_text();
-                    refresh_stage(n);
+                    if (n < 0) { refresh_stage(-2); return; }
+                    const auto &model = stage->scene(slide);
+                    auto refs = canvas->selected_objects;
+                    auto found = std::find_if(refs.begin(), refs.end(), [&](auto ref) {
+                        return native_object_contains(native_object_source(model,ref),model.shapes.at(n).source);
+                    });
+                    if (toggle) {
+                        if (found != refs.end()) refs.erase(found);
+                        else refs.insert(refs.begin(), NativeObjectRef{n,0});
+                    } else if (leaf || found == refs.end()) refs = {{n,0}};
+                    refs = native_object_selection(model,refs);
+                    refresh_stage(refs.empty() ? -2 : refs.front().shape, refs);
                 });
             };
             canvas->adjustment = [this](SlideCanvas::Adjustment event, int shape, int handle, ScenePoint point) {
                 try {
                     if (event == SlideCanvas::Begin) {
                         commit_text();
-                        if (handle == -1) stage->begin_shape_move(slide, shape, point);
+                        if (canvas->aggregate_selection()) {
+                            if (handle == -1) stage->begin_objects_move(slide, canvas->selected_objects, point);
+                            else if (handle < -1) stage->begin_objects_transform(slide, canvas->selected_objects, NativeShapeHandle(-handle - 2), point);
+                        } else if (handle == -1) stage->begin_shape_move(slide, shape, point);
                         else if (handle < -1) stage->begin_shape_transform(slide, shape, NativeShapeHandle(-handle - 2), point);
                         else stage->begin_handle_drag(slide, shape, handle);
                     } else if (event == SlideCanvas::Move) {
-                        if (handle == -1) stage->move_shape_to(slide, shape, point);
+                        if (stage->objects_dragging()) stage->update_objects_drag(slide, point, Fl::event_state(FL_SHIFT));
+                        else if (handle == -1) stage->move_shape_to(slide, shape, point);
                         else if (handle < -1) stage->transform_shape_to(slide, shape, point, Fl::event_state(FL_SHIFT));
                         else stage->move_handle(slide, shape, handle, point);
                     } else {
+                        auto refs = canvas->selected_objects;
                         stage->finish_handle_drag(event == SlideCanvas::Cancel);
-                        refresh_stage(shape);
+                        refresh_stage(shape, refs);
                     }
                     modified = stage->modified(); title(); canvas->redraw();
                     return true;
                 } catch (const std::exception& e) {
+                    auto refs = canvas->selected_objects;
                     stage->finish_handle_drag(true);
-                    refresh_stage(shape);
+                    refresh_stage(shape, refs);
                     modified = stage->modified(); title();
                     message(e.what()); return false;
                 }
@@ -862,6 +883,7 @@ public:
     {
         Fl::remove_timeout(tick, this);
         Fl::remove_timeout(format_timeout, this);
+        Fl::remove_timeout(error_timeout, this);
         desktop_menu.reset();
         if (text_pages) {
             // Unfocus callbacks must not access an editor already destroyed
@@ -884,12 +906,28 @@ public:
         window.remove(menu);
         window.clear();
     }
+    static void error_timeout(void* p)
+    {
+        auto* office = static_cast<Office*>(p);
+        if (office->error_messages.empty()) return;
+        auto text = std::move(office->error_messages.front());
+        office->error_messages.pop_front();
+        office->error_dialog_active = true;
+        if (office->window.shown()) fl_alert("%s", text.c_str());
+        office->error_dialog_active = false;
+        if (!office->error_messages.empty()) Fl::add_timeout(0, error_timeout, office);
+    }
     template <class F> void guard(F f)
     {
         try {
             f();
         } catch (const std::exception& e) {
-            fl_alert("%s", e.what());
+            message(e.what());
+            error_messages.emplace_back(e.what());
+            // Complete a desktop-menu D-Bus reply before entering a modal loop.
+            // Keep subsequent errors ordered without opening nested dialogs.
+            if (error_messages.size() == 1 && !error_dialog_active)
+                Fl::add_timeout(0, error_timeout, this);
         }
     }
     bool readonly() const
@@ -1136,6 +1174,8 @@ public:
         if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
         if (readonly()) throw std::runtime_error("This presentation is read-only");
         if (canvas->selected_shape < 0) return;
+        if (canvas->aggregate_selection())
+            throw std::runtime_error("Use selection handles to resize or rotate groups; select an individual shape for numeric geometry");
         commit_text();
         int index = canvas->selected_shape;
         auto initial = stage->shape_geometry(slide, index);
@@ -1868,7 +1908,7 @@ public:
     }
     void commit_text(bool merge = false)
     {
-        if (!editor || readonly())
+        if (!editor || readonly() || (kind == Kind::Stage && !editor->active_r()))
             return;
         auto text = qs(buffer_text().c_str());
         if (kind == Kind::Words)
@@ -1906,7 +1946,7 @@ public:
         pending_word_cell.reset();
         text_pages->selection_changed();
     }
-    void refresh_stage(int selected_shape = -1)
+    void refresh_stage(int selected_shape = -1, const std::vector<NativeObjectRef> &requested = {})
     {
         auto current = stage->slide(slide);
         slides->clear();
@@ -1923,18 +1963,27 @@ public:
                     + std::to_string(i + 1))
                     .c_str());
         }
-        box = std::clamp(box, 0, std::max(0, int(current.boxes.size()) - 1));
         const auto& scene = stage->scene(slide);
-        if (selected_shape >= 0 && selected_shape < int(scene.shapes.size()) && !scene.shapes[selected_shape].master)
-            box = scene.shapes[selected_shape].editor_index;
-        else
-            selected_shape = current.boxes.empty() ? -1 : int(scene.editor_shapes.at(box));
+        std::vector<NativeObjectRef> refs;
+        if (!requested.empty()) {
+            refs = native_object_selection(scene, requested);
+            selected_shape = refs.front().shape;
+        } else if (selected_shape != -2) {
+            if (selected_shape < 0 || selected_shape >= int(scene.shapes.size()) || scene.shapes[selected_shape].master) {
+                box = std::clamp(box, 0, std::max(0, int(current.boxes.size()) - 1));
+                selected_shape = current.boxes.empty() ? -1 : int(scene.editor_shapes.at(box));
+            }
+            if (selected_shape >= 0) refs = {{selected_shape,0}};
+        }
+        if (refs.empty()) { selected_shape = -1; box = -1; }
+        else box = scene.shapes.at(selected_shape).editor_index;
         boxes->value(box);
-        fill_buffer(current.boxes.isEmpty() || box < 0 ? Text() : current.boxes[box].text);
-        if (box < 0 || current.boxes.isEmpty() || !current.boxes[box].image.isEmpty())
-            editor->deactivate();
+        const bool single = refs.size() == 1 && refs.front().ancestors == 0;
+        fill_buffer(!single || current.boxes.isEmpty() || box < 0 ? Text() : current.boxes[box].text);
+        if (!single || box < 0 || current.boxes.isEmpty() || !current.boxes[box].image.isEmpty()) editor->deactivate();
         canvas->box = box;
         canvas->selected_shape = selected_shape;
+        canvas->selected_objects = std::move(refs);
         canvas->selection_visible = !presenting;
         canvas->adjustable = !presenting && !readonly();
         canvas->redraw();
@@ -2030,7 +2079,7 @@ public:
     }
     void command(int c)
     {
-        if ((printing || formatting_dialog || queued_format) && c != Quit) return;
+        if ((printing || formatting_dialog || queued_format || error_dialog_active) && c != Quit) return;
         guard([&] {
             if (story_context) {
                 if (c == PageSetup || c == PageStories)
@@ -2152,7 +2201,7 @@ public:
                         return;
                     slide = position->slide;
                     box = position->box;
-                    refresh_stage(position->shape);
+                    refresh_stage(position->shape < 0 ? -2 : position->shape, position->objects);
                     restore_stage_selection(position->selection.value_or(
                         TextSelection{size_t(Text(buffer_text()).size()),
                                       size_t(Text(buffer_text()).size())}));
@@ -2209,7 +2258,21 @@ public:
                     commit_cell();
                 }
             } else if (c == SelectAll) {
-                if (editor && kind == Kind::Words) {
+                if (kind == Kind::Stage && (Fl::focus() == canvas || !editor->active_r())) {
+                    commit_text();
+                    std::vector<NativeObjectRef> refs;
+                    const auto &model = stage->scene(slide);
+                    for (size_t i = 0; i < model.shapes.size(); ++i) {
+                        if (model.shapes[i].master) continue;
+                        NativeObjectRef ref{int(i),0};
+                        auto node = model.shapes[i].source.parentNode().toElement();
+                        while (node.namespaceURI()==DRAW && node.localName()=="g") { ++ref.ancestors; node=node.parentNode().toElement(); }
+                        refs.push_back(ref);
+                    }
+                    refs = native_object_selection(model,refs);
+                    refresh_stage(refs.empty() ? -2 : refs.front().shape,refs);
+                    canvas->take_focus();
+                } else if (editor && kind == Kind::Words) {
                     words->clear_typing_format();
                     page_selection.reset();
                     if (page_view)
@@ -2233,6 +2296,22 @@ public:
                     modified = true;
                     title();
                 }
+            } else if (c == GroupObjects || c == UngroupObjects || c == SelectParentGroup || c == SelectLeafObject) {
+                if (kind != Kind::Stage || canvas->selected_objects.empty()) return;
+                if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
+                commit_text();
+                auto refs = canvas->selected_objects;
+                if (c == SelectParentGroup || c == SelectLeafObject) {
+                    if (c == SelectParentGroup) ++refs.front().ancestors;
+                    else refs.front().ancestors = 0;
+                    refs = native_object_selection(stage->scene(slide),refs);
+                    refresh_stage(refs.front().shape,refs);
+                } else {
+                    auto at = c == GroupObjects ? stage->group_objects(slide,refs) : stage->ungroup_objects(slide,refs);
+                    refresh_stage(at.shape,at.objects);
+                    modified = stage->modified(); title();
+                }
+                canvas->take_focus();
             } else if (c >= ObjectBack && c <= GroupFront) {
                 if (kind != Kind::Stage) return;
                 if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
@@ -2242,10 +2321,11 @@ public:
                 const int ordinal = c - (group ? GroupBack : ObjectBack);
                 const NativeShapeOrder orders[] = { NativeShapeOrder::Back, NativeShapeOrder::Backward,
                     NativeShapeOrder::Forward, NativeShapeOrder::Front };
-                auto position = stage->reorder_shape(slide, canvas->selected_shape, orders[ordinal],
+                auto refs = canvas->selected_objects;
+                auto position = stage->reorder_objects(slide, refs, orders[ordinal],
                     group ? NativeOrderScope::ContainingGroup : NativeOrderScope::Object);
                 box = position.box;
-                refresh_stage(position.shape);
+                refresh_stage(position.shape, position.objects);
                 modified = stage->modified(); title();
                 canvas->take_focus();
             } else if (c == InsertRectangle || c == InsertEllipse || c == InsertLine || c == InsertTextBox || c == DeleteObject) {
@@ -2255,7 +2335,7 @@ public:
                 PresentationPosition position;
                 if (c == DeleteObject) {
                     if (canvas->selected_shape < 0) return;
-                    position = stage->remove_shape(slide, canvas->selected_shape);
+                    position = stage->remove_objects(slide, canvas->selected_objects);
                 } else {
                     const auto& scene = stage->scene(slide);
                     auto type = c == InsertRectangle ? NativeShapeKind::Rectangle
@@ -2267,7 +2347,7 @@ public:
                     position = stage->insert_shape(slide, type, rect, c == InsertTextBox ? Text("Text") : Text(), { slide, box, canvas->selected_shape });
                 }
                 box = position.box;
-                refresh_stage(position.shape);
+                refresh_stage(position.shape < 0 ? -2 : position.shape, position.objects);
                 modified = stage->modified(); title();
                 if (c == InsertTextBox) {
                     editor->take_focus();
@@ -2367,6 +2447,7 @@ public:
                     { "attached", desktop_menu->attached() } } } };
         data["print_dialog"] = printing;
         data["format_dialog"] = formatting_dialog;
+        data["modal_dialog"] = Fl::modal() && Fl::modal() != &window;
         data["story_editor"] = nullptr;
         if (story_context) {
             const auto& a = story_context->edit.address();
@@ -2583,6 +2664,10 @@ public:
             Json transform_handles = Json::array();
             for (const auto &handle : canvas->transform_handles())
                 transform_handles.push_back({ { "kind", int(handle.kind) }, { "x", handle.point.x }, { "y", handle.point.y } });
+            Json selected_objects = Json::array();
+            for (auto ref : canvas->selected_objects)
+                selected_objects.push_back({ {"shape",ref.shape}, {"ancestors",ref.ancestors} });
+            data["status_message"] = status && status->label() ? status->label() : "";
             data["scene"] = { { "page", slide + 1 },
                 { "width", model.width },
                 { "height", model.height },
@@ -2593,6 +2678,7 @@ public:
                 { "can_undo", stage->can_undo() },
                 { "can_redo", stage->can_redo() },
                 { "selected_shape", canvas->selected_shape },
+                { "selected_objects", selected_objects },
                 { "event_pointer", { Fl::event_x(), Fl::event_y() } },
                 { "dragging", canvas->dragging() },
                 { "adjustments", adjustments },
