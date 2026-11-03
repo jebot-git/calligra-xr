@@ -11,7 +11,7 @@ import subprocess
 from cups_runtime import PrivateCups
 from PIL import Image
 from pypdf import PdfReader
-from criteria_producer import produce, verify
+import importlib
 
 
 def main():
@@ -20,7 +20,10 @@ def main():
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--test-bin-dir", type=Path, required=True)
     parser.add_argument("--edited", type=Path, required=True)
+    parser.add_argument("--suite", choices=("criteria", "order"), default="criteria")
     args = parser.parse_args()
+    producer = importlib.import_module(args.suite + "_producer")
+    produce, verify = producer.produce, producer.verify
     art = args.artifacts.resolve()
     art.mkdir(parents=True, exist_ok=True)
     initial = produce(art / "fixtures")[0]

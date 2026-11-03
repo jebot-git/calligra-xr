@@ -782,3 +782,45 @@ settings/model behavior are still open. Two contradictory FODS caches and twelve
 cases with unavailable dependencies are recorded separately from 188 agreeing
 retained results and 362 independent numeric checks. Words remains at its
 rudimentary milestone; Sheets stays active and Stage remains last.
+
+## Native Sheets order statistics — 2026-11-03
+
+Sheets is the active priority, with Words paused at its rudimentary milestone
+and Stage last. Thirteen additional canonical functions cover SMALL/LARGE,
+competition/average ranks, inclusive/exclusive percentiles, quartiles and
+percentage ranks, and single/multiple modes. MEDIAN now shares overflow-safe
+interpolation. Recognized INC/EQ and Microsoft-prefixed aliases remain native;
+Qt frontends stay opt-in. Datasets sort once per function evaluation and serve
+all array selectors. Typed collection filtering, sparse/named/dynamic ranges,
+errors, unavailable-dependency propagation and the one-million-record bound
+remain enforced. Fixed arrays use #N/A for unused result slots.
+
+The retained corpus audit includes 333 results, including MODE.MULT children:
+298 agree, four retain unavailable dependencies, and 31 explicit discrepancies
+remain visible. Twenty-six percentage-rank caches use Calc rounding rather than
+the selected decimal truncation, one uses a different exclusive singleton
+convention, three predate encounter-order mode results, and one inherits binary
+duration arithmetic before INT. The latter is a remaining calculation issue,
+not a successful rank-compatibility result. Original corpus files are unchanged.
+Independent exact-rational checks cover 1,345 cases. SMALL/LARGE also make six
+previously unavailable conditional-aggregate cases calculable: 194 of 202
+conditional caches now agree, with two contradictory source caches and six
+unavailable dependencies still recorded separately.
+
+Function dispatch covers 332 of 641 active retained names, with 309 remaining.
+This is catalogue coverage only. Distributions, higher moments, regression,
+database functions, reference unions, general locale/settings/model behavior
+and broader interoperability fidelity remain open. OpenDocument export and
+CUPS printing remain the acceptance floor for each installed increment.
+
+
+Validation: 58 applicable Release suites and 58 AddressSanitizer/UndefinedBehavior-
+Sanitizer suites pass; the three previously excluded outline-font assumption
+suites remain outside the bitmap-font run. Independent ODS/XLSX producers check
+stale caches, errors, aliases and fixed matrices. Native Wayland and X11 keyboard
+editing, recalculation, history, save/reopen and an ASan Wayland run pass.
+Twenty-three generated packages pass the version-matched ODF schemas. Five
+private-queue CUPS jobs cover the increment and the three-application baseline;
+21 print pages reopen identically, and all nine baseline pages match the previous
+installed increment. The optimized stage verifies 29 artifacts with system FLTK
+and no Qt/GTK ELF linkage. Runtime decoration plugins are a separate concern.

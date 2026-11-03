@@ -69,7 +69,7 @@ def main():
         )
         if not valid:
             failures.append(row)
-    assert len(rows) == 202 and len(unavailable) == 12 and len(conflicts) == 2
+    assert len(rows) == 202 and len(unavailable) == 6 and len(conflicts) == 2
     rng = random.Random(20261103)
     cases = []
     comparisons = {
@@ -162,10 +162,10 @@ def main():
     args.output.write_text(json.dumps(report, indent=2) + "\n")
     assert not failures, failures[:5]
     print(
-        "PASS 188 retained result caches and",
+        "PASS 194 retained result caches and",
         len(cases),
         "independent cases;",
-        "two contradictory source caches and twelve unavailable dependencies recorded separately",
+        "two contradictory source caches and six unavailable dependencies recorded separately",
     )
 
 

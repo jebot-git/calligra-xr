@@ -627,7 +627,7 @@ return `#DIV/0!`; nonpositive observations or nonrepresentable results return
 `#NUM!`. Collected inputs are bounded to one million records. ODS save supplies required
 column declarations and a blank row for newly created/empty sheets and imports
 that lack them, preserving existing column groups and source caches. A function-name
-inventory is catalogue coverage only; conditional aggregates, distributions,
+inventory is catalogue coverage only; distributions,
 regression and other retained groups remain unfinished.
 
 Conditional aggregates now include `COUNTIF`/`COUNTIFS`, `SUMIF`/`SUMIFS` and
@@ -650,6 +650,28 @@ US English date criteria use the workbook's serial epoch. Formula text
 conversion of typed dates/durations uses their numeric value, independently of
 formatted grid display. This is broader function coverage, not full calculation
 or regular-expression interoperability parity.
+
+Order statistics include `SMALL`, `LARGE`, `RANK`/`RANK.EQ`, `RANK.AVG`,
+`PERCENTILE`/`.INC`/`.EXC`, `QUARTILE`/`.INC`/`.EXC`,
+`PERCENTRANK`/`.INC`/`.EXC`, `MODE`, `MODE.SNGL` and `MODE.MULT`.
+`MEDIAN` shares the same bounded sorted dataset and overflow-safe interpolation.
+Dataset references include sparse, named and dynamic ranges; selector/order/
+significance arrays reuse one sorted dataset. Collection text, logical values
+and empty cells are ignored; direct scalar arguments retain numeric coercion.
+Input errors and unavailable calculations propagate. Fixed matrix blocks save
+all calculated cells, including `#N/A` in unused array-result slots.
+
+ODF `MODE` chooses the smallest tied mode; the modern single/multiple variants
+retain input encounter order. Percentage ranks truncate decimal places, matching
+Microsoft's published examples and retained Calligra behavior; exact integer
+rank fractions avoid floating-point truncation loss. Inclusive singleton rank is
+one per OpenFormula; exclusive singleton rank uses one half. The retained Calc
+corpus has rounding, singleton and older mode-order cache differences, recorded
+explicitly in `order_reference.py`. One rank case also exposes an inherited
+binary duration-subtraction/`INT` boundary discrepancy; reference-list unions
+and other unavailable dependencies remain unfinished. Native dispatch now
+covers 332 of 641 retained names (aliases included), with 309 remaining. This
+count measures catalogue coverage, not numerical or interoperability fidelity.
 
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,

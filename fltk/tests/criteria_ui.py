@@ -23,6 +23,7 @@ from Xlib.ext import xtest
 ROOT = Path(__file__).resolve().parents[2]
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--wayland", action="store_true")
+parser.add_argument("--suite", choices=("criteria", "order"), default="criteria")
 parser.add_argument("--bin-dir", type=Path, default=ROOT / "build-native/fltk")
 parser.add_argument(
     "--artifacts", type=Path, default=ROOT / "build-native/ui-artifacts"
@@ -225,17 +226,20 @@ with tempfile.TemporaryDirectory(prefix="calligra-ui-") as temp:
     try:
         import math
         from PIL import Image
-        from criteria_producer import produce, verify, expected
+        import importlib
+
+        producer = importlib.import_module(args.suite + "_producer")
+        produce, verify, expected = producer.produce, producer.verify, producer.expected
 
         sources = produce(base / "fixtures")
         for source in sources:
             verify(source, args.test_bin_dir, art / "producer")
         doc = sources[0]
-        report = art / "criteria.json"
-        capture = art / "criteria.ppm"
+        report = art / (args.suite + ".json")
+        capture = art / (args.suite + ".ppm")
         with zipfile.ZipFile(doc) as z:
             original = {name: z.read(name) for name in z.namelist()}
-        with (art / "criteria.log").open("w") as log:
+        with (art / (args.suite + ".log")).open("w") as log:
             process = subprocess.Popen(
                 [
                     str(args.bin_dir.resolve() / "calligra-sheets-fltk"),
@@ -343,7 +347,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-ui-") as temp:
             g = host.get_geometry()
             snap = host.get_image(0, 0, g.width, g.height, X.ZPixmap, 0xFFFFFFFF)
             Image.frombytes("RGB", (g.width, g.height), snap.data, "raw", "BGRX").save(
-                art / "criteria-edited.png"
+                art / (args.suite + "-edited.png")
             )
             key("s", ("Control_L",))
             wait(lambda: not data()["modified"])
@@ -399,7 +403,9 @@ with tempfile.TemporaryDirectory(prefix="calligra-ui-") as temp:
                 + "\n"
             )
             print(
-                "PASS conditional-aggregate keyboard editing, conditional-aggregate recalculation, undo/redo, native save/cache retention and reopen",
+                "PASS "
+                + args.suite
+                + " keyboard editing, recalculation, undo/redo, native save/cache retention and reopen",
                 flush=True,
             )
     finally:

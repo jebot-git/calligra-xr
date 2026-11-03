@@ -5,6 +5,7 @@
 #include "native_engineering.h"
 #include "native_financial.h"
 #include "native_statistics.h"
+#include "native_order.h"
 #include "native_time.h"
 #include <functional>
 #include <numeric>
@@ -571,7 +572,7 @@ struct SheetEngine::Impl {
              column = std::get<2>(pos) - std::get<2>(owner->second);
       auto cell = row < result.rows && column < result.columns
                       ? result.at(row, column)
-                      : Value();
+                      : Value::error("#N/A");
       cell.incomplete = cell.incomplete || result.incomplete;
       return cell;
     }
@@ -1057,8 +1058,8 @@ Value SheetEngine::Impl::conditional(const Expr &e, const Text &name,
   return Value::array(result_rows, result_columns, std::move(results));
 }
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = conditional_name(
-      calendar_name(financial_name(engineering_name(e->name))));
+  const auto name = order_name(conditional_name(
+      calendar_name(financial_name(engineering_name(e->name)))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -1102,6 +1103,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : conditional_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : order_signatures())
+      out[name] = arity;
     return out;
   }();
   auto signature = signatures.find(name);
@@ -1125,9 +1128,10 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "GEOMEAN",  "HARMEAN",  "STDEVA",      "STDEVPA",   "VARA",
       "VARPA"};
   bool caller_array_context = array_context;
-  FlagScope function_context(array_context, array_context ||
-                                                accepts_arrays.contains(name) ||
-                                                conditional_function(name));
+  FlagScope function_context(array_context,
+                             array_context || accepts_arrays.contains(name) ||
+                                 conditional_function(name) ||
+                                 order_signatures().contains(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1236,6 +1240,42 @@ Value SheetEngine::Impl::function(const Expr &e) const {
 
   if (conditional_function(name))
     return conditional(e, name, caller_array_context);
+  if (order_signatures().contains(name)) {
+    bool mode = name.startsWith("MODE") || name == "MEDIAN";
+    size_t data_argument = name.startsWith("RANK") ? 1 : 0;
+    std::vector<double> numbers;
+    size_t records = 0;
+    for (size_t i = 0; i < count; ++i) {
+      if (!mode && i != data_argument)
+        continue;
+      bool collection = false;
+      auto values = flatten(e->args[i], &collection);
+      if (values.size() > 1'000'000 - records)
+        return error("#LIMIT!");
+      records += values.size();
+      for (const auto &value : values) {
+        if (value.isError())
+          return value;
+        if (value.isNumber())
+          numbers.push_back(value.number);
+        else if (!collection && value.kind != Value::Empty)
+          numbers.push_back(number(value));
+      }
+    }
+    NativeOrderData data(std::move(numbers));
+    if (mode)
+      return data.evaluate(name, {});
+    auto query = arg(data_argument == 1 ? 0 : 1);
+    auto option = count > 2 ? arg(2) : Value();
+    return map_values(query, option, [&](const Value &a, const Value &b) {
+      if (a.isError())
+        return a;
+      if (b.isError())
+        return b;
+      return data.evaluate(name, count > 2 ? std::vector<Value>{a, b}
+                                           : std::vector<Value>{a});
+    });
+  }
   if (!accepts_arrays.contains(name)) {
     std::vector<Value> args;
     bool any_array = false;
@@ -1699,9 +1739,9 @@ Value SheetEngine::Impl::function(const Expr &e) const {
   }
   if (name == "SUM" || name == "PRODUCT" || name == "AVERAGE" ||
       name == "MIN" || name == "MAX" || name == "COUNT" || name == "COUNTA" ||
-      name == "COUNTBLANK" || name == "MEDIAN" || name == "STDEV" ||
-      name == "STDEV.S" || name == "STDEVP" || name == "STDEV.P" ||
-      name == "VAR" || name == "VAR.S" || name == "VARP" || name == "VAR.P") {
+      name == "COUNTBLANK" || name == "STDEV" || name == "STDEV.S" ||
+      name == "STDEVP" || name == "STDEV.P" || name == "VAR" ||
+      name == "VAR.S" || name == "VARP" || name == "VAR.P") {
     std::vector<double> numbers;
     size_t nonempty = 0, blanks = 0;
     for (auto &a : e->args) {
@@ -1759,12 +1799,6 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       return error("#DIV/0!");
     if (name == "AVERAGE")
       return numeric(sum / numbers.size());
-    if (name == "MEDIAN") {
-      std::sort(numbers.begin(), numbers.end());
-      size_t m = numbers.size() / 2;
-      return numeric(numbers.size() % 2 ? numbers[m]
-                                        : (numbers[m - 1] + numbers[m]) / 2);
-    }
     bool population = name == "STDEVP" || name == "STDEV.P" || name == "VARP" ||
                       name == "VAR.P";
     if (numbers.size() < (population ? 1u : 2u))
