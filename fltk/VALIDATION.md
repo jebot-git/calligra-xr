@@ -2575,3 +2575,59 @@ OUTPUT.ods`, and `--artifacts DIR`. The Python reference, producer, UI, print an
 inventory tools live alongside it in `fltk/tests/statistics*.py` and
 `fltk/tests/sheets_function_inventory.py`. Installation verification is recorded
 separately from build/stage evidence.
+
+## Sheets conditional aggregates — 2026-11-03
+
+COUNTIF/COUNTIFS, SUMIF/SUMIFS and AVERAGEIF/AVERAGEIFS now use the native typed
+criterion matcher and sparse paired-range evaluator. This increment preserves
+the OpenDocument/CUPS floor; remaining calculation catalogue/model work is not
+claimed complete. Evidence is in `artifacts/calligra-sheets-criteria-20261103`.
+
+- All 57 applicable optimized Release and 57 ASan/UBSan suites pass; core leak
+  detection is enabled. The three legacy outline-font-assumption suites remain
+  excluded (`native-text-shaping`, `native-text-hit`, `native-text-editing`).
+- Focused cases cover ranges, dynamic/named/cross-sheet references, two-dimensional
+  arrays, matrix criteria/results, dependencies, exact dimension errors, shifted
+  target extents, sheet-boundary clipping, typed numeric/text/logical comparisons,
+  error labels, empty cells/strings, Unicode wildcard escaping, substring mode,
+  workbook epochs, malformed regex fallback and deterministic work/stack limits.
+  Oversized/unsupported regex computations retain incomplete provenance.
+- A retained FODS audit evaluates 202 conditional results. 188 agree with their
+  stored result caches; 362 independent randomized/numeric selection cases also
+  pass. Two fixtures contradict their own text caches: countif row 46 stores
+  numeric zero but displays one; countifs row 39 stores one but displays zero.
+  Native results agree with their inputs and text caches; both original caches
+  remain in the report. Twelve cases depend on other unported functions/input
+  calculations and are recorded as unavailable, not passing. The audit trims
+  only proven-empty styled tail slots beyond the sheet limit in test copies of
+  three malformed upstream fixtures. Original corpus files and all data/formulas
+  are unchanged. See `criteria_reference.py` and its JSON report.
+- Independent odfpy/openpyxl fixtures cover literal, wildcard, regex and substring
+  modes, deliberately stale caches, unsupported dependencies, error/array results,
+  opaque package data and date criteria in both default/1904 epochs. Save/reopen
+  retains the calculation settings and updates supported result caches.
+- Native Wayland Release and sanitizer GUI checks pass keyboard editing,
+  recalculation, undo/redo, save/reopen and opaque data retention. X11 checks also
+  pass. GUI leak checking is disabled for external graphics libraries; core leak
+  checks remain enabled. System FLTK is used without Qt; its optional Wayland
+  decoration path can load GTK3.
+- All 38 accepted ODF packages pass the unchanged version-matched OASIS schemas.
+- Two actual private CUPS jobs print original/edited conditional workbooks.
+  Twelve print pages were visually reviewed, match their ODS-reopened pixels
+  exactly, and equal the captured CUPS PDF bytes. Three further baseline CUPS
+  jobs retain all nine baseline pages pixel-identically to verified 84fb745.
+  No physical printer, global queue/default or desktop session was changed.
+
+The function-name audit now reports 313 native and 328 remaining names out of
+641 retained registrations/aliases. These counts describe dispatch, not full
+numerical or interoperability parity. Reference-list unions, complete locale
+parsing/comparison settings and advanced regex interoperability remain open.
+The matcher follows the [OpenFormula criterion/range definitions](https://docs.oasis-open.org/office/OpenDocument/v1.3/os/part4-formula/OpenDocument-v1.3-os-part4-formula.html)
+and uses [ICU regex callbacks and stack limits](https://unicode-org.github.io/icu-docs/apidoc/released/icu4c/classicu_1_1RegexMatcher.html)
+for bounded matching. Conditional searches are case-insensitive; the general
+comparison flag is retained in context. ISO and US English date criteria use the
+workbook epoch. Typed dates/durations convert to numeric text inside formulas;
+grid display retains its date/duration representation. Array-valued inputs and
+criteria retain the native/Calligra extension. Numeric criteria do not equate
+referenced text with numbers; text equality criteria can match numeric text,
+while ordered numeric criteria exclude text. Installation evidence is separate.

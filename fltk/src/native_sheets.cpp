@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_sheets.h"
 #include "native_calendar.h"
+#include "native_criteria.h"
 #include "native_engineering.h"
 #include "native_financial.h"
 #include "native_statistics.h"
@@ -160,6 +161,8 @@ bool truth(const Value &v) {
 Text text(const Value &v) {
   if (v.isError())
     throw v;
+  if (v.kind == Value::Number && v.format != Value::General)
+    return Text::number(v.number, 'g', 15);
   return v.display();
 }
 Text concatenate(const Text &a, const Text &b) {
@@ -688,6 +691,7 @@ struct SheetEngine::Impl {
   Value evaluate(const Expr &e) const;
   Value evaluate_node(const Expr &e) const;
   Value function(const Expr &e) const;
+  Value conditional(const Expr &e, const Text &name, bool array_caller) const;
 };
 std::optional<Area> SheetEngine::Impl::area(const Expr &source) const {
   auto expr = expanded(source);
@@ -853,8 +857,208 @@ Value SheetEngine::Impl::evaluate_node(const Expr &e) const try {
 } catch (const Value &failure) {
   return failure;
 }
+Value SheetEngine::Impl::conditional(const Expr &e, const Text &name,
+                                     bool array_caller) const {
+  bool counting = name == "COUNTIF" || name == "COUNTIFS";
+  bool average = name == "AVERAGEIF" || name == "AVERAGEIFS";
+  bool multiple = name.endsWith("IFS");
+  size_t count = e->args.size();
+  if (multiple && count % 2 != (counting ? 0u : 1u))
+    return error("#VALUE!");
+  struct Input {
+    Area geometry;
+    std::optional<Value> data;
+  };
+  auto input = [&](size_t i) -> Input {
+    if (auto region = area(e->args[i]))
+      return {*region, {}};
+    auto v = evaluate(e->args[i]);
+    if (v.isError())
+      throw v;
+    if (!v.isArray())
+      throw error("#VALUE!");
+    return {{0, 0, 0, int(v.rows), int(v.columns)}, std::move(v)};
+  };
+  struct Condition {
+    Input source;
+    Value criterion;
+  };
+  std::vector<Condition> conditions;
+  Input target = input(0);
+  auto append = [&](size_t range, size_t criterion) {
+    auto source = input(range);
+    Value v;
+    if (auto region = area(e->args[criterion]);
+        region && region->size() != 1 && !array_caller)
+      v = intersect(*region);
+    else
+      v = evaluate(e->args[criterion]);
+    if (v.isError())
+      throw v;
+    conditions.push_back({std::move(source), std::move(v)});
+  };
+  if (multiple) {
+    for (size_t i = counting ? 0 : 1; i < count; i += 2)
+      append(i, i + 1);
+  } else {
+    append(0, 1);
+    if (count == 3) {
+      target = input(2);
+      auto &region = target.geometry;
+      auto &source = conditions[0].source.geometry;
+      if (target.data) {
+        if (region.rows != source.rows || region.columns != source.columns)
+          return error("#VALUE!");
+      } else {
+        region.rows = std::min(source.rows, KS_rowMax - region.row + 1);
+        region.columns =
+            std::min(source.columns, KS_colMax - region.column + 1);
+      }
+    }
+  }
+  Area shape =
+      counting || !multiple ? conditions[0].source.geometry : target.geometry;
+  if (multiple)
+    for (const auto &condition : conditions)
+      if (condition.source.geometry.rows != shape.rows ||
+          condition.source.geometry.columns != shape.columns)
+        return error("#VALUE!");
+  size_t result_rows = 1, result_columns = 1;
+  bool array = false;
+  for (const auto &condition : conditions)
+    if (condition.criterion.isArray()) {
+      if (array && (result_rows != condition.criterion.rows ||
+                    result_columns != condition.criterion.columns))
+        return error("#VALUE!");
+      result_rows = condition.criterion.rows;
+      result_columns = condition.criterion.columns;
+      array = true;
+    }
+  CriteriaBudget budget;
+  std::set<size_t> offsets;
+  auto collect = [&](const Input &source) {
+    const auto &region = source.geometry;
+    if (source.data) {
+      for (size_t r = 0; r < source.data->rows; ++r)
+        for (size_t c = 0; c < source.data->columns; ++c) {
+          budget.charge(1);
+          if (source.data->at(r, c).kind != Value::Empty)
+            offsets.insert(r * shape.columns + c);
+        }
+      return;
+    }
+    int sheet = region.sheet, bottom = region.row + region.rows - 1;
+    auto cell = cells.lower_bound({sheet, region.row, 0});
+    auto matrix = matrix_owners.lower_bound({sheet, region.row, 0});
+    auto eligible = [&](auto iterator, const auto &map) {
+      return iterator != map.end() && std::get<0>(iterator->first) == sheet &&
+             std::get<1>(iterator->first) <= bottom;
+    };
+    while (eligible(cell, cells) || eligible(matrix, matrix_owners)) {
+      budget.charge(1);
+      Address position;
+      if (!eligible(matrix, matrix_owners) ||
+          (eligible(cell, cells) && cell->first < matrix->first)) {
+        position = cell->first;
+        ++cell;
+      } else if (!eligible(cell, cells) || matrix->first < cell->first) {
+        position = matrix->first;
+        ++matrix;
+      } else {
+        position = cell->first;
+        ++cell;
+        ++matrix;
+      }
+      int column = std::get<2>(position);
+      if (column >= region.column && column < region.column + region.columns) {
+        offsets.insert(size_t(std::get<1>(position) - region.row) *
+                           shape.columns +
+                       column - region.column);
+        if (offsets.size() > 1'000'000)
+          throw error("#LIMIT!");
+      }
+    }
+  };
+  if (counting)
+    for (const auto &condition : conditions)
+      collect(condition.source);
+  else
+    collect(target);
+  auto read = [&](const Input &source, size_t offset) {
+    budget.charge(1);
+    size_t row = offset / shape.columns, column = offset % shape.columns;
+    auto &region = source.geometry;
+    auto v = source.data ? source.data->at(row, column)
+                         : value({region.sheet, region.row + int(row),
+                                  region.column + int(column)})
+                               .scalar();
+    calculation_incomplete = calculation_incomplete || v.incomplete;
+    if (v.isError() && v.string == "#CYCLE!")
+      throw v;
+    return v;
+  };
+  auto compute = [&](size_t row, size_t column) -> Value {
+    try {
+      std::vector<NativeCriterion> matchers;
+      auto criteria = settings.criteria();
+      // Conditional aggregation searches are case-insensitive, independently
+      // of the workbook's general comparison setting, as in Calc and Excel.
+      criteria.case_sensitive = false;
+      for (const auto &condition : conditions)
+        matchers.emplace_back(condition.criterion.at(row, column), criteria,
+                              budget, settings.reference_date());
+      auto selected = [&](size_t offset, bool blank) {
+        bool matches = true;
+        for (size_t i = 0; i < conditions.size(); ++i) {
+          auto v = blank ? Value() : read(conditions[i].source, offset);
+          matches = matchers[i].matches(v) && matches;
+        }
+        return matches;
+      };
+      size_t matches = 0;
+      if (counting && offsets.size() < shape.size() && selected(0, true))
+        matches = shape.size() - offsets.size();
+      long double sum = 0, correction = 0;
+      for (size_t offset : offsets) {
+        if (!selected(offset, false))
+          continue;
+        if (counting) {
+          ++matches;
+          continue;
+        }
+        auto v = read(target, offset);
+        if (v.isError())
+          throw v;
+        if (!v.isNumber())
+          continue;
+        ++matches;
+        long double number = v.number, total = sum + number;
+        correction += std::abs(sum) >= std::abs(number)
+                          ? (sum - total) + number
+                          : (number - total) + sum;
+        sum = total;
+      }
+      if (counting)
+        return numeric(matches);
+      if (average && !matches)
+        return error("#DIV/0!");
+      return numeric(double((sum + correction) / (average ? matches : 1)));
+    } catch (const Value &failure) {
+      return failure;
+    }
+  };
+  if (!array)
+    return compute(0, 0);
+  std::vector<Value> results;
+  results.reserve(result_rows * result_columns);
+  for (size_t r = 0; r < result_rows; ++r)
+    for (size_t c = 0; c < result_columns; ++c)
+      results.push_back(compute(r, c));
+  return Value::array(result_rows, result_columns, std::move(results));
+}
 Value SheetEngine::Impl::function(const Expr &e) const {
-  const auto name = calendar_name(financial_name(engineering_name(e->name)));
+  const auto name = conditional_name(
+      calendar_name(financial_name(engineering_name(e->name))));
   auto count = e->args.size();
   static const auto signatures = [] {
     std::map<Text, std::pair<size_t, size_t>> out;
@@ -896,6 +1100,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       out[name] = arity;
     for (const auto &[name, arity] : statistics_signatures())
       out[name] = arity;
+    for (const auto &[name, arity] : conditional_signatures())
+      out[name] = arity;
     return out;
   }();
   auto signature = signatures.find(name);
@@ -919,8 +1125,9 @@ Value SheetEngine::Impl::function(const Expr &e) const {
       "GEOMEAN",  "HARMEAN",  "STDEVA",      "STDEVPA",   "VARA",
       "VARPA"};
   bool caller_array_context = array_context;
-  FlagScope function_context(array_context,
-                             array_context || accepts_arrays.contains(name));
+  FlagScope function_context(array_context, array_context ||
+                                                accepts_arrays.contains(name) ||
+                                                conditional_function(name));
   auto arg = [&](size_t i) -> Value {
     if (i >= count)
       throw error("#VALUE!");
@@ -1027,6 +1234,8 @@ Value SheetEngine::Impl::function(const Expr &e) const {
   // consume whole ranges keep their dimensions and (for sparse aggregates)
   // their extent.
 
+  if (conditional_function(name))
+    return conditional(e, name, caller_array_context);
   if (!accepts_arrays.contains(name)) {
     std::vector<Value> args;
     bool any_array = false;

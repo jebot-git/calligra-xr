@@ -164,11 +164,13 @@ OdfPackage import_xlsx(const Text& path)
         }
     }
     OdfPackage output(Kind::Sheets);
+    auto settings = append(output.body(), TABLE, "table:calculation-settings");
+    settings.setAttributeNS(TABLE, "table:use-regular-expressions", "false");
+    settings.setAttributeNS(TABLE, "table:use-wildcards", "true");
+    settings.setAttributeNS(TABLE, "table:case-sensitive", "false");
     if (epoch1904) {
       // Keep unformatted serials, formula constants and typed dates in the
       // same workbook epoch. Rebasing only styled date cells loses that link.
-      auto settings =
-          append(output.body(), TABLE, "table:calculation-settings");
       auto date = append(settings, TABLE, "table:null-date");
       date.setAttributeNS(TABLE, "table:date-value", "1904-01-01");
     }

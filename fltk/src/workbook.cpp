@@ -177,6 +177,22 @@ void Workbook::load_package(OdfPackage candidate)
             int(date.day.year()) <= 9999)
           settings = NativeCalculationSettings(date.day);
       }
+    if (!declarations.isEmpty()) {
+        auto declaration = declarations[0];
+        auto flag = [&](const char *name, bool fallback) {
+            auto value = declaration.attributeNS(TABLE, name);
+            return value == "true" || value == "1"    ? true
+                   : value == "false" || value == "0" ? false
+                                                      : fallback;
+        };
+        NativeCriteriaSettings criteria;
+        criteria.case_sensitive = flag("case-sensitive", true);
+        criteria.whole_cell =
+            flag("search-criteria-must-apply-to-whole-cell", true);
+        criteria.regular_expressions = flag("use-regular-expressions", true);
+        criteria.wildcards = flag("use-wildcards", false);
+        settings.set_criteria(criteria);
+    }
     initialize(settings);
     tables_.clear();
     changed_.clear();

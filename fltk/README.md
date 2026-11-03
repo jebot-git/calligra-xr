@@ -630,6 +630,27 @@ that lack them, preserving existing column groups and source caches. A function-
 inventory is catalogue coverage only; conditional aggregates, distributions,
 regression and other retained groups remain unfinished.
 
+Conditional aggregates now include `COUNTIF`/`COUNTIFS`, `SUMIF`/`SUMIFS` and
+`AVERAGEIF`/`AVERAGEIFS`. Criteria support comparisons, numeric text, logical
+values, empty cells versus empty strings, literal text, wildcard escaping and
+Unicode regular expressions. Conditional searches are case-insensitive. ODF
+search-mode and whole-cell settings belong to each workbook; XLSX imports use
+wildcards. Explicit wildcard mode takes precedence if both flags are present.
+Invalid regex syntax falls back to literal text. Matching has bounded work and
+regex stack usage; exceeding the budget reports an incomplete `#LIMIT!` and
+retains the previous cache.
+
+Sparse range traversal counts equivalent absent positions without expanding the
+range. Multiple ranges require identical two-dimensional geometry. Single-
+criterion sum/average targets start at their reference's top-left and inherit
+criteria geometry, clipping at sheet bounds. Named and dynamic references,
+typed array inputs, array criteria and fixed matrix results are supported.
+General locale parsing and reference-list unions remain unfinished. ISO and
+US English date criteria use the workbook's serial epoch. Formula text
+conversion of typed dates/durations uses their numeric value, independently of
+formatted grid display. This is broader function coverage, not full calculation
+or regular-expression interoperability parity.
+
 Implemented groups include arithmetic/comparison/concatenation, SUM/PRODUCT,
 AVERAGE/MIN/MAX/COUNT/COUNTA/COUNTBLANK/MEDIAN, variance/standard deviation,
 logical and type tests, rounding, powers/logarithms/trigonometry, basic text

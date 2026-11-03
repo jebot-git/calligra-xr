@@ -752,3 +752,33 @@ these counts measure catalogue dispatch separately from numerical fidelity. Unsu
 functions and their dependent source caches remain preserved. Validation and
 installation status are recorded separately; experimental Words columns are not
 part of this increment.
+
+
+## Native Sheets conditional aggregates — 2026-11-03
+
+COUNTIF/COUNTIFS, SUMIF/SUMIFS and AVERAGEIF/AVERAGEIFS now share a native typed
+criterion matcher and sparse paired-range traversal. Workbook-owned ODF regex,
+wildcard and whole-cell flags survive save/reopen; XLSX imports explicitly use
+wildcards with their original date epoch. Conditional searches are case-
+insensitive independently of the general comparison flag. Equal numeric text,
+ordered numeric values, escaped wildcard characters, Unicode regex, substring
+mode, empty strings, absent cells and error labels retain their distinct cases.
+Date criteria support ISO and US English civil dates in the workbook's epoch.
+General date/time formula text conversion now uses numeric serial values.
+
+Multi-criterion dimensions are strict. Single-criterion target geometry is
+expanded from its top-left and clipped at the sheet boundary. Native typed array
+inputs and criteria, names, INDIRECT/OFFSET/INDEX references and existing fixed
+matrix blocks participate in recalculation/cache saving. Sparse counts can
+cover huge mostly-empty ranges. A shared work budget, one-million-position cap
+and ICU regex stack bound report incomplete limits instead of replacing source
+caches. Malformed regex is treated as literal text.
+
+The inventory now covers 313 of 641 active retained names (aliases included),
+with 328 remaining. This is dispatch coverage only. Reference-list unions,
+general locale parsing, advanced regex interoperability, order/rank/percentile
+functions, distributions/regression, database functions and remaining calculation
+settings/model behavior are still open. Two contradictory FODS caches and twelve
+cases with unavailable dependencies are recorded separately from 188 agreeing
+retained results and 362 independent numeric checks. Words remains at its
+rudimentary milestone; Sheets stays active and Stage remains last.
