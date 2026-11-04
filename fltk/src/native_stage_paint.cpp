@@ -88,6 +88,12 @@ double alpha(Text value) {
   return v;
 }
 void validate(const NativePaintFormat &p) {
+  if (p.stroke_cap &&
+      !TextList{"butt", "round", "square"}.contains(*p.stroke_cap))
+    fail("Choose Butt, Round or Square stroke caps");
+  if (p.stroke_join &&
+      !TextList{"miter", "round", "bevel", "none"}.contains(*p.stroke_join))
+    fail("Choose Miter, Round, Bevel or None stroke joins");
   for (auto mode : {p.fill, p.stroke})
     if (mode && *mode != "none" && *mode != "solid")
       fail("Choose None or Solid paint");
@@ -201,6 +207,8 @@ struct Catalog {
     out.image_opacity = alpha(get(DRAW, "image-opacity", "100%"));
     out.stroke_width = parse_scene_length(get(SVG, "stroke-width", "1pt"));
     out.even_odd = get(SVG, "fill-rule", "nonzero") == "evenodd";
+    out.stroke_cap = get(SVG, "stroke-linecap", "butt");
+    out.stroke_join = get(DRAW, "stroke-linejoin", "miter");
     return out;
   }
   Text name() {
@@ -260,6 +268,10 @@ struct Catalog {
     if (patch.image_opacity)
       put(DRAW, "draw:image-opacity",
           Text::number(*patch.image_opacity * 100, 'g', 17) + "%");
+    if (patch.stroke_cap)
+      put(SVG, "svg:stroke-linecap", *patch.stroke_cap);
+    if (patch.stroke_join)
+      put(DRAW, "draw:stroke-linejoin", *patch.stroke_join);
     if (patch.stroke_width)
       put(SVG, "svg:stroke-width",
           Text::number(*patch.stroke_width, 'g', 17) + "pt");
@@ -287,7 +299,9 @@ void aggregate(std::optional<T> &value, const std::optional<T> &next) {
     value.reset();
 }
 bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
-  return (patch.fill && patch.fill != before.fill) ||
+  return (patch.stroke_cap && patch.stroke_cap != before.stroke_cap) ||
+         (patch.stroke_join && patch.stroke_join != before.stroke_join) ||
+         (patch.fill && patch.fill != before.fill) ||
          (patch.stroke && patch.stroke != before.stroke) ||
          (patch.fill_color && color(*patch.fill_color) != *before.fill_color) ||
          (patch.stroke_color &&
@@ -302,7 +316,8 @@ bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
 } // namespace
 bool NativePaintFormat::empty() const {
   return !fill && !fill_color && !stroke && !stroke_color && !fill_opacity &&
-         !stroke_opacity && !stroke_width && !even_odd && !image_opacity;
+         !stroke_opacity && !stroke_width && !even_odd && !image_opacity &&
+         !stroke_cap && !stroke_join;
 }
 NativePaintInfo
 Presentation::object_paint(int index,
@@ -335,6 +350,8 @@ Presentation::object_paint(int index,
       aggregate(result.values.stroke_opacity, info.stroke_opacity);
       aggregate(result.values.stroke_width, info.stroke_width);
       aggregate(result.values.even_odd, info.even_odd);
+      aggregate(result.values.stroke_cap, info.stroke_cap);
+      aggregate(result.values.stroke_join, info.stroke_join);
     }
   }
   result.values.image_opacity = image_opacity;

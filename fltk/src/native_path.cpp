@@ -344,6 +344,7 @@ std::vector<SceneContour> flatten_path(const ScenePath &path,
   for (const auto &subpath : path.subpaths) {
     f.contours.push_back({{}, subpath.closed});
     auto &contour = f.contours.back();
+    contour.stroke_zero_length = subpath.closed || !subpath.segments.empty();
     contour.paint_group = subpath.paint_group;
     if (!path.paints.empty()) {
       if (subpath.paint_group >= path.paints.size())

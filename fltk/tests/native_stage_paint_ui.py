@@ -378,7 +378,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
 
         def panel_click(x, y):
             width, height = data()["window_size"]
-            click((width - 660) / 2 + x, (height - 490) / 2 + y)
+            click((width - 660) / 2 + x, max(0, (height - 540) / 2) + y)
 
         def open_paint():
             menu_action("Fill and stroke…")
@@ -398,7 +398,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
             key("Return")
 
         def apply():
-            panel_click(585, 455)
+            panel_click(585, 505)
             wait(lambda: not data()["format_dialog"])
 
         def cancel():
@@ -483,7 +483,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         assert data()["scene"]["revision"] == revision and data()["scene"]["can_redo"]
         open_paint()
         text(240, 130, "xxx")
-        panel_click(585, 455)
+        panel_click(585, 505)
         time.sleep(0.3)
         assert (
             data()["format_dialog"]
@@ -514,7 +514,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         before = data()["scene"]["revision"]
         open_paint()
         shot("protected-paint.png")
-        panel_click(585, 455)
+        panel_click(585, 505)
         time.sleep(0.2)
         assert data()["format_dialog"] and data()["scene"]["revision"] == before
         cancel()

@@ -9,6 +9,7 @@ struct NativePaintFormat {
   std::optional<double> fill_opacity, stroke_opacity, stroke_width,
       image_opacity;
   std::optional<bool> even_odd;
+  std::optional<Text> stroke_cap, stroke_join;
   bool empty() const;
 };
 struct NativePaintInfo {

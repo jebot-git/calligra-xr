@@ -234,7 +234,8 @@ struct Catalog {
     return result;
   }
   void paint_properties(ScenePaint &paint, const XmlElement &style,
-                        SlideScene &slide, bool page = false) {
+                        SlideScene &slide, bool page = false,
+                        bool *legacy_middle = nullptr) {
     auto p = child(style, STYLE,
                    page ? "drawing-page-properties" : "graphic-properties");
     if (p.hasAttributeNS(DRAW, "fill")) {
@@ -275,6 +276,36 @@ struct Catalog {
       if (paint.stroke_width < 0)
         fail("Negative presentation stroke width");
     }
+    if (p.hasAttributeNS(SVG, "stroke-linecap")) {
+      const auto cap = p.attributeNS(SVG, "stroke-linecap");
+      if (cap == "butt")
+        paint.stroke_cap = ScenePaint::Cap::Butt;
+      else if (cap == "round")
+        paint.stroke_cap = ScenePaint::Cap::Round;
+      else if (cap == "square")
+        paint.stroke_cap = ScenePaint::Cap::Square;
+      else
+        fail("Invalid presentation stroke cap");
+    }
+    if (p.hasAttributeNS(DRAW, "stroke-linejoin")) {
+      const auto join = p.attributeNS(DRAW, "stroke-linejoin");
+      if (legacy_middle)
+        *legacy_middle = join == "middle";
+      if (join == "miter")
+        paint.stroke_join = ScenePaint::Join::Miter;
+      else if (join == "round")
+        paint.stroke_join = ScenePaint::Join::Round;
+      else if (join == "bevel")
+        paint.stroke_join = ScenePaint::Join::Bevel;
+      else if (join == "none")
+        paint.stroke_join = ScenePaint::Join::None;
+      else if (join == "middle") {
+        paint.stroke_join = ScenePaint::Join::Miter;
+      } else
+        fail("Invalid presentation stroke join");
+    }
+    if (p.hasAttributeNS("http://www.calligra.org/2005/", "stroke-miterlimit"))
+      note(slide.unsupported, "Calligra stroke miter-limit extension");
     if (p.hasAttributeNS(FO, "padding")) {
       paint.padding = length(p.attributeNS(FO, "padding"));
       if (paint.padding < 0)
@@ -361,19 +392,22 @@ struct Catalog {
   ScenePaint paint(const Source &source, const XmlElement &node,
                    SlideScene &slide) {
     ScenePaint result;
+    bool legacy_middle = false;
     result.font.size = 18;
     if (auto p = defaults.find("text"); p != defaults.end())
-      paint_properties(result, p->second, slide);
+      paint_properties(result, p->second, slide, false, &legacy_middle);
     if (auto p = defaults.find("paragraph"); p != defaults.end())
-      paint_properties(result, p->second, slide);
+      paint_properties(result, p->second, slide, false, &legacy_middle);
     for (auto family : {Text("graphic"), Text("presentation")}) {
       auto name = node.attributeNS(family == "graphic" ? DRAW : PRESENTATION,
                                    "style-name");
       if (family == "presentation" && name.empty())
         continue;
       for (auto style : chain(source, family, name))
-        paint_properties(result, style, slide);
+        paint_properties(result, style, slide, false, &legacy_middle);
     }
+    if (result.stroke && legacy_middle)
+      note(slide.unsupported, "Deprecated middle stroke joins");
     return result;
   }
   SceneTransform position(const XmlElement &node,

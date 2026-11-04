@@ -6,6 +6,7 @@
 #include "gpu_clip.h"
 #include "gpu_image.h"
 #include "native_path.h"
+#include "native_stroke.h"
 #include "native_table_layout.h"
 #include "suite/fltk_appearance.h"
 #include <FL/fl_draw.H>
@@ -157,7 +158,7 @@ struct SlideCanvas::Impl {
   struct Prepared {
     struct Geometry {
       std::vector<SceneContour> contours;
-      std::vector<ScenePoint> triangles;
+      std::vector<ScenePoint> triangles, stroke_triangles;
     };
     std::vector<Geometry> groups;
     SceneRect text_area;
@@ -215,6 +216,12 @@ struct SlideCanvas::Impl {
                               ? *shape.path->even_odd
                               : shape.paint.even_odd;
           geometry.triangles = Tess::make(filled, even_odd);
+        }
+        if (shape.paint.stroke && shape.paint.stroke_width > 0) {
+          auto outline = stroke_outlines(
+              geometry.contours, shape.paint,
+              SceneTransform{scale_x, 0, 0, scale_y} * shape.transform);
+          geometry.stroke_triangles = Tess::make(outline, false);
         }
         p.groups.push_back(std::move(geometry));
       }
@@ -335,22 +342,9 @@ struct SlideCanvas::Impl {
         }
         if (shape.paint.stroke && shape.paint.stroke_width > 0) {
           scene_color(shape.paint.stroke_color);
-          double r = shape.paint.stroke_width / 2;
-          glBegin(GL_QUADS);
-          for (const auto &c : geometry.contours)
-            if (c.stroke)
-              for (size_t j = 1; j < c.points.size() + (c.closed ? 1 : 0);
-                   ++j) {
-                auto a = c.points[j - 1], b = c.points[j % c.points.size()];
-                double dx = b.x - a.x, dy = b.y - a.y, n = std::hypot(dx, dy);
-                if (n == 0)
-                  continue;
-                double nx = -dy / n * r, ny = dx / n * r;
-                vertex(transform.map({a.x + nx, a.y + ny}));
-                vertex(transform.map({b.x + nx, b.y + ny}));
-                vertex(transform.map({b.x - nx, b.y - ny}));
-                vertex(transform.map({a.x - nx, a.y - ny}));
-              }
+          glBegin(GL_TRIANGLES);
+          for (auto p : geometry.stroke_triangles)
+            vertex(transform.map(p));
           glEnd();
         }
       }

@@ -13,8 +13,9 @@ output need feature-appropriate independent checks.
 
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
-uninstalled. Further Sheets catalogue/settings work waits. The preceding
-layer-consumption build 8ef6848 is installed and independently verified; subsequent
+uninstalled. Further Sheets catalogue/settings work waits. Build e7a4966,
+including layer authoring and separate frame/image opacity, is installed and
+independently verified; subsequent
 source/build/stage/installation claims require their own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
@@ -265,8 +266,8 @@ page-column worktree is uninstalled and preserved.
    numeric position/size/rotation and embedded images are installed; richer text
    formatting, direct resize/rotation, stacking and group/selection tools are installed.
    Layer visibility/protection and separate screen/print scenes are installed.
-   Transactional layer editing awaits installation. The current paint increment
-   separates image and fill opacity after withdrawing the earlier coupled build;
+   Transactional layer editing and separate image/fill opacity are installed.
+   The current increment adds native stroke caps and joins;
    broader drawing/clipboard tools follow.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
@@ -1570,3 +1571,35 @@ advanced image effects, gradients, cropping, style class lists or ODF1.2.
 
 References: https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html
 and https://raw.githubusercontent.com/LibreOffice/core/master/xmloff/source/draw/sdpropls.cxx.
+
+## Native Stage stroke caps and joins — 2026-11-04
+
+The native scene and scoped Fill and stroke panel now carry the ODF 1.2
+`svg:stroke-linecap` and `draw:stroke-linejoin` properties. Butt/round/square
+caps and miter/round/bevel/none joins use the existing scoped style cascade,
+group-member authoring, source protection and exact history. The default cap
+is butt, the default join miter and the initial miter limit 4, following SVG.
+ODF 1.2 has no separate standard miter-limit attribute. The Calligra extension
+is retained and diagnosed; deprecated middle joins also remain unsupported.
+A child join override clears an inherited middle-join diagnostic.
+
+GPU stroke geometry uses a bounded local-space outline and CPU GLU union,
+then a single tessellated coverage per paint group. Endpoint/corner shapes,
+closed paths, reflections/shear and translucent intersections retain their
+geometry without repeatedly blending segment overlap. SVG zero-length
+segments/close paths have round/square ink; moveto-only paths stay empty.
+PDF retains vector stroke operators for ordinary cap/join modes, preserving
+thin-stroke hinting. None joins and degenerate paths use the native outline
+because Cairo cannot directly express their full SVG behavior. Headless PDF
+and CUPS operation need no GL context.
+
+`native-stage-strokes` supplies independent uniform-space Cairo stroke masks
+projected through three affine transforms for 756 cases, analytic geometry
+probes, default/inherited style and scoped source/history checks. Stable pixel
+regions avoid comparing rasterizers' different edge coverage. Retained probes
+separate a Cairo image-backend boundary pixel from the correct vector/PDF
+coverage; the exact zigzag also appears in the native Wayland/CUPS corpus.
+The independent source includes a near-miter-limit affine case. Actual controls,
+protected selections, unchanged style peers, save/reopen and printed output
+require the separate per-build receipts. This increment leaves the broader
+ODF 1.2 functionality target incomplete.

@@ -2,6 +2,7 @@
 #include "native_print.h"
 #include "native_image_decode.h"
 #include "native_path.h"
+#include "native_stroke.h"
 #include "native_table_layout.h"
 #include "native_text_shaper.h"
 #include "native_tabs.h"
@@ -422,10 +423,55 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
           cairo_fill(pdf.cr());
         }
         if (shape.paint.stroke && shape.paint.stroke_width > 0) {
-          draw_path(false);
-          color(pdf.cr(), shape.paint.stroke_color);
-          cairo_set_line_width(pdf.cr(), shape.paint.stroke_width);
-          cairo_stroke(pdf.cr());
+          const bool degenerate = std::any_of(
+              items.begin(), items.end(), [](const SceneContour &c) {
+                return c.stroke && !c.points.empty() &&
+                       (c.stroke_zero_length || c.points.size() > 1) &&
+                       std::all_of(c.points.begin(), c.points.end(),
+                                   [&](ScenePoint p) {
+                                     return p.x == c.points.front().x &&
+                                            p.y == c.points.front().y;
+                                   });
+              });
+          if (shape.paint.stroke_join != ScenePaint::Join::None &&
+              !degenerate) {
+            // Preserve vector stroke operators and thin-stroke hinting for
+            // ordinary paths, with the SVG default miter limit explicit.
+            draw_path(false);
+            color(pdf.cr(), shape.paint.stroke_color);
+            cairo_set_line_width(pdf.cr(), shape.paint.stroke_width);
+            cairo_set_line_cap(
+                pdf.cr(), shape.paint.stroke_cap == ScenePaint::Cap::Butt
+                              ? CAIRO_LINE_CAP_BUTT
+                          : shape.paint.stroke_cap == ScenePaint::Cap::Round
+                              ? CAIRO_LINE_CAP_ROUND
+                              : CAIRO_LINE_CAP_SQUARE);
+            cairo_set_line_join(
+                pdf.cr(), shape.paint.stroke_join == ScenePaint::Join::Round
+                              ? CAIRO_LINE_JOIN_ROUND
+                          : shape.paint.stroke_join == ScenePaint::Join::Bevel
+                              ? CAIRO_LINE_JOIN_BEVEL
+                              : CAIRO_LINE_JOIN_MITER);
+            cairo_set_miter_limit(pdf.cr(), ScenePaint::stroke_miter_limit);
+            cairo_stroke(pdf.cr());
+          } else {
+            // Cairo has no join=None, and its square zero-length behavior
+            // differs from SVG. Paint the bounded native outline once.
+            auto outline = stroke_outlines(
+                items, shape.paint,
+                SceneTransform{300 / 72., 0, 0, 300 / 72.} * shape.transform,
+                .05);
+            cairo_new_path(pdf.cr());
+            for (const auto &c : outline) {
+              cairo_move_to(pdf.cr(), c.points.front().x, c.points.front().y);
+              for (size_t j = 1; j < c.points.size(); ++j)
+                cairo_line_to(pdf.cr(), c.points[j].x, c.points[j].y);
+              cairo_close_path(pdf.cr());
+            }
+            color(pdf.cr(), shape.paint.stroke_color);
+            cairo_set_fill_rule(pdf.cr(), CAIRO_FILL_RULE_WINDING);
+            cairo_fill(pdf.cr());
+          }
         }
       }
       if (!shape.image.empty())

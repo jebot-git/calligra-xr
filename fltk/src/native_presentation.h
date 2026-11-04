@@ -34,12 +34,18 @@ struct ScenePaint {
   TextFont font;
   double image_opacity =
       1; // ODF draw:image-opacity; independent of fill alpha.
+  enum class Cap { Butt, Round, Square } stroke_cap = Cap::Butt;
+  enum class Join { Miter, Round, Bevel, None } stroke_join = Join::Miter;
+  // SVG's initial miter limit. ODF1.2 has no standard miter-limit attribute.
+  static constexpr double stroke_miter_limit = 4;
 };
 struct SceneContour {
   std::vector<ScenePoint> points;
   bool closed = false;
   size_t paint_group = 0;
   bool fill = true, stroke = true;
+  bool stroke_zero_length =
+      false; // Distinguish a segment/close from moveto only.
 };
 struct ScenePath;
 struct SceneHandle {

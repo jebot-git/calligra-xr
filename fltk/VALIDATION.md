@@ -3023,8 +3023,47 @@ inherited-image changes with unchanged peers. Nineteen paint CUPS jobs cover
 57 visually reviewed pages with independent pixels/source checks and exact
 reopen rasters. Three suite baseline jobs add nine pages matching installed
 8ef6848 exactly. Sixty-five packages pass version-matched content/styles
-schemas; 62 selected packages pass the manifest schema and implemented Part3
+schemas; 62 selected packages pass the manifest schema and implemented Part 3
 checks. The three original legacy baseline inputs remain separate from their
 manifest-repaired exports. The minimum-window panel is visually reviewed.
 Optimized staging and independent installed behavior require their own receipts;
 passing these cases does not establish full ODF1.2 functionality.
+
+## Native Stage stroke geometry and authoring — 2026-11-04
+
+`native-stage-strokes` compares 756 cap/join/path/affine combinations with an
+independent Cairo stroke mask. The reference is stroked under uniform scaling
+before projection, keeping its miter cutoff in SVG user space. Comparison
+covers stable interiors/exteriors: more than 60,000 pixels and 500 foreground
+interior pixels per case, and a majority of reference ink, with a 24-channel
+error limit. The shortest doubled-back segment has 906 clear foreground pixels.
+Explicit analytic checks cover all cap modes, modern/none joins, zero-length
+line/cubic/close cases, moveto-only paths and precision/point limits. Source
+checks cover inheritance, mixed values, shared-style isolation, group members,
+invalid/no-op redo preservation, exact XML/archive history and save/reopen.
+
+Retained diagnostics document a direct Cairo image-CTM miter disagreement and
+a one-pixel image-fill gap for a point inside the vector union. Both the fill
+and stroke PDFs rasterize that point correctly. The exact zigzag is retained
+in `stage_stroke_producer.py`, together with a near-limit miter case. These
+experiments do not justify changing expected geometry to match the image gap.
+`native_stage_stroke_ui.py` checks actual controls and independent GPU pixels,
+including endpoint/corner distinctions at fit-to-page scale, single-coverage
+alpha, protected controls, exact style/source oracles, selection/history and
+the minimum window. Small corner probes sample their containing pixel; larger
+interior probes keep a 3×3 stencil away from selection handles.
+`stage_stroke_print.py` checks actual CUPS capture, silhouette/alpha pixels,
+unchanged pages/archive data and exact reopened rasters. Existing paint/image
+UI and CUPS corpora remain regression gates. Per-build and installed counts
+are separate receipts; deprecated middle joins, vendor miter limits and the
+broader ODF 1.2 baseline remain unfinished.
+
+The final increment passes 85 selected Release and 85 ASan/UBSan suites, with
+the existing three outline-font exclusions. Both actual stroke control runs
+and both existing paint/image-opacity UI regressions pass. Twenty-seven CUPS
+jobs cover 81 reviewed pages: 15 focused stroke pages, 57 paint regression pages
+and 9 suite baseline pages. All 66 regression/baseline pages match the reviewed
+installed e7a4966 output exactly; the 15 focused pages and minimum-window panel
+have visual review. Eighty-two packages pass version-matched content/styles
+schemas; 79 selected packages pass the manifest schema and implemented Part 3
+checks. Build/stage and installed receipts remain separate evidence.

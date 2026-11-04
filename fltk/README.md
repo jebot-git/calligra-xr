@@ -89,8 +89,8 @@ calligra-stage-fltk input.odp --print-pdf preview.pdf
 The print preview PDF is generated from the document model, not a screenshot.
 Scalable fonts remain vector glyphs; bitmap fonts and supported images use the
 bounded native raster path. Source documents are not changed by printing.
-Advanced spreadsheet print styles/areas and full upstream office fidelity remain
-optional. No physical printer is configured on this system; validation uses real
+ODF 1.2 spreadsheet print styles/areas remain unfinished baseline work.
+No physical printer is configured on this system; validation uses real
 CUPS test queues.
 
 ## Document support
@@ -1181,3 +1181,13 @@ frame background fill.
 It isolates shared styles and retains unrelated source data. Advanced paint,
 style class lists, group effects and broader ODF1.2 functionality remain partial.
 Installation status is recorded separately in the verified artifact receipt.
+
+Line cap selects Butt, Round or Square endpoints. Line join selects Miter,
+Round, Bevel or None; None leaves the segments unjoined. The native scene
+resolves these ODF properties through graphic/presentation style inheritance.
+Scoped changes retain other objects' shared styles and native history.
+Zero-length segments/closed paths paint round or square ink as specified by
+SVG; a moveto-only path has no ink. The SVG initial miter limit is 4.
+Deprecated ODF `middle` joins and the Calligra miter-limit extension remain
+diagnosed and preserved, with incomplete rendering support. Dashes, markers,
+gradients, other advanced paint and complete ODF1.2 fidelity remain unfinished.

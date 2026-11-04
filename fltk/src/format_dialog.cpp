@@ -2119,7 +2119,7 @@ namespace DomeOffice {
 bool object_paint_dialog(
     Fl_Window &window, const NativePaintInfo &initial,
     const std::function<void(const NativePaintFormat &)> &apply) {
-  const int width = 660, height = 490,
+  const int width = 660, height = 540,
             x = std::max(0, (window.w() - width) / 2),
             y = std::max(0, (window.h() - height) / 2);
   auto previous = Fl_Group::current();
@@ -2164,7 +2164,23 @@ bool object_paint_dialog(
       "Opacity of selected image frames, independent of their background fill");
   if (!initial.image_objects)
     image_opacity.deactivate();
-  Fl_Box summary(x + 20, y + 315, width - 40, 50);
+  Fl_Choice cap(x + 460, y + 265, 160, 30, "Line cap:"),
+      join(x + 460, y + 315, 160, 30, "Line join:");
+  const TextList caps{"butt", "round", "square"},
+      joins{"miter", "round", "bevel", "none"};
+  auto choice = [](Fl_Choice &field, const char *labels, const TextList &values,
+                   const std::optional<Text> &initial) {
+    field.add(labels);
+    field.value(0);
+    for (int i = 0; i < int(values.size()); ++i)
+      if (initial == values[i])
+        field.value(i + 1);
+  };
+  choice(cap, "Keep current|Butt|Round|Square", caps,
+         initial.values.stroke_cap);
+  choice(join, "Keep current|Miter|Round|Bevel|None", joins,
+         initial.values.stroke_join);
+  Fl_Box summary(x + 20, y + 365, width - 40, 50);
   auto label = Text::number(initial.objects) +
                (initial.objects == 1 ? " object. " : " objects. ") +
                "Selected groups include hidden members.\nShared styles and "
@@ -2175,7 +2191,7 @@ bool object_paint_dialog(
   if (!initial.editable) {
     for (auto *widget : std::initializer_list<Fl_Widget *>{
              &fill, &stroke, &fill_color, &stroke_color, &fill_opacity,
-             &stroke_opacity, &stroke_width, &rule, &image_opacity,
+             &stroke_opacity, &stroke_width, &rule, &image_opacity, &cap, &join,
              &buttons.apply})
       widget->deactivate();
     background.hint.copy_label(
@@ -2199,6 +2215,18 @@ bool object_paint_dialog(
       };
       changed_mode(fill, initial.values.fill, result.fill);
       changed_mode(stroke, initial.values.stroke, result.stroke);
+      auto changed_choice = [](Fl_Choice &field, const TextList &values,
+                               const std::optional<Text> &old,
+                               std::optional<Text> &out) {
+        if (field.value() > 0) {
+          const auto &value = values.at(field.value() - 1);
+          if (old != value)
+            out = value;
+        }
+      };
+      changed_choice(cap, caps, initial.values.stroke_cap, result.stroke_cap);
+      changed_choice(join, joins, initial.values.stroke_join,
+                     result.stroke_join);
       auto changed_color = [](Fl_Input &field, const std::optional<Text> &old,
                               std::optional<Text> &out) {
         auto value = Text(field.value()).trimmed();
