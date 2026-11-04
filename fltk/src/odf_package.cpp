@@ -145,22 +145,18 @@ XmlElement OdfPackage::body() const
 {
     return child(child(xml.documentElement(), OFFICE, "body"), OFFICE, local(kind_));
 }
-Map<Text, Bytes> read_document_archive(const Text& path)
+namespace {
+Map<Text, Bytes> read_archive(zip_t* zip)
 {
-    int error = 0;
-    std::unique_ptr<zip_t, decltype(&zip_discard)> zip(
-        zip_open(File::encodeName(path).constData(), ZIP_RDONLY, &error), zip_discard);
-    if (!zip)
-        fail("Cannot open document archive");
     Map<Text, Bytes> contents;
     UInt64 total = 0;
-    auto count = zip_get_num_entries(zip.get(), 0);
+    auto count = zip_get_num_entries(zip, 0);
     if (count < 0 || count > 10000)
         fail("Too many document archive entries");
     for (zip_int64_t i = 0; i < count; ++i) {
         zip_stat_t info;
         zip_stat_init(&info);
-        if (zip_stat_index(zip.get(), i, 0, &info))
+        if (zip_stat_index(zip, i, 0, &info))
             fail("Cannot inspect archive entry");
         if (info.encryption_method != ZIP_EM_NONE)
             fail("Encrypted documents are not supported yet");
@@ -171,7 +167,7 @@ Map<Text, Bytes> read_document_archive(const Text& path)
             fail("Document exceeds the current import size limit");
         Bytes data;
         data.resize(info.size);
-        zip_file_t* file = zip_fopen_index(zip.get(), i, 0);
+        zip_file_t* file = zip_fopen_index(zip, i, 0);
         if (!file)
             fail("Cannot read document archive entry");
         zip_int64_t offset = 0;
@@ -183,12 +179,47 @@ Map<Text, Bytes> read_document_archive(const Text& path)
             }
             offset += n;
         }
+        // libzip reports CRC verification at EOF, including for empty parts.
+        // Stopping exactly at the declared size can otherwise accept damaged
+        // data and zip_fclose() alone does not force that final read.
+        char extra;
+        if (zip_fread(file, &extra, 1) != 0) {
+            zip_fclose(file);
+            fail("Corrupt or oversized document archive entry");
+        }
         if (zip_fclose(file))
             fail("Corrupt document archive entry");
         contents[name] = data;
     }
     return contents;
 }
+} // namespace
+Map<Text, Bytes> read_document_archive(const Text& path)
+{
+    int error = 0;
+    std::unique_ptr<zip_t, decltype(&zip_discard)> zip(
+        zip_open(File::encodeName(path).constData(), ZIP_RDONLY, &error), zip_discard);
+    if (!zip)
+        fail("Cannot open document archive");
+    return read_archive(zip.get());
+}
+Map<Text, Bytes> read_document_archive_bytes(const Bytes& bytes)
+{
+    if (bytes.empty() || bytes.size() > 272 * 1024 * 1024)
+        fail("Document archive exceeds the memory import limit");
+    zip_error_t error;
+    zip_error_init(&error);
+    std::unique_ptr<zip_source_t, decltype(&zip_source_free)> source(
+        zip_source_buffer_create(bytes.data(), bytes.size(), 0, &error), zip_source_free);
+    auto* archive = source ? zip_open_from_source(source.get(), ZIP_RDONLY, &error) : nullptr;
+    zip_error_fini(&error);
+    if (!archive)
+        fail("Cannot open document archive bytes");
+    source.release(); // The archive owns this source until discard/close.
+    std::unique_ptr<zip_t, decltype(&zip_discard)> zip(archive, zip_discard);
+    return read_archive(zip.get());
+}
+
 XmlDocument read_document_xml(const Bytes& data)
 {
     validate_xml(data);
@@ -199,7 +230,14 @@ XmlDocument read_document_xml(const Bytes& data)
 }
 void OdfPackage::load(const Text& path)
 {
-    auto contents = read_document_archive(path);
+    load_contents(read_document_archive(path));
+}
+void OdfPackage::load_bytes(const Bytes& bytes)
+{
+    load_contents(read_document_archive_bytes(bytes));
+}
+void OdfPackage::load_contents(Map<Text, Bytes> contents)
+{
     if (contents.value("mimetype") != mime(kind_).toUtf8())
         fail("Open this file with the matching Words, Sheets or Stage application");
     const auto content = contents.value("content.xml");
@@ -213,15 +251,19 @@ void OdfPackage::load(const Text& path)
     auto b = child(child(parsed.documentElement(), OFFICE, "body"), OFFICE, local(kind_));
     if (b.isNull())
         fail("Document has no expected content body");
-    xml = parsed;
-    entries_.clear();
+    Map<Text, std::shared_ptr<const Bytes>> next;
+    bool read_only = false;
+    for (auto it = contents.begin(); it != contents.end(); ++it) {
+        if (it.key().startsWith("META-INF/") && it.key().contains("signature", CaseInsensitive))
+            read_only = true;
+        next[it.key()] = std::make_shared<const Bytes>(std::move(it.value()));
+    }
+    auto identity = std::make_shared<const char>(0);
+    xml = std::move(parsed);
+    entries_ = std::move(next);
+    parts_identity_ = std::move(identity);
     image_assets_.clear();
-    for (auto it = contents.begin(); it != contents.end(); ++it)
-        put(it.key(), std::move(it.value()));
-    read_only_ = false;
-    for (const auto& name : entries_.keys())
-        if (name.startsWith("META-INF/") && name.contains("signature", CaseInsensitive))
-            read_only_ = true;
+    read_only_ = read_only;
 }
 void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& mediaType)
 {
@@ -324,11 +366,11 @@ void OdfPackage::replay_part_changes(const std::vector<ArchivePartChange>& chang
     for (const auto& change : changes)
         image_assets_.erase(change.name);
 }
-void OdfPackage::save(const Text& path)
+Map<Text, std::shared_ptr<const Bytes>> OdfPackage::serialized_entries() const
 {
     if (read_only_)
-        fail("Signed documents are read-only in this port; signatures must not be "
-             "silently invalidated");
+        fail("Signed documents are read-only in this port; signatures must not be silently invalidated");
+    validate_archive_limits();
     auto contents = entries_;
     contents["content.xml"] = std::make_shared<const Bytes>(xml.toByteArray(-1));
     // Older producers can omit the mandatory ODF 1.2 manifest version.
@@ -344,6 +386,12 @@ void OdfPackage::save(const Text& path)
         root.setAttributeNS(MANIFEST, "manifest:version", "1.2");
         contents["META-INF/manifest.xml"] = std::make_shared<const Bytes>(manifest.toByteArray(-1));
     }
+    return contents;
+}
+void OdfPackage::save(const Text& path)
+{
+    auto contents = serialized_entries();
+    auto manifest_bytes = entry_data("META-INF/manifest.xml");
     TempFile temporary(FileInfo(path).absolutePath() + "/.calligra-XXXXXX");
     if (!temporary.open())
         fail("Cannot create document in the selected directory");

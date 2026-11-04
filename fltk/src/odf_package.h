@@ -17,6 +17,7 @@ List<XmlElement> children(const XmlElement&, const Text& ns, const Text& local =
 Text plain_text(const XmlElement&);
 void set_plain_text(XmlElement element, const Text& value);
 Map<Text, Bytes> read_document_archive(const Text& path);
+Map<Text, Bytes> read_document_archive_bytes(const Bytes&);
 XmlDocument read_document_xml(const Bytes& data);
 // Byte deltas for non-content archive parts. Missing and empty parts are
 // distinct; content.xml remains owned by the document DOM/history.
@@ -30,7 +31,12 @@ class OdfPackage {
 public:
     explicit OdfPackage(Kind kind);
     void load(const Text& path);
+    void load_bytes(const Bytes&);
     void save(const Text& path);
+    // Serialization is detached: source parts, manifest bytes, image identities
+    // and document/history state are unchanged by an in-memory export.
+    Bytes archive_bytes() const;
+    List<Text> entry_names() const { return entries_.keys(); }
     void set_entry(const Text& name, const Bytes& data, const Text& mediaType);
     void validate_archive_limits() const;
     XmlElement body() const;
@@ -49,6 +55,8 @@ public:
     XmlDocument xml;
 
 private:
+    void load_contents(Map<Text, Bytes>);
+    Map<Text, std::shared_ptr<const Bytes>> serialized_entries() const;
     Kind kind_;
     Map<Text, std::shared_ptr<const Bytes>> entries_;
     bool read_only_ = false;

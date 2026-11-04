@@ -37,6 +37,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--artifacts", type=Path, required=True)
+    parser.add_argument(
+        "--odf-fragment",
+        type=Path,
+        help="Also transfer an actual selected-object ODP payload verbatim",
+    )
     args = parser.parse_args()
     if os.environ.get("CALLIGRA_CLIPBOARD_TEST_BUS") != "1":
         os.execvpe(
@@ -253,6 +258,13 @@ def main():
                 ("application/x-calligra-empty", b""),
                 ("application/octet-stream", big),
             ]
+            if args.odf_fragment:
+                formats.append(
+                    (
+                        "application/vnd.oasis.opendocument.presentation",
+                        args.odf_fragment.read_bytes(),
+                    )
+                )
             owner = own(formats)
             assert types() == {mime for mime, _ in formats}
             for mime, value in formats:
@@ -381,8 +393,13 @@ def main():
                 large_payload_bytes=len(big),
                 executable=str(executable),
                 executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
-                scope="transport only; Stage object serialization and UI remain unfinished",
+                scope="transport only; does not prove Stage object-model or UI completion",
             )
+            if args.odf_fragment:
+                result["odf_fragment_sha256"] = hashlib.sha256(
+                    args.odf_fragment.read_bytes()
+                ).hexdigest()
+                result["odf_fragment_exact_in_native_and_external_receivers"] = True
             (art / "results.json").write_text(json.dumps(result, indent=2) + "\n")
             print(f"Native Wayland clipboard: {len(checks)} acceptance checks passed")
         finally:

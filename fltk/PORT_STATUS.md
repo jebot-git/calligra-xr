@@ -16,7 +16,7 @@ rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. Runtime build `353c016`,
 including layer authoring, separate frame/image opacity and stroke caps/joins,
 is installed and independently verified. Test-only followup `7b5a47f` has the same
-installed payload. Clipboard transport work below is not integrated into Stage
+installed payload. Clipboard transport and fragment work below is not integrated into Stage
 or installed. Subsequent source/build/stage/installation claims require their
 own evidence. Historical sections retain their earlier priorities and baseline.
 
@@ -270,8 +270,8 @@ page-column worktree is uninstalled and preserved.
    Layer visibility/protection and separate screen/print scenes are installed.
    Transactional layer editing and separate image/fill opacity are installed.
    Native stroke caps and joins are installed. A native multi-MIME clipboard
-   helper is under development; object fragment serialization and actual
-   copy/cut/paste integration remain unfinished.
+   helper and selected-object ODP extraction exist behind model APIs;
+   destination import, cut and actual clipboard/menu integration remain unfinished.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1635,3 +1635,59 @@ menu/keyboard, save/reopen, schema/package and CUPS checks. Publishing the entir
 original package would expose unselected document content and is not an
 acceptable clipboard implementation. The helper is not integrated into Stage
 or installed yet; the verified runtime remains `353c016`.
+
+## Selected-object ODP fragments and memory packages — 2026-11-04
+
+Native package loading and serialization now have bounded memory paths, sharing
+the file reader's archive/XML checks and the file writer's manifest repair.
+Memory export leaves source XML/parts, image identities and saved/history state
+unchanged. Failed loads prepare every part before publication. The shared reader
+now forces a final EOF/CRC check after the declared payload, including empty
+parts; reading exactly the declared length and closing alone had accepted
+damaged data. Permanent native tests mutate both empty and nonempty ZIP CRCs.
+An independent Python ZIP producer tests 15 malformed cases through both file
+and memory readers, separately from schema and rendering validation.
+
+`Presentation::copy_objects` serializes a selected-object subset as a standalone
+ODP plus plain paragraph text. It normalizes overlapping selections, prunes
+unselected siblings while retaining ancestor group context, and follows scoped
+style/default/font, layer and package-resource dependencies. Parent/next styles,
+inline styles, encoded media, supported resource-relative links, source version
+and namespace bindings survive. Source metadata, unused definitions/assets,
+other slides and the original package as a whole are not published. Copying is
+allowed for read-only documents and protected objects without changing their
+source, history or protection. A live gesture must finish first.
+
+Only a declared embedded ODF object with matching content may own a directory
+subpackage; its own metadata and opaque parts are retained. Image/font folder
+references, invalid embedded roots and cached directory aliases are rejected
+without collecting unrelated assets. Link closure uses the selected source
+subtrees, excluding context-only ancestor wrappers and copied layer definitions.
+
+Standard ODF cases use transforms on shapes; ODF1.2 does not allow
+`draw:transform` on `draw:g`. The independent source/XML/pixel/print corpus uses
+standard leaf matrices. Separate model tests retain legacy nonstandard group
+transforms and foreign QName-valued data; those cases do not count as strict
+ODF schema evidence. Existing native aggregate gestures already transform the
+leaves rather than writing new group transforms.
+
+This remains an unfinished clipboard workflow. Destination default/style/font/
+layer isolation, collision-safe IDs/names/references, selection metadata,
+prepared atomic cut and actual native clipboard/menu/keyboard integration remain.
+General global text/field/settings dependencies, additional object kinds, base
+URIs and broader reference interoperability also need further work. Current
+extraction rejects missing dependencies, links to unselected targets, xml:base
+and unresolved relative hyperlinks explicitly. The verified installed suite is
+unchanged; source-only model work is not an installed object clipboard feature.
+
+The source increment passes 88 selected Release and 88 ASan/UBSan suites, with
+the three existing outline-font exclusions retained. The final focused tests
+also pass after strengthening CRC coverage and separating standard/legacy
+fixtures; all six application binaries remain identical to those full-suite
+runs. Core leak detection is enabled without suppressions. Seventeen selected
+packages pass content/styles schemas and fourteen pass the implemented plain
+Part3 checks. Seven private CUPS jobs produce fourteen reviewed pages, with
+exact reopen output; all nine existing suite pages match the installed build.
+The actual selected-group ODP also transfers byte-for-byte through both the
+native helper and external Wayland receivers. These results cover selected
+fragment extraction cases, not complete clipboard or ODF1.2 functionality.
