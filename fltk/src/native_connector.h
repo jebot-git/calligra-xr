@@ -10,6 +10,8 @@ struct SceneGluePoint {
   ScenePoint position; // Shape-local, before the containing shape transform.
   unsigned escape = All;
   bool standard = false;
+  std::optional<ScenePoint>
+      exit_vector; // Enhanced geometry angle, if supplied.
 };
 // Standard edge centers plus explicit user points. Percent coordinates are
 // relative to the bounds center; aligned lengths are relative to an edge or
@@ -60,4 +62,13 @@ using SceneConnectorLookup =
 SceneConnectorEnds resolve_scene_connector_ends(
     const SceneConnectorSpec &, const SceneTransform &connector_to_slide,
     const SceneConnectorLookup &, size_t work_limit = 1000000);
+struct SceneConnectorGeometry {
+  std::shared_ptr<const ScenePath> path;
+  SceneTransform mapping;
+};
+SceneConnectorGeometry scene_connector_geometry(const SceneConnectorSpec &,
+                                                const SceneConnectorEnds &,
+                                                double clearance = 12,
+                                                size_t work_limit = 100000,
+                                                bool recompute = false);
 } // namespace DomeOffice

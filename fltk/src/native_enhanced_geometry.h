@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_path.h"
+#include "native_connector.h"
 namespace DomeOffice {
 struct EnhancedContext {
   SceneRect viewbox{0, 0, 21600, 21600};
@@ -37,6 +38,12 @@ struct EnhancedGeometry {
 EnhancedGeometry read_enhanced_geometry(const XmlElement &, double width,
                                         double height, const ScenePaint &,
                                         bool legacy_polar_radius_first = false);
+// Object-defined sites use IDs4+index; user draw:glue-point sites are merged
+// by the owning shape. The none policy removes implicit standard sites.
+std::vector<SceneGluePoint>
+read_enhanced_glue_points(const XmlElement &, double width, double height,
+                          const ScenePaint &, const SceneRect &bounds,
+                          bool legacy_polar_radius_first = false);
 bool enhanced_legacy_polar_order(const OdfPackage &);
 // Target is shape-local. Only directly referenced modifiers are writable;
 // formula/constant coordinates stay fixed. No XML is mutated by this function.

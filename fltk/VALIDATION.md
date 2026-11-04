@@ -3519,3 +3519,34 @@ ones. The pre-fix false rejection is retained in the artifact evidence. The
 shared validator's explicit identity check and diagnostic now identify one XML
 file, following ODF1.2 Part1 section19.914. Existing archive/source/history gates
 and full connector functionality remain separate requirements.
+
+
+## Connector scene/routing checkpoint — 2026-11-04
+
+`native-connectors` adds analytic checks for all four routes, exact supplied path
+retention and endpoint mapping, target avoidance, narrow gaps, signed skew,
+self-links, enhanced sites, file-scoped identities and actual scene integration.
+Core tests retain leak checking without suppressions. The bitmap-font build's
+three existing outline-font-only text tests remain explicitly excluded.
+
+`stage_connector_producer.py` independently constructs a strict ODF1.2 three-page
+fixture with computed modes, supplied cubic data, forward references to hidden
+ordinary/group/enhanced targets and the same legal xml:id in separate XML files.
+The first fixture's invalid object-level display/group-transform attributes are
+retained as failed evidence; the corrected fixture uses hidden layers and standard
+group coordinates. The independent schema and Part3 gates accept the corrected
+fixture. Transformed-group handling is a separate tolerant-reader core case,
+not a claim that draw:transform on draw:g is strict ODF1.2 syntax.
+
+`stage_connector_print.py DIR --bin-dir BIN --source INPUT` submits the actual
+three-page PDF to a private CUPS capture backend, checks exact captured bytes,
+analytic route/curve/hidden-target pixels and alpha, unchanged source/archive
+parts and exact reopened page rasters. `native_stage_connector_ui.py --bin-dir BIN
+--test-bin-dir TEST_BIN --artifacts DIR [--minimum-window]` runs isolated native
+Wayland GPU pixel/hit-selection checks, free movement, source/archive undo/redo,
+save/reopen and linkage checks. Release normal/minimum and sanitizer minimum
+windows are separate runs; only the existing three system-cache GUI suppressions
+are used. Connector authoring and live attachment/export completion are explicitly
+false in the UI receipt. Full suite export/reopen/CUPS regressions remain required
+alongside connector-specific checks. None of these results proves physical printer
+output, exhaustive interoperability, staging or installation.

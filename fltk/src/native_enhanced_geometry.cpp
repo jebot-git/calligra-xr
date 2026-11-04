@@ -588,6 +588,94 @@ EnhancedGeometry read_enhanced_geometry(const XmlElement &geometry,
   }
   return result;
 }
+std::vector<SceneGluePoint>
+read_enhanced_glue_points(const XmlElement &geometry, double width,
+                          double height, const ScenePaint &paint,
+                          const SceneRect &bounds, bool radius_first) {
+  auto context = read_context(geometry, width, height, paint, radius_first);
+  EnhancedEvaluator evaluator(context);
+  auto mapping = geometry_mapping(geometry, context);
+  auto raw = geometry.attributeNS(DRAW, "glue-points").trimmed();
+  auto type = geometry.attributeNS(DRAW, "glue-point-type", "none");
+  std::vector<ScenePoint> sites;
+  if (!raw.empty()) {
+    Input in(raw);
+    while (!in.done()) {
+      if (sites.size() >= 9996)
+        fail("Enhanced glue points exceed the limit");
+      auto x = in.parameter(evaluator), y = in.parameter(evaluator);
+      sites.push_back(mapping.map({x, y}));
+    }
+  } else if (type == "segments") {
+    auto path = parse_enhanced_path(geometry.attributeNS(DRAW, "enhanced-path"),
+                                    evaluator);
+    for (const auto &sub : path.subpaths) {
+      sites.push_back(mapping.map(sub.start));
+      for (const auto &segment : sub.segments) {
+        if (sites.size() >= 9996)
+          fail("Enhanced glue points exceed the limit");
+        sites.push_back(mapping.map(segment.end));
+      }
+      if (sites.size() > 9996)
+        fail("Enhanced glue points exceed the limit");
+    }
+  } else if (type != "none" && type != "rectangle")
+    fail("Unknown enhanced glue-point type");
+  auto points = read_scene_glue_points(XmlElement(), bounds);
+  if (raw.empty() && type == "none")
+    points.clear();
+  if (raw.empty() && type == "rectangle")
+    for (const auto &p : points)
+      sites.push_back(p.position);
+  std::vector<ScenePoint> directions;
+  if (!geometry.attributeNS(DRAW, "glue-point-leaving-directions")
+           .trimmed()
+           .empty()) {
+    auto text = geometry.attributeNS(DRAW, "glue-point-leaving-directions");
+    if (text.size() > 1048576)
+      fail("Enhanced glue directions exceed the limit");
+    for (auto angle : text.split(',')) {
+      angle = angle.trimmed();
+      double factor = pi / 180;
+      if (angle.endsWith("grad")) {
+        angle.chop(4);
+        factor = pi / 200;
+      } else if (angle.endsWith("deg"))
+        angle.chop(3);
+      else if (angle.endsWith("rad")) {
+        angle.chop(3);
+        factor = 1;
+      }
+      Input in(angle);
+      double v = in.number();
+      if (!in.done() || std::abs(v) > 1e9)
+        fail("Invalid enhanced glue angle");
+      double cosine = std::cos(v * factor), sine = std::sin(v * factor);
+      if (std::abs(cosine) < 1e-15)
+        cosine = 0;
+      if (std::abs(sine) < 1e-15)
+        sine = 0;
+      if (directions.size() >= sites.size())
+        fail("Too many enhanced glue directions");
+      directions.push_back({mapping.a * cosine + mapping.c * sine,
+                            mapping.b * cosine + mapping.d * sine});
+    }
+    if (directions.size() != sites.size())
+      fail("Enhanced glue direction count differs from the sites");
+  }
+  for (size_t i = 0; i < sites.size(); ++i) {
+    for (double v : {sites[i].x, sites[i].y})
+      if (!std::isfinite(v) || std::abs(v) > 1e9)
+        fail("Enhanced glue site exceeds coordinate limits");
+    SceneGluePoint point;
+    point.id = 4 + i;
+    point.position = sites[i];
+    if (!directions.empty())
+      point.exit_vector = directions[i];
+    points.push_back(std::move(point));
+  }
+  return points;
+}
 std::vector<double> adjusted_enhanced_modifiers(const XmlElement &geometry,
                                                 double width, double height,
                                                 const ScenePaint &paint,

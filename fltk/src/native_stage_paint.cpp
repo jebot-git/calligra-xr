@@ -44,7 +44,7 @@ std::vector<XmlElement> objects(const SlideScene &scene,
       if (node.namespaceURI() != DRAW)
         return;
       auto name = node.localName();
-      if (name == "g")
+      if (name == "g" || name == "glue-point")
         return;
       // Drawables are the direct children of a page/group. Frame contents and
       // text children are retained under their enclosing shape.
@@ -52,7 +52,7 @@ std::vector<XmlElement> objects(const SlideScene &scene,
                            node.parentNode().localName() != "g"))
         return;
       if (!TextList{"rect", "ellipse", "circle", "path", "polygon", "polyline",
-                    "line", "custom-shape", "frame"}
+                    "line", "custom-shape", "frame", "connector"}
                .contains(name))
         fail("This group contains an object without native paint editing");
       if (result.size() >= 100000)

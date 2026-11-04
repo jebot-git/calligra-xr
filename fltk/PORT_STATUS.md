@@ -2104,3 +2104,57 @@ styles.xml. Both Jing and libxml2 regression runs now accept cross-part reuse
 and reject duplicates inside either file. Scene connector catalogs must retain
 this file scope; legacy draw:id is ignored when xml:id is present under19.187.3.
 The wider ODF1.2 functionality and installation gates remain open.
+
+
+## Native connector routes and scene integration — 2026-11-04
+
+The complete drawing identity catalog is now scoped to its XML part, with
+forward references, hidden objects, group bounds and enhanced sites resolved
+lazily. Unrelated hidden text layout is not required to read attachment geometry.
+Explicit custom points override equal-numbered enhanced sites. Dependency cycles,
+ambiguous identities, singular attached transforms and exhausted limits produce
+diagnostics. A connector with unresolved references may retain its supplied path
+only when both cached endpoint pairs are available; this fallback is diagnosed.
+Unsupported source stays preserved. Connector labels use the shared text reader.
+
+Without supplied SVG data, line uses a direct segment, lines uses two escape
+stubs and a joining segment, curve uses cubic escape controls, and standard uses
+a bounded orthogonal visibility grid outside expanded target bounds. Routing is
+implementation-dependent under ODF1.2 section10.3.10. Native policy uses a
+12-point clearance, reduced for narrow positive gaps, chord/3 escape lengths,
+Manhattan length plus an eight-point turn cost, and stable grid tie breaking.
+Only attached target bounds are obstacles; unrelated slide objects are not.
+Self links retain an outside loop. Signed skew offsets intermediate supporting
+lines to the right of their direction; offsets intersecting actual target bounds
+are diagnosed. Rotated escape stubs may be nonorthogonal, with an orthogonal
+interior. Overlapping targets and arbitrary custom port layouts are not guaranteed
+to have a route under this policy.
+
+Supplied SVG paths retain their exact segment types and control points. Endpoint
+fitting scales independent nondegenerate axes; a degenerate source axis that
+must span a nonzero target uses chord similarity. Coincident source/target loops
+use the other axis' absolute scale, or a hundredth-millimetre fallback. Empty path
+and zero viewBox extents produce no ink. This explicit native fitting policy does
+not establish identical placement in every other ODF consumer; in particular,
+consumers that interpret cached path coordinates directly need portable export
+normalization, still unfinished here.
+
+Enhanced glue points evaluate modifiers/equations and mirror/nonuniform mappings.
+Explicit pairs take precedence over type and receive IDs4 onward, after reserved
+edge centers0–3. Native `none` suppresses implicit sites; `rectangle` supplies four
+object sites in addition to standard edge centers; `segments` uses subpath starts
+and segment endpoints, not curve controls. The standard leaves parts of the
+numbering/type interaction implicit, so these policies need further external
+consumer interoperability checks. Comma-separated leaving directions use SVG
+angles (degrees by default, deg/grad/rad supported), clockwise in SVG coordinates,
+then pass through the geometry mapping. Their count must match object sites.
+
+Native Wayland selection/hit tests cover all four modes, free-connector movement,
+exact source/archive undo/redo, hidden/group/enhanced attachments and supplied
+curve pixels. Generic connector path size controls are disabled to prevent
+invalid attributes. Source-preserving save/reopen and selected real CUPS checks
+pass. Live target edit transactions must still update portable SVG path/endpoint
+caches; dedicated connector creation/endpoint/routing tools, protection and broader
+clipboard/dependency cases remain required. No new installed-support claim follows
+from this checkpoint. Current installed runtime7b14ea0 contains the verified
+object clipboard; dash and marker installations retain separate pending receipts.

@@ -4,6 +4,8 @@
 #include "native_enhanced_geometry.h"
 #include "native_path.h"
 #include "native_marker.h"
+#include "native_connector.h"
+#include "native_stage_identity.h"
 #include "native_stage_order.h"
 #include <charconv>
 #include <cmath>
@@ -208,6 +210,22 @@ struct Catalog {
   bool legacy_polar_order = false;
   SceneTarget target;
   SceneLayers document_layers;
+  struct TargetRecord {
+    XmlElement node;
+    const Source *source = nullptr;
+    std::optional<size_t> parent;
+    std::vector<size_t> children;
+    bool master = false;
+    int state = 0;
+    SceneTransform local;
+    std::optional<SceneTransform> group_frame;
+    std::optional<SceneConnectorObject> object;
+    std::vector<Text> diagnostics;
+  };
+  std::vector<TargetRecord> targets;
+  std::map<std::pair<bool, Text>, size_t> target_ids;
+  size_t target_depth = 0;
+
   Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader,
           SceneTarget target_)
       : source_package(package), target(target_),
@@ -218,6 +236,181 @@ struct Catalog {
     if (!bytes.empty())
       scan(read_document_xml(bytes), styles);
     scan(package.xml, content);
+    for (auto node :
+         children(child(styles.root, OFFICE, "master-styles"), STYLE))
+      if (node.localName() == "master-page" ||
+          node.localName() == "handout-master")
+        index_targets(node, styles, {}, true);
+    for (auto page : children(package.body(), DRAW, "page"))
+      index_targets(page, content, {}, false);
+  }
+  void index_targets(XmlElement parent, const Source &source,
+                     std::optional<size_t> group, bool master, int depth = 0) {
+    if (depth > 256)
+      fail("Connector identity group nesting exceeds the limit");
+    const Text XML = "http://www.w3.org/XML/1998/namespace";
+    for (auto node = parent.firstChild(); !node.isNull();
+         node = node.nextSibling()) {
+      if (!node.isElement() || !native_stage_object_identity(node))
+        continue;
+      if (targets.size() >= 100000)
+        fail("Connector identity catalog exceeds the limit");
+      const auto index = targets.size();
+      TargetRecord record;
+      record.node = node;
+      record.source = &source;
+      record.parent = group;
+      record.master = master;
+      targets.push_back(std::move(record));
+      if (group)
+        targets[*group].children.push_back(index);
+      const auto id =
+          (node.hasAttributeNS(XML, "id") ? node.attributeNS(XML, "id")
+                                          : node.attributeNS(DRAW, "id"))
+              .trimmed();
+      if (!id.empty()) {
+        auto [at, inserted] =
+            target_ids.emplace(std::make_pair(&source == &styles, id), index);
+        if (!inserted)
+          at->second = SIZE_MAX;
+      }
+      if (node.namespaceURI() == DRAW && node.localName() == "g")
+        index_targets(node, source, index, master, depth + 1);
+    }
+  }
+  SceneTransform target_parent(const TargetRecord &record) {
+    if (!record.parent)
+      return {};
+    auto &parent = targets.at(*record.parent);
+    if (!parent.group_frame) {
+      auto matrix =
+          target_parent(parent) *
+          parse_scene_transform(parent.node.attributeNS(DRAW, "transform"));
+      valid(matrix);
+      parent.group_frame = matrix;
+    }
+    return *parent.group_frame;
+  }
+  SceneConnectorObject *target_object(size_t index) {
+    auto &record = targets.at(index);
+    if (record.state == 2)
+      return &*record.object;
+    if (record.state == 1 || target_depth >= 256)
+      fail("Cyclic or excessive connector geometry dependency");
+    record.state = 1;
+    ++target_depth;
+    try {
+      SceneConnectorObject object;
+      const auto parent = target_parent(record);
+      if (record.node.namespaceURI() == DRAW &&
+          record.node.localName() == "g") {
+        record.local =
+            parse_scene_transform(record.node.attributeNS(DRAW, "transform"));
+        object.transform = parent * record.local;
+        valid(object.transform);
+        record.group_frame = object.transform;
+        bool first = true;
+        for (auto child : record.children) {
+          auto *part = target_object(child);
+          for (const auto &message : targets[child].diagnostics)
+            note(record.diagnostics, message);
+          const auto m = targets[child].local;
+          auto b = part->bounds;
+          for (auto p : {ScenePoint{b.x, b.y},
+                         {b.x + b.width, b.y},
+                         {b.x, b.y + b.height},
+                         {b.x + b.width, b.y + b.height}}) {
+            p = m.map(p);
+            if (!std::isfinite(p.x) || !std::isfinite(p.y) ||
+                std::abs(p.x) > 1e9 || std::abs(p.y) > 1e9)
+              fail("Connector group bounds exceed the limit");
+            if (first) {
+              object.bounds = {p.x, p.y, 0, 0};
+              first = false;
+            } else {
+              double right =
+                         std::max(object.bounds.x + object.bounds.width, p.x),
+                     bottom =
+                         std::max(object.bounds.y + object.bounds.height, p.y);
+              object.bounds.x = std::min(object.bounds.x, p.x);
+              object.bounds.y = std::min(object.bounds.y, p.y);
+              object.bounds.width = right - object.bounds.x;
+              object.bounds.height = bottom - object.bounds.y;
+            }
+          }
+        }
+      } else {
+        SlideScene scratch;
+        auto geometry =
+            make_geometry(record.node, *record.source, parent, scratch,
+                          record.master, SceneLayers{}, false);
+        if (!geometry)
+          fail("Connector target has no native geometry");
+        if (record.node.localName() == "connector")
+          for (const auto &message : scratch.unsupported)
+            if (message.startsWith("Connector cached path") ||
+                message.startsWith("Unresolved native connector"))
+              note(record.diagnostics, message);
+        auto &shape = geometry->shape;
+        record.local = geometry->local;
+        object.transform = shape.transform;
+        if (shape.path)
+          object.bounds = path_bounds(*shape.path, shape.path_map);
+        else if (shape.contours.empty())
+          object.bounds = {0, 0, shape.width, shape.height};
+        else {
+          auto local = shape;
+          local.transform = {};
+          object.bounds = local.bounds();
+        }
+        if (record.node.localName() == "connector" && shape.path &&
+            shape.path->subpaths.empty())
+          fail("Connector target geometry is unresolved");
+      }
+      object.points = read_scene_glue_points(record.node, object.bounds);
+      if (record.node.namespaceURI() == DRAW &&
+          record.node.localName() == "custom-shape") {
+        auto geometry = child(record.node, DRAW, "enhanced-geometry");
+        if (!geometry.isNull()) {
+          SlideScene scratch;
+          auto effective = geometry_paint(*record.source, record.node);
+          auto enhanced = read_enhanced_glue_points(
+              geometry, length(record.node.attributeNS(SVG, "width")),
+              length(record.node.attributeNS(SVG, "height")), effective,
+              object.bounds, legacy_polar_order);
+          for (auto point : object.points)
+            if (!point.standard) {
+              std::erase_if(enhanced,
+                            [&](const auto &p) { return p.id == point.id; });
+              enhanced.push_back(std::move(point));
+            }
+          object.points = std::move(enhanced);
+        }
+      }
+      record.object = std::move(object);
+      record.state = 2;
+      --target_depth;
+      return &*record.object;
+    } catch (...) {
+      record.state = 0;
+      record.object.reset();
+      record.diagnostics.clear();
+      --target_depth;
+      throw;
+    }
+  }
+  const SceneConnectorObject *find_target(const Source &source, const Text &id,
+                                          SlideScene *consumer = nullptr) {
+    auto at = target_ids.find({&source == &styles, id});
+    if (at == target_ids.end())
+      return nullptr;
+    if (at->second == SIZE_MAX)
+      fail("Ambiguous drawing identity in connector source part");
+    auto *object = target_object(at->second);
+    if (consumer)
+      for (const auto &message : targets[at->second].diagnostics)
+        note(consumer->unsupported, message);
+    return object;
   }
   void scan(const XmlDocument &doc, Source &source) {
     source.root = doc.documentElement();
@@ -580,8 +773,9 @@ struct Catalog {
             (target == SceneTarget::Print && display == "screen"))
           continue;
         bool supported =
-            TextList{"frame",   "rect",     "ellipse", "circle",      "path",
-                     "polygon", "polyline", "line",    "custom-shape"}
+            TextList{"frame",        "rect",     "ellipse",  "circle",
+                     "path",         "polygon",  "polyline", "line",
+                     "custom-shape", "connector"}
                 .contains(node.localName());
         bool has_text = !children(node, TEXT, "p").empty() ||
                         !children(node, TEXT, "h").empty() ||
@@ -594,6 +788,232 @@ struct Catalog {
         } else if (node.localName() == "g")
           collect_editors(node, slide, key, depth + 1);
       }
+  }
+  ScenePaint geometry_paint(const Source &source, XmlElement node) {
+    ScenePaint out;
+    auto consume = [&](const Text &family, const Text &name) {
+      for (auto style : chain(source, family, name)) {
+        auto p = child(style, STYLE, "graphic-properties");
+        if (p.hasAttributeNS(DRAW, "fill"))
+          out.fill = p.attributeNS(DRAW, "fill") != "none";
+        if (p.hasAttributeNS(DRAW, "stroke"))
+          out.stroke = p.attributeNS(DRAW, "stroke") != "none";
+      }
+    };
+    consume("graphic", node.attributeNS(DRAW, "style-name"));
+    if (node.hasAttributeNS(PRESENTATION, "style-name"))
+      consume("presentation", node.attributeNS(PRESENTATION, "style-name"));
+    return out;
+  }
+  struct ReadGeometry {
+    SceneShape shape;
+    SceneTransform local;
+  };
+  std::optional<ReadGeometry>
+  make_geometry(XmlElement node, const Source &source,
+                const SceneTransform &transform, SlideScene &slide, bool master,
+                const SceneLayers &layers, bool layout = true) {
+    const auto name = node.localName();
+    SceneShape shape;
+    shape.parent_transform = transform;
+    shape.master = master;
+    shape.layer_protected = layers.protected_object(node);
+    if (!master)
+      shape.source = node;
+    shape.name = node.attributeNS(DRAW, "name");
+    SceneTransform local = position(node, {});
+    shape.transform = transform * local;
+    shape.paint =
+        layout ? paint(source, node, slide) : geometry_paint(source, node);
+    shape.width =
+        length(node.attributeNS(SVG, "width"), name == "frame" ? 24 * cm : 0);
+    shape.height =
+        length(node.attributeNS(SVG, "height"), name == "frame" ? 3 * cm : 0);
+    if (shape.width < 0 || shape.height < 0)
+      fail("Negative presentation shape extent");
+    if (layout)
+      shape.text = joined(node);
+    if (!child(node, DRAW, "object").isNull() ||
+        !child(node, DRAW, "object-ole").isNull())
+      note(slide.unsupported, "Embedded document objects");
+    shape.paragraph_style = node.attributeNS(DRAW, "text-style-name");
+    const auto text_box = child(node, DRAW, "text-box");
+    const bool has_flow = !text_box.isNull() ||
+                          !children(node, TEXT, "p").empty() ||
+                          !children(node, TEXT, "h").empty() ||
+                          !children(node, TABLE, "table").empty();
+    if (has_flow && layout) {
+      TextParagraph base;
+      base.font = shape.paint.font;
+      if (!shape.paint.use_window_text_color)
+        base.color = shape.paint.text_color;
+      auto container = text_box;
+      if (container.isNull())
+        container = node;
+      shape.text_flow =
+          text_reader->frame(container, base, shape.paragraph_style, master);
+      for (const auto &feature : shape.text_flow.unsupported)
+        note(slide.unsupported, feature);
+    }
+    if (name == "frame") {
+      shape.kind = SceneShape::Frame;
+      shape.image = child(node, DRAW, "image").attributeNS(XLINK, "href");
+      if (!shape.image.empty() && layout)
+        shape.raster = source_package.image_asset(shape.image);
+    } else if (name == "custom-shape") {
+      shape.kind = SceneShape::Custom;
+      auto geometry = child(node, DRAW, "enhanced-geometry");
+      if (geometry.isNull()) {
+        shape.path = std::make_shared<ScenePath>();
+        note(slide.unsupported, "Custom shape without enhanced geometry");
+      } else {
+        auto enhanced =
+            read_enhanced_geometry(geometry, shape.width, shape.height,
+                                   shape.paint, legacy_polar_order);
+        shape.path = std::move(enhanced.path);
+        shape.path_map = enhanced.mapping;
+        shape.text_area = enhanced.text_area;
+        shape.handles = std::move(enhanced.handles);
+        for (const auto &feature : enhanced.unsupported)
+          note(slide.unsupported, feature);
+      }
+    } else if (name == "rect") {
+      shape.kind = SceneShape::Rectangle;
+      double rx = length(node.attributeNS(DRAW, "corner-radius"));
+      double ry = rx;
+      if (node.hasAttributeNS(SVG, "rx"))
+        rx = length(node.attributeNS(SVG, "rx"));
+      if (node.hasAttributeNS(SVG, "ry"))
+        ry = length(node.attributeNS(SVG, "ry"));
+      else if (node.hasAttributeNS(SVG, "rx"))
+        ry = rx;
+      if (node.hasAttributeNS(SVG, "ry") && !node.hasAttributeNS(SVG, "rx") &&
+          !node.hasAttributeNS(DRAW, "corner-radius"))
+        rx = ry;
+      if (rx < 0 || ry < 0)
+        fail("Negative rectangle corner radius");
+      if (rx > 0 && ry > 0)
+        shape.path = std::make_shared<ScenePath>(
+            rounded_rectangle_path(shape.width, shape.height, rx, ry));
+    } else if (name == "ellipse" || name == "circle") {
+      shape.kind = SceneShape::Ellipse;
+      auto kind = node.attributeNS(DRAW, "kind", "full");
+      if (kind != "full" && kind != "arc" && kind != "cut" && kind != "section")
+        fail("Invalid ellipse kind");
+      if (node.hasAttributeNS(SVG, "r"))
+        shape.width = shape.height = 2 * length(node.attributeNS(SVG, "r"));
+      else if (node.hasAttributeNS(SVG, "rx") &&
+               node.hasAttributeNS(SVG, "ry")) {
+        shape.width = 2 * length(node.attributeNS(SVG, "rx"));
+        shape.height = 2 * length(node.attributeNS(SVG, "ry"));
+      }
+      if (shape.width < 0 || shape.height < 0)
+        fail("Negative ellipse radius");
+      if (node.hasAttributeNS(SVG, "cx") && node.hasAttributeNS(SVG, "cy")) {
+        SceneTransform offset;
+        offset.e = length(node.attributeNS(SVG, "cx")) - shape.width / 2;
+        offset.f = length(node.attributeNS(SVG, "cy")) - shape.height / 2;
+        local =
+            parse_scene_transform(node.attributeNS(DRAW, "transform")) * offset;
+        shape.transform = transform * local;
+      }
+      double start = 0, sweep = 360;
+      if (kind != "full") {
+        auto degrees = [&](const Text &value) {
+          Scanner input(value);
+          double n = input.number();
+          if (!input.done())
+            fail("Invalid ellipse angle");
+          return n;
+        };
+        start = degrees(node.attributeNS(DRAW, "start-angle", "0"));
+        double end = degrees(node.attributeNS(DRAW, "end-angle", "360"));
+        sweep = std::fmod(end - start, 360);
+        if (sweep <= 0)
+          sweep += 360;
+      }
+      auto closure = kind == "arc"       ? EllipseClosure::Open
+                     : kind == "section" ? EllipseClosure::Pie
+                                         : EllipseClosure::Chord;
+      shape.path = std::make_shared<ScenePath>(
+          ellipse_path(shape.width, shape.height, start, sweep, closure));
+    } else if (name == "path") {
+      shape.kind = SceneShape::Path;
+      if (!node.hasAttributeNS(SVG, "d"))
+        fail("Path data is missing");
+      shape.path = std::make_shared<ScenePath>(
+          parse_svg_path(node.attributeNS(SVG, "d")));
+      auto view = node.attributeNS(SVG, "viewBox");
+      if (!view.empty()) {
+        Scanner values(view);
+        auto x = values.number(), y = values.number(), w = values.number(),
+             h = values.number();
+        if (!values.done() || w <= 0 || h <= 0)
+          fail("Invalid path viewBox");
+        shape.path_map = {
+            shape.width / w,      0, 0, shape.height / h, -x * shape.width / w,
+            -y * shape.height / h};
+      }
+    } else if (name == "polygon" || name == "polyline") {
+      shape.kind =
+          name == "polygon" ? SceneShape::Polygon : SceneShape::Polyline;
+      auto points = polygon(node, shape.width, shape.height);
+      if (points.size() < 2)
+        fail("Invalid presentation polygon");
+      shape.contours.push_back({std::move(points), name == "polygon"});
+    } else if (name == "connector") {
+      shape.kind = SceneShape::Path;
+      local = parse_scene_transform(node.attributeNS(DRAW, "transform"));
+      shape.transform = transform * local;
+      try {
+        auto spec = read_scene_connector(node);
+        SceneConnectorEnds ends;
+        try {
+          ends = resolve_scene_connector_ends(
+              spec, shape.transform,
+              [&](const Text &id) { return find_target(source, id, &slide); });
+        } catch (const std::exception &e) {
+          if (!spec.path || !spec.start.x || !spec.start.y || !spec.end.x ||
+              !spec.end.y)
+            throw;
+          ends.start.point = {*spec.start.x, *spec.start.y};
+          ends.end.point = {*spec.end.x, *spec.end.y};
+          note(slide.unsupported,
+               "Connector cached path used: " + Text(e.what()));
+        }
+        auto routed = scene_connector_geometry(spec, ends);
+        shape.path = std::move(routed.path);
+        shape.path_map = routed.mapping;
+        auto bounds = path_bounds(*shape.path, shape.path_map);
+        shape.width = bounds.width;
+        shape.height = bounds.height;
+        shape.text_area = bounds;
+        if (has_flow && layout) {
+          double width = std::max(bounds.width, shape.paint.font.size * 6),
+                 height = std::max(bounds.height, shape.paint.font.size * 2);
+          shape.text_area =
+              SceneRect{bounds.x + (bounds.width - width) / 2,
+                        bounds.y + (bounds.height - height) / 2, width, height};
+        }
+      } catch (const std::exception &e) {
+        note(slide.unsupported,
+             "Unresolved native connector: " + Text(e.what()));
+        return {};
+      }
+    } else if (name == "line") {
+      shape.kind = SceneShape::Line;
+      local = parse_scene_transform(node.attributeNS(DRAW, "transform"));
+      shape.transform = transform * local;
+      shape.contours.push_back({{{length(node.attributeNS(SVG, "x1")),
+                                  length(node.attributeNS(SVG, "y1"))},
+                                 {length(node.attributeNS(SVG, "x2")),
+                                  length(node.attributeNS(SVG, "y2"))}},
+                                false});
+    } else {
+      note(slide.unsupported, "Unsupported drawing object geometry");
+      return {};
+    }
+    return ReadGeometry{std::move(shape), local};
   }
   void shapes(const XmlElement &parent, const Source &source,
               const SceneTransform &transform, SlideScene &slide, bool master,
@@ -638,168 +1058,13 @@ struct Catalog {
                path + "/" + std::to_string(item.order));
         continue;
       }
-      SceneShape shape;
-      shape.parent_transform = transform;
-      shape.master = master;
-      shape.layer_protected = layers.protected_object(node);
-      if (!master)
-        shape.source = node;
-      shape.name = node.attributeNS(DRAW, "name");
-      shape.transform = position(node, transform);
-      shape.paint = paint(source, node, slide);
-      shape.width =
-          length(node.attributeNS(SVG, "width"), name == "frame" ? 24 * cm : 0);
-      shape.height =
-          length(node.attributeNS(SVG, "height"), name == "frame" ? 3 * cm : 0);
-      if (shape.width < 0 || shape.height < 0)
-        fail("Negative presentation shape extent");
-      shape.text = joined(node);
-      if (!child(node, DRAW, "object").isNull() ||
-          !child(node, DRAW, "object-ole").isNull())
-        note(slide.unsupported, "Embedded document objects");
-      shape.paragraph_style = node.attributeNS(DRAW, "text-style-name");
-      const auto text_box = child(node, DRAW, "text-box");
-      const bool has_flow = !text_box.isNull() ||
-                            !children(node, TEXT, "p").empty() ||
-                            !children(node, TEXT, "h").empty() ||
-                            !children(node, TABLE, "table").empty();
-      if (has_flow) {
-        TextParagraph base;
-        base.font = shape.paint.font;
-        if (!shape.paint.use_window_text_color)
-          base.color = shape.paint.text_color;
-        auto container = text_box;
-        if (container.isNull())
-          container = node;
-        shape.text_flow =
-            text_reader->frame(container, base, shape.paragraph_style, master);
-        for (const auto &feature : shape.text_flow.unsupported)
-          note(slide.unsupported, feature);
-      }
-      if (name == "frame") {
-        shape.kind = SceneShape::Frame;
-        shape.image = child(node, DRAW, "image").attributeNS(XLINK, "href");
-        if (!shape.image.empty())
-          shape.raster = source_package.image_asset(shape.image);
-      } else if (name == "custom-shape") {
-        shape.kind = SceneShape::Custom;
-        auto geometry = child(node, DRAW, "enhanced-geometry");
-        if (geometry.isNull()) {
-          shape.path = std::make_shared<ScenePath>();
-          note(slide.unsupported, "Custom shape without enhanced geometry");
-        } else {
-          auto enhanced =
-              read_enhanced_geometry(geometry, shape.width, shape.height,
-                                     shape.paint, legacy_polar_order);
-          shape.path = std::move(enhanced.path);
-          shape.path_map = enhanced.mapping;
-          shape.text_area = enhanced.text_area;
-          shape.handles = std::move(enhanced.handles);
-          for (const auto &feature : enhanced.unsupported)
-            note(slide.unsupported, feature);
-        }
-      } else if (name == "rect") {
-        shape.kind = SceneShape::Rectangle;
-        double rx = length(node.attributeNS(DRAW, "corner-radius"));
-        double ry = rx;
-        if (node.hasAttributeNS(SVG, "rx"))
-          rx = length(node.attributeNS(SVG, "rx"));
-        if (node.hasAttributeNS(SVG, "ry"))
-          ry = length(node.attributeNS(SVG, "ry"));
-        else if (node.hasAttributeNS(SVG, "rx"))
-          ry = rx;
-        if (node.hasAttributeNS(SVG, "ry") && !node.hasAttributeNS(SVG, "rx") &&
-            !node.hasAttributeNS(DRAW, "corner-radius"))
-          rx = ry;
-        if (rx < 0 || ry < 0)
-          fail("Negative rectangle corner radius");
-        if (rx > 0 && ry > 0)
-          shape.path = std::make_shared<ScenePath>(
-              rounded_rectangle_path(shape.width, shape.height, rx, ry));
-      } else if (name == "ellipse" || name == "circle") {
-        shape.kind = SceneShape::Ellipse;
-        auto kind = node.attributeNS(DRAW, "kind", "full");
-        if (kind != "full" && kind != "arc" && kind != "cut" &&
-            kind != "section")
-          fail("Invalid ellipse kind");
-        if (node.hasAttributeNS(SVG, "r"))
-          shape.width = shape.height = 2 * length(node.attributeNS(SVG, "r"));
-        else if (node.hasAttributeNS(SVG, "rx") &&
-                 node.hasAttributeNS(SVG, "ry")) {
-          shape.width = 2 * length(node.attributeNS(SVG, "rx"));
-          shape.height = 2 * length(node.attributeNS(SVG, "ry"));
-        }
-        if (shape.width < 0 || shape.height < 0)
-          fail("Negative ellipse radius");
-        if (node.hasAttributeNS(SVG, "cx") && node.hasAttributeNS(SVG, "cy")) {
-          SceneTransform offset;
-          offset.e = length(node.attributeNS(SVG, "cx")) - shape.width / 2;
-          offset.f = length(node.attributeNS(SVG, "cy")) - shape.height / 2;
-          shape.transform =
-              transform *
-              parse_scene_transform(node.attributeNS(DRAW, "transform")) *
-              offset;
-        }
-        double start = 0, sweep = 360;
-        if (kind != "full") {
-          auto degrees = [&](const Text &value) {
-            Scanner input(value);
-            double n = input.number();
-            if (!input.done())
-              fail("Invalid ellipse angle");
-            return n;
-          };
-          start = degrees(node.attributeNS(DRAW, "start-angle", "0"));
-          double end = degrees(node.attributeNS(DRAW, "end-angle", "360"));
-          sweep = std::fmod(end - start, 360);
-          if (sweep <= 0)
-            sweep += 360;
-        }
-        auto closure = kind == "arc"       ? EllipseClosure::Open
-                       : kind == "section" ? EllipseClosure::Pie
-                                           : EllipseClosure::Chord;
-        shape.path = std::make_shared<ScenePath>(
-            ellipse_path(shape.width, shape.height, start, sweep, closure));
-      } else if (name == "path") {
-        shape.kind = SceneShape::Path;
-        if (!node.hasAttributeNS(SVG, "d"))
-          fail("Path data is missing");
-        shape.path = std::make_shared<ScenePath>(
-            parse_svg_path(node.attributeNS(SVG, "d")));
-        auto view = node.attributeNS(SVG, "viewBox");
-        if (!view.empty()) {
-          Scanner values(view);
-          auto x = values.number(), y = values.number(), w = values.number(),
-               h = values.number();
-          if (!values.done() || w <= 0 || h <= 0)
-            fail("Invalid path viewBox");
-          shape.path_map = {shape.width / w,
-                            0,
-                            0,
-                            shape.height / h,
-                            -x * shape.width / w,
-                            -y * shape.height / h};
-        }
-      } else if (name == "polygon" || name == "polyline") {
-        shape.kind =
-            name == "polygon" ? SceneShape::Polygon : SceneShape::Polyline;
-        auto points = polygon(node, shape.width, shape.height);
-        if (points.size() < 2)
-          fail("Invalid presentation polygon");
-        shape.contours.push_back({std::move(points), name == "polygon"});
-      } else if (name == "line") {
-        shape.kind = SceneShape::Line;
-        shape.transform = transform * parse_scene_transform(
-                                          node.attributeNS(DRAW, "transform"));
-        shape.contours.push_back({{{length(node.attributeNS(SVG, "x1")),
-                                    length(node.attributeNS(SVG, "y1"))},
-                                   {length(node.attributeNS(SVG, "x2")),
-                                    length(node.attributeNS(SVG, "y2"))}},
-                                  false});
-      } else {
-        note(slide.unsupported, "Connectors and 3D objects");
+      if (name == "glue-point")
         continue;
-      }
+      auto geometry =
+          make_geometry(node, source, transform, slide, master, layers);
+      if (!geometry)
+        continue;
+      auto shape = std::move(geometry->shape);
       if (!master)
         if (auto found =
                 editor_ids.find(path + "/" + std::to_string(item.order));

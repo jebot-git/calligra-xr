@@ -175,6 +175,15 @@ NativeShapeGeometry native_shape_geometry(const SceneShape &s) {
   if (s.master || s.source.isNull())
     fail("Master objects are not editable");
   NativeShapeGeometry out;
+  if (s.source.localName() == "connector") {
+    auto b = s.bounds();
+    out.origin = {b.x, b.y};
+    out.width = b.width;
+    out.height = b.height;
+    out.position_enabled = out.rotation_enabled = out.width_enabled =
+        out.height_enabled = false;
+    return out;
+  }
   out.line = s.kind == SceneShape::Line;
   if (out.line) {
     auto [a, b] = endpoints(s);
@@ -220,6 +229,8 @@ NativeShapeGeometry Presentation::shape_geometry(int slide, int index) const {
 bool apply_native_shape_geometry(const SceneShape &shape, XmlElement source,
                                  const NativeShapeGeometryEdit &edit,
                                  std::optional<SceneTransform> action) {
+  if (source.localName() == "connector")
+    fail("Connector geometry controls are not available yet");
   for (const auto &v : {edit.x, edit.y, edit.width, edit.height, edit.rotation})
     if (v)
       finite(*v, 1e9);

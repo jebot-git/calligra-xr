@@ -1303,3 +1303,23 @@ native screen/PDF geometry, clipboard resource isolation and archive undo/redo.
 See PORT_STATUS.md for corrected OASIS placement, closed-path policy, bounded
 curve approximations and remaining interoperability limits. Installation is
 tracked separately in each build's receipt.
+
+
+## Stage connector scene checkpoint
+
+The native reader now displays all four connector modes (`line`, `lines`,
+`curve`, `standard`), supplied SVG curves, and shape attachments. The identity
+catalog includes forward references and hidden targets, separates content.xml
+from styles.xml, and gives xml:id precedence over legacy draw:id. Standard,
+explicit user, group and evaluated enhanced-geometry glue points participate in
+attachment resolution. Screen and PDF use the same paths, strokes and markers.
+Free connectors can be selected and moved with exact source/archive undo/redo.
+
+This remains a source checkpoint. Dedicated connector creation, endpoint/route
+controls, dependent export-cache updates and broader clipboard/reference
+transactions are unfinished. The generic path position/size panel is disabled
+for connectors because its width/height writes would be invalid connector XML.
+A transformed connector with two attached endpoints remains constrained by its
+targets. Saving currently preserves connector source; it does not materialize a
+new portable SVG route/cache. See PORT_STATUS.md for routing and glue policies.
+Do not count this checkpoint as an installed or complete ODF1.2 implementation.

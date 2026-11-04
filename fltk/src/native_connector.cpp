@@ -263,13 +263,18 @@ Candidates candidates(const SceneConnectorEnd &end,
     a.obstacle = obstacle;
     a.glue = point.id;
     a.shape = end.shape;
-    for (auto [bit, vector] :
-         {std::pair<unsigned, ScenePoint>{SceneGluePoint::Up, {0, -1}},
-          {SceneGluePoint::Right, {1, 0}},
-          {SceneGluePoint::Down, {0, 1}},
-          {SceneGluePoint::Left, {-1, 0}}}) {
-      if (!(point.escape & bit))
-        continue;
+    std::vector<ScenePoint> vectors;
+    if (point.exit_vector)
+      vectors.push_back(checked(*point.exit_vector));
+    else
+      for (auto [bit, vector] :
+           {std::pair<unsigned, ScenePoint>{SceneGluePoint::Up, {0, -1}},
+            {SceneGluePoint::Right, {1, 0}},
+            {SceneGluePoint::Down, {0, 1}},
+            {SceneGluePoint::Left, {-1, 0}}})
+        if (point.escape & bit)
+          vectors.push_back(vector);
+    for (auto vector : vectors) {
       ScenePoint v{mapping.a * vector.x + mapping.c * vector.y,
                    mapping.b * vector.x + mapping.d * vector.y};
       auto n = std::hypot(v.x, v.y);
