@@ -7,6 +7,8 @@
 #include "suite/fltk_appearance.h"
 #include <charconv>
 #include <numeric>
+#include <numbers>
+#include <cstdio>
 #include <sstream>
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
@@ -2370,6 +2372,153 @@ dash_format_dialog(Fl_Window &window, const NativePaintInfo &initial) {
   }
   return {};
 }
+std::optional<NativePaintFormat>
+gradient_format_dialog(Fl_Window &window, const NativePaintInfo &initial) {
+  const int width = 660, height = 520;
+  const int x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Gradient fill");
+  Fl_Check_Button use(x + 20, y + 50, 600, 30,
+                      "Apply this gradient to the selection");
+  Fl_Choice resource(x + 170, y + 90, 450, 30, "Resource:");
+  StyleChoice resources;
+  resources.add("", "Current / new definition");
+  for (const auto &name : initial.available_gradients)
+    resources.add(name, name);
+  resources.attach(resource, initial.values.gradient_name &&
+                                     !initial.values.gradient_definition
+                                 ? *initial.values.gradient_name
+                                 : Text());
+  Fl_Choice kind(x + 170, y + 130, 180, 30, "Type:");
+  kind.add("Linear|Axial|Radial|Ellipsoid|Square|Rectangular");
+  const auto seed =
+      initial.values.gradient_definition.value_or(SceneGradientDefinition{});
+  kind.value(int(seed.type));
+  Fl_Input start(x + 170, y + 170, 130, 30, "Start color:"),
+      end(x + 490, y + 170, 130, 30, "End color:");
+  auto hex = [](SceneColor c) {
+    char value[8];
+    std::snprintf(value, sizeof(value), "#%02x%02x%02x", unsigned(c.red),
+                  unsigned(c.green), unsigned(c.blue));
+    return Text(value);
+  };
+  start.value(hex(seed.start).toUtf8().c_str());
+  end.value(hex(seed.end).toUtf8().c_str());
+  start.tooltip("#RRGGBB; color intensity is set below");
+  end.tooltip(start.tooltip());
+  Fl_Input angle(x + 170, y + 215, 130, 30, "Angle (degrees):"),
+      border(x + 490, y + 215, 130, 30, "Border (%):"),
+      cx(x + 170, y + 255, 130, 30, "Center X (%):"),
+      cy(x + 490, y + 255, 130, 30, "Center Y (%):"),
+      start_intensity(x + 170, y + 295, 130, 30, "Start intensity (%):"),
+      end_intensity(x + 490, y + 295, 130, 30, "End intensity (%):"),
+      steps(x + 170, y + 345, 130, 30, "Steps (0 = auto):");
+  const std::array<Fl_Input *, 6> fields{
+      &angle, &border, &cx, &cy, &start_intensity, &end_intensity};
+  const std::array<double, 6> values{seed.angle * 180 / std::numbers::pi,
+                                     seed.border * 100,
+                                     seed.cx * 100,
+                                     seed.cy * 100,
+                                     seed.start_intensity * 100,
+                                     seed.end_intensity * 100};
+  std::array<Text, 6> shown;
+  for (size_t i = 0; i < fields.size(); ++i) {
+    shown[i] = Text::number(values[i], 'g', 12);
+    fields[i]->value(shown[i].toUtf8().c_str());
+  }
+  if (initial.values.gradient_steps)
+    steps.value(Text::number(*initial.values.gradient_steps).toUtf8().c_str());
+  Fl_Box hint(x + 20, y + 385, width - 40, 35,
+              "Inner Apply stages the resource; outer Apply commits it with "
+              "fill and stroke.");
+  hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  std::function<void()> resource_changed = [&] {
+    const bool custom = resources.selected(resource).empty();
+    for (auto *widget : std::initializer_list<Fl_Widget *>{
+             &kind, &start, &end, &angle, &border, &cx, &cy, &start_intensity,
+             &end_intensity}) {
+      if (custom)
+        widget->activate();
+      else
+        widget->deactivate();
+    }
+  };
+  resource_changed();
+  resource.callback(
+      [](Fl_Widget *, void *p) {
+        (*static_cast<std::function<void()> *>(p))();
+      },
+      &resource_changed);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  while (panel.run(use)) {
+    try {
+      NativePaintFormat result;
+      if (use.value()) {
+        auto name = resources.selected(resource);
+        if (!name.empty())
+          result.gradient_name = name;
+        else {
+          auto g = seed;
+          auto doc = read_document_xml(
+              ("<draw:gradient xmlns:draw=\"" + DRAW + "\"/>").toUtf8());
+          auto node = doc.documentElement();
+          const TextList kinds{"linear",    "axial",  "radial",
+                               "ellipsoid", "square", "rectangular"};
+          node.setAttributeNS(DRAW, "draw:style", kinds.at(kind.value()));
+          node.setAttributeNS(DRAW, "draw:start-color",
+                              Text(start.value()).trimmed().empty()
+                                  ? hex(seed.start)
+                                  : Text(start.value()).trimmed());
+          node.setAttributeNS(DRAW, "draw:end-color",
+                              Text(end.value()).trimmed().empty()
+                                  ? hex(seed.end)
+                                  : Text(end.value()).trimmed());
+          const char *keys[]{"angle", "border",          "cx",
+                             "cy",    "start-intensity", "end-intensity"};
+          for (size_t i = 0; i < fields.size(); ++i) {
+            auto raw = Text(fields[i]->value()).trimmed();
+            node.setAttributeNS(DRAW, Text("draw:") + keys[i],
+                                (raw.empty() ? shown[i] : raw) +
+                                    (i == 0 ? "deg" : "%"));
+          }
+          auto parsed = read_scene_gradient(node);
+          g.type = parsed.type;
+          g.start = parsed.start;
+          g.end = parsed.end;
+          double *before[]{&g.angle, &g.border,          &g.cx,
+                           &g.cy,    &g.start_intensity, &g.end_intensity};
+          const double after[]{
+              parsed.angle, parsed.border,          parsed.cx,
+              parsed.cy,    parsed.start_intensity, parsed.end_intensity};
+          for (size_t i = 0; i < fields.size(); ++i) {
+            auto raw = Text(fields[i]->value()).trimmed();
+            if (!raw.empty() && raw != shown[i])
+              *before[i] = after[i];
+          }
+          result.gradient_definition = g;
+        }
+        result.fill = "gradient";
+      }
+      auto raw = Text(steps.value()).trimmed();
+      if (!raw.empty()) {
+        auto n = read_scene_gradient_steps(raw);
+        if (initial.values.gradient_steps != n)
+          result.gradient_steps = n;
+      }
+      return result;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      window.redraw();
+    }
+  }
+  return {};
+}
 } // namespace
 bool object_paint_dialog(
     Fl_Window &window, const NativePaintInfo &initial,
@@ -2400,6 +2549,9 @@ bool object_paint_dialog(
     field.value(value == "none" ? 1 : value == "solid" ? 2 : 0);
   };
   mode(fill, initial.values.fill);
+  fill.add("Gradient");
+  if (initial.values.fill == "gradient")
+    fill.value(3);
   mode(stroke, initial.values.stroke);
   stroke.add("Dash");
   if (initial.values.stroke == "dash")
@@ -2443,8 +2595,10 @@ bool object_paint_dialog(
                            "Dash pattern...");
   ActionButton marker_button(panel, action, 2, x + 20, y + 315, 130,
                              "Markers...");
-  NativePaintFormat dash_patch, marker_patch;
-  Fl_Box summary(x + 20, y + 365, width - 40, 50);
+  ActionButton gradient_button(panel, action, 3, x + 160, y + 365, 160,
+                               "Gradient...");
+  NativePaintFormat dash_patch, marker_patch, gradient_patch;
+  Fl_Box summary(x + 20, y + 405, width - 40, 35);
   auto label = Text::number(initial.objects) +
                (initial.objects == 1 ? " object. " : " objects. ") +
                "Selected groups include hidden members.\nShared styles and "
@@ -2456,7 +2610,7 @@ bool object_paint_dialog(
     for (auto *widget : std::initializer_list<Fl_Widget *>{
              &fill, &stroke, &fill_color, &stroke_color, &fill_opacity,
              &stroke_opacity, &stroke_width, &rule, &image_opacity, &cap, &join,
-             &dash_button, &marker_button, &buttons.apply})
+             &dash_button, &marker_button, &gradient_button, &buttons.apply})
       widget->deactivate();
     background.hint.copy_label(
         "This selection is read-only or contains protected objects");
@@ -2468,6 +2622,35 @@ bool object_paint_dialog(
     try {
       if (!initial.editable)
         continue;
+      if (action == 3) {
+        action = 0;
+        auto info = initial;
+        if (gradient_patch.gradient_definition)
+          info.values.gradient_definition = gradient_patch.gradient_definition;
+        if (gradient_patch.gradient_name) {
+          info.values.gradient_name = gradient_patch.gradient_name;
+          info.values.gradient_definition.reset();
+        }
+        if (gradient_patch.gradient_steps)
+          info.values.gradient_steps = gradient_patch.gradient_steps;
+        if (auto patch = gradient_format_dialog(window, info)) {
+          if (patch->gradient_definition) {
+            gradient_patch.gradient_definition = patch->gradient_definition;
+            gradient_patch.gradient_name.reset();
+          }
+          if (patch->gradient_name) {
+            gradient_patch.gradient_name = patch->gradient_name;
+            gradient_patch.gradient_definition.reset();
+          }
+          if (patch->gradient_steps)
+            gradient_patch.gradient_steps = patch->gradient_steps;
+          if (patch->fill) {
+            gradient_patch.fill = patch->fill;
+            fill.value(3);
+          }
+        }
+        continue;
+      }
       if (action == 2) {
         action = 0;
         auto info = initial;
@@ -2500,19 +2683,33 @@ bool object_paint_dialog(
         continue;
       }
       NativePaintFormat result = dash_patch;
+      result.gradient_name = gradient_patch.gradient_name;
+      result.gradient_definition = gradient_patch.gradient_definition;
+      result.gradient_steps = gradient_patch.gradient_steps;
+      if (gradient_patch.fill)
+        result.fill = gradient_patch.fill;
       result.marker_start = marker_patch.marker_start;
       result.marker_end = marker_patch.marker_end;
       auto changed_mode = [](Fl_Choice &field, const std::optional<Text> &old,
-                             std::optional<Text> &out) {
+                             std::optional<Text> &out, bool filling = false) {
         if (field.value()) {
           Text value = field.value() == 1   ? "none"
                        : field.value() == 2 ? "solid"
+                       : filling            ? "gradient"
                                             : "dash";
           if (!old || *old != value)
             out = value;
         }
       };
-      changed_mode(fill, initial.values.fill, result.fill);
+      changed_mode(fill, initial.values.fill, result.fill, true);
+      if (fill.value() == 1 || fill.value() == 2) {
+        result.gradient_name.reset();
+        result.gradient_definition.reset();
+      } else if (fill.value() == 3 && !result.gradient_name &&
+                 !result.gradient_definition &&
+                 !initial.values.gradient_definition) {
+        result.gradient_definition = SceneGradientDefinition{};
+      }
       changed_mode(stroke, initial.values.stroke, result.stroke);
       if (stroke.value() != 3) {
         result.dash_pattern.reset();

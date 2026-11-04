@@ -4,6 +4,7 @@
 #include "native_enhanced_geometry.h"
 #include "native_path.h"
 #include "native_marker.h"
+#include "native_gradient.h"
 #include "native_connector.h"
 #include "native_stage_identity.h"
 #include "native_stage_order.h"
@@ -201,8 +202,9 @@ struct Catalog {
   Source styles, content;
   std::map<std::pair<Text, Text>, XmlElement> common;
   std::map<Text, XmlElement> defaults, masters, dash_definitions,
-      marker_definitions;
+      marker_definitions, gradient_definitions;
   std::map<Text, std::shared_ptr<const SceneMarkerDefinition>> marker_cache;
+  std::map<Text, std::shared_ptr<const SceneGradientDefinition>> gradient_cache;
   std::shared_ptr<OdfTextReader> text_reader;
   std::vector<XmlDocument> documents;
   std::map<std::string, int> editor_ids;
@@ -425,6 +427,12 @@ struct Catalog {
       bool automatic = group.localName() == "automatic-styles";
       if (automatic || group.localName() == "styles") {
         if (!automatic)
+          for (auto e : children(group, DRAW, "gradient")) {
+            if (gradient_definitions.size() >= 100000)
+              fail("Too many drawing gradient definitions");
+            gradient_definitions[e.attributeNS(DRAW, "name")] = e;
+          }
+        if (!automatic)
           for (auto e : children(group, DRAW, "marker")) {
             if (marker_definitions.size() >= 100000)
               fail("Too many marker definitions");
@@ -490,10 +498,16 @@ struct Catalog {
                    page ? "drawing-page-properties" : "graphic-properties");
     if (p.hasAttributeNS(DRAW, "fill")) {
       auto value = p.attributeNS(DRAW, "fill");
-      paint.fill = value == "solid";
-      if (value != "solid" && value != "none")
-        note(slide.unsupported, "Gradient, bitmap and hatch fills");
+      paint.fill = value == "solid" || value == "gradient";
+      paint.gradient = value == "gradient";
+      if (value != "solid" && value != "none" && value != "gradient")
+        note(slide.unsupported, "Bitmap and hatch fills");
     }
+    if (p.hasAttributeNS(DRAW, "fill-gradient-name"))
+      paint.gradient_name = p.attributeNS(DRAW, "fill-gradient-name");
+    if (p.hasAttributeNS(DRAW, "gradient-step-count"))
+      paint.gradient_steps =
+          read_scene_gradient_steps(p.attributeNS(DRAW, "gradient-step-count"));
     if (p.hasAttributeNS(DRAW, "fill-color")) {
       auto alpha = paint.fill_color.alpha;
       paint.fill_color = color(p.attributeNS(DRAW, "fill-color"));
@@ -670,10 +684,26 @@ struct Catalog {
       if (paint.font.size <= 0 || paint.font.size > 1000)
         fail("Invalid presentation text size");
     }
-    for (const auto &name : {"shadow", "clip", "fill-gradient-name"})
+    for (const auto &name : {"shadow", "clip"})
       if (p.hasAttributeNS(DRAW, name) || p.hasAttributeNS(FO, name))
         note(slide.unsupported,
              "Shadows, clipping and advanced paint properties");
+  }
+  void resolve_gradient(ScenePaint &paint, SlideScene &slide) {
+    if (!paint.fill || !paint.gradient)
+      return;
+    auto at = gradient_definitions.find(paint.gradient_name);
+    if (at == gradient_definitions.end()) {
+      note(slide.unsupported,
+           "Missing or unsupported drawing gradient definition");
+      paint.fill = false;
+      return;
+    }
+    auto &cached = gradient_cache[paint.gradient_name];
+    if (!cached)
+      cached = std::make_shared<const SceneGradientDefinition>(
+          read_scene_gradient(at->second));
+    paint.gradient_definition = cached;
   }
   ScenePaint paint(const Source &source, const XmlElement &node,
                    SlideScene &slide) {
@@ -694,6 +724,7 @@ struct Catalog {
     }
     if (result.stroke && legacy_middle)
       note(slide.unsupported, "Deprecated middle stroke joins");
+    resolve_gradient(result, slide);
     auto resolve = [&](const Text &name) {
       if (auto at = dash_definitions.find(name); at != dash_definitions.end())
         return read_scene_dash_pattern(at->second);
@@ -869,6 +900,14 @@ struct Catalog {
         shape.path = std::make_shared<ScenePath>();
         note(slide.unsupported, "Custom shape without enhanced geometry");
       } else {
+        if (shape.paint.gradient && shape.paint.gradient_definition &&
+            shape.paint.gradient_definition->type >=
+                SceneGradientDefinition::Radial) {
+          const auto concentric = geometry.attributeNS(
+              DRAW, "concentric-gradient-fill-allowed", "false");
+          if (concentric == "true" || concentric == "1")
+            note(slide.unsupported, "Custom-path concentric gradient geometry");
+        }
         auto enhanced =
             read_enhanced_geometry(geometry, shape.width, shape.height,
                                    shape.paint, legacy_polar_order);
@@ -1181,10 +1220,17 @@ struct Catalog {
             p.attributeNS(PRESENTATION, "background-objects-visible") == "true";
       paint_properties(foreground, style, slide, true);
     }
-    if (master_background && background.fill)
+    if (master_background)
+      resolve_gradient(background, slide);
+    resolve_gradient(foreground, slide);
+    if (master_background && background.fill) {
       slide.background = background.fill_color;
-    if (foreground.fill)
+      slide.background_paints.push_back(background);
+    }
+    if (foreground.fill) {
       slide.background = foreground.fill_color;
+      slide.background_paints.push_back(foreground);
+    }
     if (master_shapes && !master.isNull())
       shapes(master, styles, {}, slide, true, document_layers.scoped(master));
     editor_ids.clear();

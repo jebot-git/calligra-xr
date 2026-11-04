@@ -23,6 +23,7 @@ double parse_scene_length(const Text &, double fallback = 0);
 Text format_scene_transform(const SceneTransform &);
 using SceneColor = TextColor;
 struct SceneMarkerDefinition;
+struct SceneGradientDefinition;
 struct SceneMarkerUse {
   Text name;
   double width = 0; // Absolute ODF length, independent of stroke width.
@@ -33,6 +34,10 @@ struct ScenePaint {
   bool fill = false, stroke = false;
   bool even_odd = false;
   SceneColor fill_color{255, 255, 255}, stroke_color, text_color;
+  bool gradient = false;
+  Text gradient_name;
+  uint64_t gradient_steps = 0; // Zero selects resolution-dependent sampling.
+  std::shared_ptr<const SceneGradientDefinition> gradient_definition;
   bool use_window_text_color = false;
   double stroke_width = 1;
   double padding = 3.5;
@@ -110,6 +115,7 @@ struct SlideScene {
   Text name, master;
   double width = 28 * 72 / 2.54, height = 15.75 * 72 / 2.54;
   SceneColor background{255, 255, 255};
+  std::vector<ScenePaint> background_paints; // Master, then slide over paper.
   std::vector<SceneShape>
       shapes; // Master first, then slide; stable group/z order.
   std::vector<XmlElement> editable_sources;

@@ -13,12 +13,11 @@ output need feature-appropriate independent checks.
 
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
-uninstalled. Further Sheets catalogue/settings work waits. The currently verified installation is dash build `b787849`, including
-object clipboard, layer/paint authoring and stroke caps/joins. Markers, connector
-geometry and connector controls have separate source/build/stage evidence;
-their installed functionality is determined by the matching installation receipt.
-Historical sections retain their earlier priorities, installation states and
-baseline. New validation does not by itself establish a completed installation.
+uninstalled. Further Sheets catalogue/settings work waits. The preceding connector-authoring build `9049e0f`, including markers,
+connector cache updates and connector controls, was installed and independently
+verified. Gradient changes have separate source/build/stage evidence; their
+installed state is determined by the matching installation receipt. Historical
+sections retain earlier priorities and installation states.
 
 The first Words editing increment adds immediate native document transactions,
 styled paragraph splits/joins in the body, sections and individual table cells,
@@ -2249,3 +2248,59 @@ route normalization, arbitrary consumers, clipboard/reference breadth, imported
 custom paths, full Stage presentation/text/table features, Words/Sheets and
 shared package functionality remain open. The separate system-FLTK early-dismiss
 alert surface leak remains unresolved and unsuppressed.
+
+
+## Drawing color gradients — 2026-11-04
+
+Native Stage now reads all six draw:gradient color types from common resources,
+including inherited graphic/presentation paint and drawing-page styles. Referenced
+resources resolve after the full style chain, so unused names do not generate
+false paint diagnostics. Suppressed master backgrounds do not resolve their
+unused gradient resource. Master and slide backgrounds compose separately over
+opaque paper, retaining each fill's opacity and visibility policy.
+
+The shared scalar field supports borders, centers, endpoint intensities, angle
+units and explicit color steps. Unitless ODF1.2 angles are degrees, with deg/grad/
+rad also supported; source definitions stay unchanged. New native resources write
+explicit radians. Legacy producer-specific wrong tenth-degree angles remain an
+interoperability gap. Automatic steps sample at device resolution. Explicit counts
+use equal-width bands including both endpoint colors;0 selects automatic and1/2
+are rejected. Wide unsigned counts do not create unbounded geometry or loops.
+
+ODF1.2 concentric descriptions are ambiguous/contradictory (OASIS OFFICE-4117).
+The declared native policy uses start color outside and end color inside, an
+expanded bounding circle/ellipse, expanded square bounds and equal physical
+insets for rectangular rings. It agrees with the selected common-consumer
+geometry policy, not every interpretation of the prose. Radial angles are ignored.
+At100% border, Linear/concentric fills use the start color and Axial uses the end
+color; collapsed/underflowed axes produce a finite constant sample. Default
+omitted definition values are black/white, full intensities, zero angle/border and
+center50%/50%. These choices require wider external-office interoperability work.
+
+Stage reuses its GPU image/texture cache to paint the sampled field through the
+existing nonzero/even-odd fill triangles. Native PDF/CUPS clips the same sampler to
+the existing path. Per-fill rasters have at most4million pixels and2048 pixels per
+axis; the screen's prepared gradient data has a64MiB budget. Prints request300dpi
+before those bounds. This is bounded raster shading, not a claim of vector PDF
+shading or shader-only evaluation. Higher zoom/large-format output can reach the
+resolution limit. Solid fills and stroke/marker geometry retain their paths.
+
+The native FLTK Gradient panel stages an existing resource or a custom definition
+and per-object step count inside Fill and stroke. A checked custom edit applies
+one definition to the selection using a fresh collision-aware common name and
+scoped graphic styles. Existing shared resources and other objects remain intact.
+Missing fields preserve settings; mixed selection is replaced only when explicitly
+requested. Existing names can be assigned without cloning their resource. Exact
+source/archive history, invalid rollback, cancellation and unchanged Apply remain
+part of the object paint transaction. Generic formatting-context materialization
+now retains gradient mode/name/steps, and clipboard import remaps resource names.
+
+Selected analytic/model/source/history, schema/package, real native Wayland
+normal/minimum/sanitizer, independent SVG and CUPS evidence is recorded separately
+in VALIDATION.md and each build's receipts. Remaining gaps include SVG gradient
+elements, opacity gradients (which override uniform opacity), custom-path
+concentric-gradient-fill-allowed semantics, legacy angle heuristics, broader
+source defaults/resource precedence, arbitrary external consumers and larger ODF
+coverage. Custom concentric geometry is explicitly diagnosed; bounding-area
+fallback does not claim that feature is implemented. Full Stage, Words, Sheets
+and shared package ODF1.2 functionality remains incomplete.

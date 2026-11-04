@@ -4,6 +4,7 @@
 #include "native_stroke.h"
 #include "native_path.h"
 #include "native_marker.h"
+#include <cstdio>
 #include "text_documents.h"
 #include <charconv>
 #include <cmath>
@@ -117,8 +118,13 @@ void validate(const NativePaintFormat &p) {
   if (p.stroke_join &&
       !TextList{"miter", "round", "bevel", "none"}.contains(*p.stroke_join))
     fail("Choose Miter, Round, Bevel or None stroke joins");
-  if (p.fill && *p.fill != "none" && *p.fill != "solid")
-    fail("Choose None or Solid fill");
+  if (p.fill && *p.fill != "none" && *p.fill != "solid" &&
+      *p.fill != "gradient")
+    fail("Choose None, Solid or Gradient fill");
+  if (p.gradient_definition)
+    validate_scene_gradient(*p.gradient_definition);
+  if (p.gradient_steps && *p.gradient_steps > 0 && *p.gradient_steps < 3)
+    fail("Gradient steps must be zero (automatic) or at least three");
   if (p.stroke && *p.stroke != "none" && *p.stroke != "solid" &&
       *p.stroke != "dash")
     fail("Choose None, Solid or Dash stroke");
@@ -144,6 +150,8 @@ struct Catalog {
   std::map<Text, XmlElement> dashes;
   std::optional<Text> created_dash;
   std::map<Text, XmlElement> markers;
+  std::map<Text, XmlElement> gradients;
+  std::optional<Text> created_gradient;
   std::map<std::pair<Text, Text>, Text> created_markers;
   explicit Catalog(const OdfPackage &p) {
     const auto bytes = p.entry("styles.xml");
@@ -170,6 +178,8 @@ struct Catalog {
           dashes[node.attributeNS(DRAW, "name")] = node;
         for (auto node : children(group, DRAW, "marker"))
           markers[node.attributeNS(DRAW, "name")] = node;
+        for (auto node : children(group, DRAW, "gradient"))
+          gradients[node.attributeNS(DRAW, "name")] = node;
       }
       for (auto node : children(group, STYLE)) {
         auto name = node.attributeNS(STYLE, "name"),
@@ -238,6 +248,18 @@ struct Catalog {
     };
     NativePaintFormat out;
     out.fill = get(DRAW, "fill", "none");
+    out.gradient_name = get(DRAW, "fill-gradient-name", "");
+    out.gradient_steps =
+        read_scene_gradient_steps(get(DRAW, "gradient-step-count", "0"));
+    if (auto at = gradients.find(*out.gradient_name); at != gradients.end()) {
+      try {
+        out.gradient_definition = read_scene_gradient(at->second);
+      } catch (const std::exception &) {
+        if (out.fill == "gradient")
+          throw;
+        // An unused gradient must not block unrelated solid/no-fill edits.
+      }
+    }
     out.stroke = get(DRAW, "stroke", "none");
     out.fill_color = color(get(DRAW, "fill-color", "#ffffff"));
     out.stroke_color = color(get(SVG, "stroke-color", "#000000"));
@@ -322,6 +344,40 @@ struct Catalog {
     created_markers.emplace(key, id);
     return id;
   }
+  Text gradient(OdfPackage &p, const SceneGradientDefinition &g) {
+    if (created_gradient)
+      return *created_gradient;
+    validate_scene_gradient(g);
+    auto common_node = common_styles(p);
+    if (children(common_node, DRAW, "gradient").size() >= 100000)
+      fail("Too many drawing gradient definitions");
+    auto node = styles.createElementNS(DRAW, "draw:gradient");
+    auto id = name();
+    const TextList kinds{"linear",    "axial",  "radial",
+                         "ellipsoid", "square", "rectangular"};
+    node.setAttributeNS(DRAW, "draw:name", id);
+    node.setAttributeNS(DRAW, "draw:style", kinds.at(g.type));
+    auto rgb = [](SceneColor c) {
+      char out[8];
+      std::snprintf(out, sizeof(out), "#%02x%02x%02x", unsigned(c.red),
+                    unsigned(c.green), unsigned(c.blue));
+      return Text(out);
+    };
+    node.setAttributeNS(DRAW, "draw:start-color", rgb(g.start));
+    node.setAttributeNS(DRAW, "draw:end-color", rgb(g.end));
+    for (auto [key, value] : {std::pair{"start-intensity", g.start_intensity},
+                              std::pair{"end-intensity", g.end_intensity},
+                              std::pair{"border", g.border},
+                              std::pair{"cx", g.cx}, std::pair{"cy", g.cy}})
+      node.setAttributeNS(DRAW, Text("draw:") + key,
+                          Text::number(value * 100, 'g', 17) + "%");
+    node.setAttributeNS(DRAW, "draw:angle",
+                        Text::number(g.angle, 'g', 17) + "rad");
+    common_node.appendChild(node);
+    p.set_entry("styles.xml", styles.toByteArray(), "text/xml");
+    created_gradient = id;
+    return id;
+  }
   Text dash(OdfPackage &p, const SceneDashPattern &pattern) {
     if (created_dash)
       return *created_dash;
@@ -381,6 +437,34 @@ struct Catalog {
       graphic.setAttributeNS(ns, key, value);
     };
     auto current = info(object);
+    if (patch.gradient_definition ||
+        (patch.gradient_name && !patch.gradient_name->empty()) ||
+        patch.fill == "gradient") {
+      auto id = current.gradient_name.value_or(Text());
+      if (patch.gradient_name)
+        id = *patch.gradient_name;
+      if (patch.gradient_definition && patch.gradient_name) {
+        auto at = gradients.find(id);
+        if (at == gradients.end() ||
+            read_scene_gradient(at->second) != *patch.gradient_definition)
+          fail("Choose an existing gradient or a new definition");
+      } else if (patch.gradient_definition) {
+        if (current.gradient_definition != patch.gradient_definition)
+          id = gradient(p, *patch.gradient_definition);
+      }
+      if (!patch.gradient_definition || patch.gradient_name) {
+        auto at = gradients.find(id);
+        if (at == gradients.end())
+          fail("Choose a defined gradient or a new definition");
+        (void)read_scene_gradient(at->second);
+      }
+      put(DRAW, "draw:fill-gradient-name", id);
+      put(DRAW, "draw:fill", "gradient");
+    } else if (patch.gradient_name)
+      put(DRAW, "draw:fill-gradient-name", *patch.gradient_name);
+    if (patch.gradient_steps)
+      put(DRAW, "draw:gradient-step-count",
+          Text::number(*patch.gradient_steps));
     auto put_marker = [&](const Text &end, const NativeMarkerFormat &m,
                           const NativeMarkerFormat &before) {
       if (m.name && m.definition) {
@@ -480,6 +564,15 @@ void aggregate(NativeMarkerFormat &value, const NativeMarkerFormat &next) {
 bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
   return changes(before.marker_start, patch.marker_start) ||
          changes(before.marker_end, patch.marker_end) ||
+         (patch.gradient_name &&
+          (patch.gradient_name != before.gradient_name ||
+           (!patch.gradient_name->empty() && !patch.fill &&
+            before.fill != "gradient"))) ||
+         (patch.gradient_definition &&
+          (patch.gradient_definition != before.gradient_definition ||
+           (!patch.fill && before.fill != "gradient"))) ||
+         (patch.gradient_steps &&
+          patch.gradient_steps != before.gradient_steps) ||
          (patch.dash_pattern && (patch.dash_pattern != before.dash_pattern ||
                                  (!patch.stroke && before.stroke != "dash"))) ||
          (patch.dash_names && patch.dash_names != before.dash_names) ||
@@ -502,7 +595,8 @@ bool NativePaintFormat::empty() const {
   return !fill && !fill_color && !stroke && !stroke_color && !fill_opacity &&
          !stroke_opacity && !stroke_width && !even_odd && !image_opacity &&
          !stroke_cap && !stroke_join && !dash_pattern && !dash_names &&
-         marker_start.empty() && marker_end.empty();
+         marker_start.empty() && marker_end.empty() && !gradient_name &&
+         !gradient_definition && !gradient_steps;
 }
 NativePaintInfo
 Presentation::object_paint(int index,
@@ -514,6 +608,8 @@ Presentation::object_paint(int index,
     result.available_dashes.push_back(name);
   for (const auto &[name, node] : catalog.markers)
     result.available_markers.push_back(name);
+  for (const auto &[name, node] : catalog.gradients)
+    result.available_gradients.push_back(name);
   auto nodes = objects(model, refs);
   result.editable = !read_only();
   for (auto ref : native_object_selection(model, refs))
@@ -533,6 +629,9 @@ Presentation::object_paint(int index,
     else {
       aggregate(result.values.fill, info.fill);
       aggregate(result.values.fill_color, info.fill_color);
+      aggregate(result.values.gradient_name, info.gradient_name);
+      aggregate(result.values.gradient_definition, info.gradient_definition);
+      aggregate(result.values.gradient_steps, info.gradient_steps);
       aggregate(result.values.stroke, info.stroke);
       aggregate(result.values.stroke_color, info.stroke_color);
       aggregate(result.values.fill_opacity, info.fill_opacity);

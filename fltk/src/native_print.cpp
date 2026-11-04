@@ -4,6 +4,7 @@
 #include "native_path.h"
 #include "native_stroke.h"
 #include "native_marker.h"
+#include "native_gradient.h"
 #include "native_table_layout.h"
 #include "native_text_shaper.h"
 #include "native_tabs.h"
@@ -120,7 +121,8 @@ public:
       throw std::runtime_error("Cannot replace print document");
   }
   void image(const std::shared_ptr<const ImageAsset> &asset, double width,
-             double height, double opacity = 1) {
+             double height, double opacity = 1, bool fill_texture = false,
+             bool discrete = false) {
     if (!asset || width <= 0 || height <= 0) {
       color(cr_, {180, 40, 40});
       cairo_rectangle(cr_, 0, 0, std::max(0., width), std::max(0., height));
@@ -159,6 +161,12 @@ public:
     Save save(cr_);
     cairo_scale(cr_, width / w, height / h);
     cairo_set_source_surface(cr_, surface, 0, 0);
+    if (fill_texture) {
+      cairo_pattern_set_extend(cairo_get_source(cr_), CAIRO_EXTEND_PAD);
+      cairo_pattern_set_filter(cairo_get_source(cr_),
+                               discrete ? CAIRO_FILTER_NEAREST
+                                        : CAIRO_FILTER_BILINEAR);
+    }
     cairo_paint_with_alpha(cr_, opacity);
     check(cairo_surface_status(surface));
     cairo_surface_destroy(surface);
@@ -382,7 +390,35 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
   Pdf pdf(path);
   const auto scenes = document.print_scenes();
   for (const auto &scene : scenes) {
-    pdf.page(scene.width, scene.height, scene.background);
+    pdf.page(scene.width, scene.height,
+             scene.background_paints.empty() ? scene.background
+                                             : SceneColor{255, 255, 255});
+    auto fill = [&](const ScenePaint &paint, SceneRect bounds,
+                    const SceneTransform &device) {
+      if (!paint.gradient) {
+        color(pdf.cr(), paint.fill_color);
+        cairo_fill(pdf.cr());
+        return;
+      }
+      if (!paint.gradient_definition)
+        throw std::runtime_error("Print gradient definition is unavailable");
+      auto asset = scene_gradient_image(*paint.gradient_definition, bounds,
+                                        device, paint.gradient_steps);
+      if (!asset) {
+        cairo_new_path(pdf.cr());
+        return;
+      }
+      Save clip_gradient(pdf.cr());
+      cairo_clip(pdf.cr());
+      cairo_translate(pdf.cr(), bounds.x, bounds.y);
+      pdf.image(asset, bounds.width, bounds.height, paint.fill_color.alpha,
+                true, paint.gradient_steps != 0);
+    };
+    for (const auto &paint : scene.background_paints) {
+      cairo_rectangle(pdf.cr(), 0, 0, scene.width, scene.height);
+      fill(paint, {0, 0, scene.width, scene.height},
+           SceneTransform{300 / 72., 0, 0, 300 / 72.});
+    }
     pdf.result.unsupported.insert(pdf.result.unsupported.end(),
                                   scene.unsupported.begin(),
                                   scene.unsupported.end());
@@ -423,13 +459,13 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
         };
         if (shape.paint.fill) {
           draw_path(true);
-          color(pdf.cr(), shape.paint.fill_color);
           cairo_set_fill_rule(pdf.cr(), (shape.path && shape.path->even_odd
                                              ? *shape.path->even_odd
                                              : shape.paint.even_odd)
                                             ? CAIRO_FILL_RULE_EVEN_ODD
                                             : CAIRO_FILL_RULE_WINDING);
-          cairo_fill(pdf.cr());
+          fill(shape.paint, scene_gradient_bounds(shape),
+               SceneTransform{300 / 72., 0, 0, 300 / 72.} * shape.transform);
         }
         if (shape.paint.stroke &&
             (shape.paint.stroke_width > 0 || !markers[id].empty())) {

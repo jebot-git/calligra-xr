@@ -1366,3 +1366,29 @@ at small slide scales; tested minimum-window rendering uses four samples.
 Broader clipboard references, custom-path editing, untouched import normalization
 and full ODF1.2 interoperability remain open. Words remains paused with its
 experimental columns preserved and uninstalled; further Sheets work waits.
+
+
+## Stage color gradients
+
+Choose Format → Fill and stroke → Gradient to edit a color gradient. Enable
+Apply this gradient to the selection, then choose an existing common resource
+or use Current / new definition. The six draw:gradient types are Linear, Axial,
+Radial, Ellipsoid, Square and Rectangular. Set endpoint colors, their intensities,
+angle in degrees, border and center percentages. Steps uses0 for automatic
+resolution-dependent shading, or a fixed count of at least3. Uniform fill opacity
+remains available in the outer panel.
+
+The inner Apply stages the gradient. The outer Apply commits its resource and
+scoped object style together with the other paint changes. Cancel leaves source
+and history unchanged. Editing a definition creates a fresh common resource;
+other objects keep their shared definitions. Object copy/paste preserves and
+remaps gradient resources and resolved formatting context. Masters and slide
+backgrounds also display their gradient fills, with separate opacity layers.
+
+Native screen and PDF/CUPS use the same bounded color sampler and object-local
+fill area. Screen paint clips uploaded textures to the existing tessellated
+geometry; PDF clips the sampled fill to its path, retaining holes and transforms.
+See PORT_STATUS.md for geometry/angle policies, resolution limits and known ODF
+ambiguities. SVG gradient elements, opacity gradients and custom-path concentric
+gradient geometry remain separate unsupported work; these six color-gradient
+controls do not establish complete ODF1.2 drawing or presentation support.

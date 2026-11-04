@@ -281,6 +281,40 @@ struct GpuImageCache::Impl {
 };
 GpuImageCache::GpuImageCache() : impl_(std::make_unique<Impl>()) {}
 GpuImageCache::~GpuImageCache() = default;
+void GpuImageCache::draw_fill(const std::shared_ptr<const ImageAsset> &asset,
+                              const SceneTransform &transform, SceneRect bounds,
+                              std::span<const ScenePoint> triangles,
+                              Fl_Gl_Window &host, double opacity,
+                              bool discrete) {
+  if (triangles.empty() || bounds.width <= 0 || bounds.height <= 0)
+    return;
+  if (!asset || !asset->data || asset->data->empty())
+    throw std::runtime_error("Gradient raster is unavailable");
+  impl_->prepare(host);
+  State state(host);
+  const auto &entry = impl_->get(asset, 0, 0);
+  if (!entry.texture)
+    throw std::runtime_error(entry.error);
+  glEnable(GL_TEXTURE_2D);
+  glBindTexture(GL_TEXTURE_2D, entry.texture);
+  if (discrete) {
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  }
+  glColor4d(1, 1, 1, opacity);
+  glBegin(GL_TRIANGLES);
+  for (auto p : triangles) {
+    glTexCoord2d((p.x - bounds.x) / bounds.width,
+                 (p.y - bounds.y) / bounds.height);
+    auto q = transform.map(p);
+    glVertex2d(q.x, q.y);
+  }
+  glEnd();
+  if (discrete) {
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  }
+}
 void GpuImageCache::begin_frame(Fl_Gl_Window &host) {
   impl_->prepare(host);
   impl_->errors.clear();

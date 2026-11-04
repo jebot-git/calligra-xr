@@ -12,6 +12,7 @@ target_compile_definitions(calligra-fltk-document PRIVATE CALLIGRA_NATIVE_VERSIO
 target_sources(calligra-fltk-document PRIVATE src/native_stage_paint.cpp src/native_layers.cpp src/native_stage_layers.cpp src/native_stage_edit.cpp src/native_stage_objects.cpp src/native_stage_geometry.cpp src/native_stage_text_format.cpp src/native_shape_drag.cpp src/native_stage_transform.cpp src/native_stage_order.cpp src/native_stage_selection.cpp src/native_stage_groups.cpp src/native_object_gesture.cpp src/native_stage_multi.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_stroke.cpp src/native_dash.cpp src/native_dash_pattern.cpp src/native_marker.cpp src/native_connector.cpp src/native_connector_route.cpp src/native_stage_connector.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_archive.cpp)
+target_sources(calligra-fltk-document PRIVATE src/native_gradient.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_stage_fragment.cpp src/native_stage_styles.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_stage_fragment_codec.cpp src/native_stage_import.cpp src/native_stage_timing.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_stage_cut.cpp)
@@ -45,6 +46,10 @@ install(DIRECTORY "${CMAKE_SOURCE_DIR}/LICENSES/" DESTINATION ${CMAKE_INSTALL_DA
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(calligra-native-gradient-test tests/native_gradient_test.cpp)
+  target_link_libraries(calligra-native-gradient-test PRIVATE calligra-fltk-document)
+  target_compile_options(calligra-native-gradient-test PRIVATE -UNDEBUG)
+  add_test(NAME native-gradients COMMAND calligra-native-gradient-test)
   add_executable(calligra-native-clipboard-process-test tests/native_clipboard_process_test.cpp)
   target_link_libraries(calligra-native-clipboard-process-test PRIVATE calligra-native-clipboard-process)
   target_compile_options(calligra-native-clipboard-process-test PRIVATE -UNDEBUG)

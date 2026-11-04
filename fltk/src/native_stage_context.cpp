@@ -340,7 +340,10 @@ XmlElement NativeStageContextStyles::graphic(const ScenePaint &value,
       fail("Invalid materialized paint geometry");
   auto node = style(family);
   auto p = add(node, "graphic-properties");
-  set(p, DRAW, "fill", value.fill ? "solid" : "none");
+  set(p, DRAW, "fill",
+      value.fill ? (value.gradient ? "gradient" : "solid") : "none");
+  set(p, DRAW, "fill-gradient-name", value.gradient_name);
+  set(p, DRAW, "gradient-step-count", Text::number(value.gradient_steps));
   set(p, DRAW, "fill-color", rgb_opaque(value.fill_color));
   set(p, DRAW, "opacity", number(value.fill_color.alpha * 100) + "%");
   set(p, DRAW, "stroke",

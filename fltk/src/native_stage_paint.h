@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_stage_selection.h"
+#include "native_gradient.h"
 namespace DomeOffice {
 struct NativeMarkerDefinition {
   Text data, view_box;
@@ -21,6 +22,9 @@ struct NativePaintFormat {
       image_opacity;
   std::optional<bool> even_odd;
   std::optional<Text> stroke_cap, stroke_join;
+  std::optional<Text> gradient_name;
+  std::optional<SceneGradientDefinition> gradient_definition;
+  std::optional<uint64_t> gradient_steps;
   std::optional<SceneDashPattern> dash_pattern;
   std::optional<TextList> dash_names;
   NativeMarkerFormat marker_start, marker_end;
@@ -30,6 +34,6 @@ struct NativePaintInfo {
   NativePaintFormat values;
   size_t objects = 0, image_objects = 0;
   bool editable = true;
-  TextList available_dashes, available_markers;
+  TextList available_dashes, available_markers, available_gradients;
 };
 } // namespace DomeOffice

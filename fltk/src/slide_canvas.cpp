@@ -8,6 +8,7 @@
 #include "native_path.h"
 #include "native_stroke.h"
 #include "native_marker.h"
+#include "native_gradient.h"
 #include "native_table_layout.h"
 #include "suite/fltk_appearance.h"
 #include <FL/fl_draw.H>
@@ -164,10 +165,13 @@ struct SlideCanvas::Impl {
       std::vector<std::vector<ScenePoint>> stroke_triangles;
     };
     std::vector<Geometry> groups;
+    SceneRect fill_bounds;
+    std::shared_ptr<const ImageAsset> gradient;
     SceneRect text_area;
     TextBoxLayout text;
   };
   std::vector<Prepared> prepared;
+  std::vector<std::shared_ptr<const ImageAsset>> background_gradients;
   NativeTextShaper shaper;
   GpuTextCache glyphs;
   GpuImageCache pictures;
@@ -190,11 +194,37 @@ struct SlideCanvas::Impl {
           Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
     current = nullptr;
     prepared.clear();
+    background_gradients.clear();
     text_stats = {};
     geometry_points = 0;
     error.clear();
+    size_t gradient_bytes = 0;
+    auto gradient = [&](const ScenePaint &paint, SceneRect bounds,
+                        const SceneTransform &device) {
+      std::shared_ptr<const ImageAsset> image;
+      if (paint.fill && paint.gradient && paint.gradient_definition) {
+        image = scene_gradient_image(*paint.gradient_definition, bounds, device,
+                                     paint.gradient_steps);
+        if (image)
+          gradient_bytes += image->data->size();
+        if (gradient_bytes > 64 * 1024 * 1024)
+          throw std::runtime_error(
+              "Slide gradient rasters exceed the memory limit");
+      }
+      return image;
+    };
+    for (const auto &paint : model.background_paints)
+      background_gradients.push_back(
+          gradient(paint, {0, 0, model.width, model.height},
+                   SceneTransform{scale_x, 0, 0, scale_y}));
     for (const auto &shape : model.shapes) {
       Prepared p;
+      if (shape.paint.gradient) {
+        p.fill_bounds = scene_gradient_bounds(shape);
+        p.gradient =
+            gradient(shape.paint, p.fill_bounds,
+                     SceneTransform{scale_x, 0, 0, scale_y} * shape.transform);
+      }
       auto contours =
           shape.path ? flatten_path(*shape.path, shape.path_map,
                                     SceneTransform{scale_x, 0, 0, scale_y} *
@@ -321,8 +351,29 @@ struct SlideCanvas::Impl {
     State state(*window);
     scene_color({255, 255, 255});
     quad(screen, model.width, model.height);
-    scene_color(model.background);
-    quad(screen, model.width, model.height);
+    if (model.background_paints.empty()) {
+      scene_color(model.background);
+      quad(screen, model.width, model.height);
+    } else {
+      const std::array<ScenePoint, 6> triangles{{{0, 0},
+                                                 {model.width, 0},
+                                                 {model.width, model.height},
+                                                 {0, 0},
+                                                 {model.width, model.height},
+                                                 {0, model.height}}};
+      for (size_t i = 0; i < model.background_paints.size(); ++i) {
+        const auto &paint = model.background_paints[i];
+        if (paint.gradient)
+          pictures.draw_fill(background_gradients.at(i), screen,
+                             {0, 0, model.width, model.height}, triangles,
+                             *window, paint.fill_color.alpha,
+                             paint.gradient_steps != 0);
+        else {
+          scene_color(paint.fill_color);
+          quad(screen, model.width, model.height);
+        }
+      }
+    }
     rendered = 0;
     glGetIntegerv(GL_SAMPLES, &samples);
     std::vector<bool> selected_flags(model.shapes.size());
@@ -353,11 +404,18 @@ struct SlideCanvas::Impl {
       auto transform = screen * shape.transform;
       for (const auto &geometry : cached.groups) {
         if (shape.paint.fill) {
-          scene_color(shape.paint.fill_color);
-          glBegin(GL_TRIANGLES);
-          for (auto p : geometry.triangles)
-            vertex(transform.map(p));
-          glEnd();
+          if (shape.paint.gradient)
+            pictures.draw_fill(cached.gradient, transform, cached.fill_bounds,
+                               geometry.triangles, *window,
+                               shape.paint.fill_color.alpha,
+                               shape.paint.gradient_steps != 0);
+          else {
+            scene_color(shape.paint.fill_color);
+            glBegin(GL_TRIANGLES);
+            for (auto p : geometry.triangles)
+              vertex(transform.map(p));
+            glEnd();
+          }
         }
         if (shape.paint.stroke) {
           scene_color(shape.paint.stroke_color);

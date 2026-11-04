@@ -3640,3 +3640,54 @@ packages have a separate retained validation receipt. Build/staged section hashe
 33 artifacts, clipboard helper, system FLTK/no Qt/GTK ELF, staged controls and
 actual installed checks remain separate release gates. These checks do not prove
 physical printing or exhaustive external-office/ODF1.2 conformance.
+
+
+## Drawing gradients and scoped resource editing — 2026-11-04
+
+`native-gradients` checks all six scalar fields against hand-calculated positions,
+angle units/projections, borders/centers, endpoint intensities, discrete colors,
+malformed input and wide counts. Shared BMP checks verify orientation and a bounded
+pixel budget, including collapsed underflowed axes. Model/clipboard tests check
+resolved gradient context, collision/remapping against different receiving
+resources, scoped multi-object resource creation, explicit-radian round trips,
+existing-resource assignment, unchanged Apply, invalid rollback and exact archive/
+source/selection history. The gradient build runs102 of105 total suites, with the same
+three existing outline-font exclusions.
+
+`stage_gradient_producer.py` independently constructs a strict ODF1.2 four-page
+fixture. It covers all six types, physical borders/centers/angles/intensities,
+stepped fills, affine geometry, even-odd holes, ellipse clipping, uniform opacity,
+layered master/slide backgrounds and master-background visibility. Its SVG
+reference uses native SVG ramps/ellipses and nested rectangular contours rendered
+by CairoSVG, without calling the native sampler. Known OASIS gradient ambiguities
+are recorded as a declared policy rather than hidden by schema conformance.
+
+`native_stage_gradient_ui.py --bin-dir BIN --test-bin-dir TEST_BIN --artifacts DIR
+[--minimum-window]` runs only its isolated Cage/DomeD host. It compares55 interior
+probes on the four pages, mapped through actual framebuffer pixel centers to the
+independent SVG reference. The selected tolerance is8 channel levels, accounting
+for device-pixel quantization. It also creates a custom radial gradient through
+real native controls, tests nested/outer Cancel, exact scoped XML/resource changes,
+undo/redo, unchanged Apply with redo available and save/reopen. The source oracle
+allows only one new automatic style, one common resource and the selected object's
+style reference; all other source/resources/archive parts must match. Normal and
+minimum/sanitizer/staged/installed runs are separate receipts. Only existing
+system-cache GUI sanitizer suppressions are allowed.
+
+`stage_gradient_print.py DIR --bin-dir BIN [--ui-artifacts UI]` submits original
+and reopened packages through actual private CUPS. A supplied UI corpus adds the
+authored package. Each case has four pages. Captured PDF bytes must match, source
+parts remain scoped, and reopened rasters match exactly. The independent SVG
+comparison checks full-page means below1.25 channel levels and zero interior
+pixels differing by more than6. A two-pixel neighborhood of hard edges, detected
+from the independent reference, is excluded only from the interior maximum; all
+pixels still contribute to the mean and retained difference images. Authored
+pages2–4 must remain byte-identical to the original rasters. Three-app export/
+reopen/CUPS and unchanged baseline PNGs remain separate checks.
+
+Release/ASan suites, native UI, official Jing schemas/selected Part3 packages,
+optimized stage/installed hashes, system FLTK/no Qt/GTK linkage and actual installed
+CUPS must each pass independently before an installation is marked verified.
+These selected checks do not establish physical printing, every ODF gradient
+interpretation or full ODF1.2 functionality. SVG/opacity gradients and custom-path
+concentric behavior remain incomplete.
