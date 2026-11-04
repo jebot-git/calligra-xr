@@ -3251,3 +3251,34 @@ print inputs lack manifest versions and remain separate; their repaired exports
 pass. The optional1.4 content/styles specimens are not a claim of complete1.4
 package conformance. Known-property materialization is not complete default/style
 isolation or a usable paste workflow. Staging and installed evidence stay separate.
+
+
+## Detached receiving Stage assembly validation — 2026-11-04
+
+The assembly increment passes94 selected Release and94 ASan/UBSan suites, keeping
+the three established outline-font exclusions. Core leak checking is enabled
+without suppressions. Focused goldens cover document versus empty page-local
+layer sets, independent master scopes, protected existing definitions, hidden
+and printer-only imported members, same-name source font scopes, reserved names
+and conflicting asset paths. Source declaration identities stay alive after
+assembly. Independent physical/visual root order, selected versus context roots,
+untouched slides, invalid inputs and integer saturation have separate cases.
+Archive-part replay restores exact old definitions/manifests/assets and replays
+new parts without publishing any live model transaction.
+
+The independent Python oracle restores the exact receiving body after removing
+imported roots and restoring the prior layer-set state. Old definitions/defaults,
+assets and the other slide remain intact. CUPS checks use matched known defaults;
+they do not prove arbitrary receiving-context isolation. Nine private jobs cover
+21 pages. Captured PDF hashes match all nine generated documents, every ODF
+export reopens with equal rasters, and the untouched slide is pixel-identical
+before/after. Twelve new page candidates were visually reviewed; nine suite
+baseline pages match the previously reviewed context increment exactly.
+
+All21 current fixture/export packages pass version-matched content/styles
+schemas with Jing and libxml2. Eighteen generated/exported packages pass the
+manifest schema and selected ODF1.2 plain-package checks; three legacy original
+print inputs remain separate from repaired exports. Schema validation corrected
+a fixture's empty page layer-set order before the final run. This is an internal
+assembly draft, not complete context isolation, live paste/history or clipboard
+controls. Optimized staging and installation remain separate evidence.

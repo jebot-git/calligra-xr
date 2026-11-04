@@ -1838,3 +1838,32 @@ context-specific repeated-cell XML, next/list behavior, destination layer and
 stacking merge, paste/history and native clipboard controls remain unfinished.
 The increment is not installed; runtime353c016 remains unchanged. Full ODF1.2
 functionality remains incomplete; Words is paused and further Sheets work waits.
+
+
+## Detached receiving Stage package assembly — 2026-11-04
+
+An internal move-only assembly draft now combines a remapped selected-object
+fragment with a receiving package. Unique imported fonts from both source scopes
+are reachable in the receiving styles part; common and automatic definitions
+retain their appropriate scopes. Assets are added under reserved package paths.
+The source package/defaults stay available alongside a source-to-candidate element
+mapping for the still-required point-of-use context isolation.
+
+The draft preserves existing object XML, definitions/defaults, archive assets,
+other slides and old stacking labels. Imported roots retain physical source
+order, receive distinct front indices in their original visual order, and keep
+selected roots separate from ancestor context groups. Saturated integer stacking
+rejects without changing existing source; broader ODF integer support remains.
+
+Imported layers are added to the receiving page's own set. If it previously
+inherited document layers, their effective definitions are first copied locally;
+an explicitly empty local set remains empty apart from imported definitions.
+Master-local layers remain separate from page inheritance. This snapshot also
+means later document-layer edits do not reach those local copies. The final
+paste policy must account for that change in editing scope.
+
+This draft is not a publishable paste transaction. Source default/unknown-property
+and context-specific cell/style isolation, next/list behavior, navigation/global
+fields, final layer policy, asynchronous history/stale guards and clipboard UI
+still need integration. The source-only increment remains uninstalled;353c016
+stays installed. Stage remains active, Words paused and further Sheets deferred.

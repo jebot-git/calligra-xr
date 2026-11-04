@@ -1226,3 +1226,13 @@ receiving XML retention and source/materialized print pairs. This source-only
 work does not implement the receiving-package merge, paste/history or clipboard
 UI. Unknown style graphs, list/next-style behavior and per-instance cell XML still
 need integration; the installed build is unchanged.
+
+
+`native_stage_merge.h` adds an internal move-only receiving-package assembly
+draft. It transfers reserved definitions/assets and selected/context source
+mappings, preserves existing source and builds front stacking and local layer
+snapshots. It retains the remapped source defaults for the next isolation step.
+The draft must not be published as paste: default/context/style/cell isolation,
+future layer-edit policy, navigation/fields and live history/UI are unfinished.
+`stage_merge_producer.py` independently checks receiving XML/archive retention,
+reopened output and captured CUPS PDF bytes on matched-default specimens.
