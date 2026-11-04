@@ -140,23 +140,27 @@ struct Assembly {
     if (!sets.empty())
       local = sets.front();
     else {
-      // Page shapes inherit the document layer set. Master shapes have their
-      // own independent scope; a master's local set does not replace the
-      // page's.
-      XmlElement inherited;
+      // Adding fresh document definitions preserves page inheritance and all
+      // old master/page scopes. Name reservation covers unresolved references
+      // as well, so this cannot heal another object's missing layer.
+      XmlElement global_parent;
       for (auto doc : {external, draft.package.xml}) {
-        auto found =
-            children(child(doc.documentElement(), OFFICE, "master-styles"),
-                     DRAW, "layer-set");
+        auto parent = child(doc.documentElement(), OFFICE, "master-styles");
+        auto found = children(parent, DRAW, "layer-set");
         if (found.size() > 1)
           fail("Ambiguous receiving document layer set");
-        if (!found.empty())
-          inherited = found.front();
+        if (!found.empty()) {
+          global_parent = parent;
+          local = found.front();
+        }
       }
-      local = inherited.isNull()
-                  ? draft.package.xml.createElementNS(DRAW, "draw:layer-set")
-                  : draft.package.xml.importNode(inherited, true).toElement();
-      page.insertBefore(local, page.firstChild());
+      if (local.isNull()) {
+        global_parent = group(external, "master-styles");
+        local = external.createElementNS(DRAW, "draw:layer-set");
+        global_parent.insertBefore(local, global_parent.firstChild());
+      }
+      if (local.ownerDocument().documentElement() == external.documentElement())
+        styles_dirty = true;
     }
     std::set<Text> names;
     for (auto layer : children(local, DRAW, "layer"))

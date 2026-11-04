@@ -1236,3 +1236,18 @@ The draft must not be published as paste: default/context/style/cell isolation,
 future layer-edit policy, navigation/fields and live history/UI are unfinished.
 `stage_merge_producer.py` independently checks receiving XML/archive retention,
 reopened output and captured CUPS PDF bytes on matched-default specimens.
+
+
+Stage's internal import preparation includes bounded repeated-row/cell expansion
+(`native_stage_repeat.h`) with typed local identity/reference cloning and shared
+source/receiving name reservation. The receiving graph assembler preserves
+existing document-layer inheritance; old objects still follow later global layer
+edits. Source default/property and per-instance style materialization, broader
+list/field/embedded semantics and live paste/history/clipboard controls remain
+unfinished.
+
+Empty-cell-only Stage tables now reach GPU and print layout. Source fragments
+retain object text/paragraph defaults even without plain text. The independent
+`stage_repeat_producer.py` checks repeated/expanded XML and print equivalence;
+`native_stage_empty_table_ui.py` checks the same empty table under an isolated
+native Wayland host without desktop input or an X server.

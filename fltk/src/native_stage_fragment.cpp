@@ -255,6 +255,13 @@ struct Fragment : NativeStageStyleCatalog {
         fail("Clipboard object xml:base resolution is not implemented yet");
       if (uri == DRAW)
         family("graphic");
+      // Stage paint starts with text and paragraph defaults even when the
+      // object has no plain text. Empty table cells and future frame typing
+      // still use that font context.
+      if (native_stage_object_identity(node)) {
+        family("text");
+        family("paragraph");
+      }
       if (uri == TEXT &&
           (name == "p" || name == "h" || name == "span" || name == "a")) {
         family("paragraph");

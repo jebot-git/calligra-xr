@@ -219,8 +219,27 @@ OdfPackage assemble(bool local_empty = false, bool master_local = false) {
   auto items = native_stacking_children(merged_page);
   assert(items.back().node == draft.roots[0] && items.back().z == 28);
   assert(named(draft.package.xml, "A").attributeNS(DRAW, "z-index") == "00027");
-  auto layers = children(child(merged_page, DRAW, "layer-set"), DRAW, "layer");
+  auto merged_styles = read_document_xml(draft.package.entry("styles.xml"));
+  const auto effective_set = local_empty
+                                 ? child(merged_page, DRAW, "layer-set")
+                                 : child(child(merged_styles.documentElement(),
+                                               OFFICE, "master-styles"),
+                                         DRAW, "layer-set");
+  auto layers = children(effective_set, DRAW, "layer");
   assert(layers.size() == (local_empty ? 3 : 7));
+  assert(child(merged_page, DRAW, "layer-set").isNull() == !local_empty);
+  // Editing a document layer after import still affects the receiving page.
+  if (!local_empty) {
+    auto old_layer = children(effective_set, DRAW, "layer").front();
+    old_layer.setAttributeNS(DRAW, "draw:display", "none");
+    OdfPackage later = draft.package;
+    later.xml = read_document_xml(draft.package.xml.toByteArray());
+    later.set_entry("styles.xml", merged_styles.toByteArray(), "text/xml");
+    auto changed = read_presentation_scenes(later);
+    assert(std::none_of(changed[0].shapes.begin(), changed[0].shapes.end(),
+                        [](const auto &s) { return s.name == "X"; }));
+    assert(changed[0].shapes.size() + 1 == scenes[0].shapes.size());
+  }
   auto changes = draft.package.part_changes_from(target);
   OdfPackage replay = draft.package;
   replay.xml = read_document_xml(xml);

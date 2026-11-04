@@ -24,9 +24,9 @@ struct NativeStageMergeDraft {
 // Decode, reserve/remap names and resources, then assemble definitions, package
 // assets, effective page layers and front stacking in a detached destination.
 // Existing receiving source/definitions/defaults/assets are never replaced.
-// A page inheriting document layers gets a local snapshot; later document-layer
-// edits do not reach those local copies. The final paste policy must account
-// for this scope change as well as default/context and navigation semantics.
+// A page inheriting document layers keeps that inheritance. Fresh imported
+// layers are added to its effective document set; an existing own page set
+// instead receives them locally. Missing receiving references remain missing.
 NativeStageMergeDraft prepare_stage_merge(const OdfPackage &, int slide,
                                           const Bytes &native_fragment);
 } // namespace DomeOffice

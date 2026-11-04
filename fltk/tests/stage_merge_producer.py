@@ -55,7 +55,7 @@ def oracle(before, after):
     assert old_pages[0].attrib == new_pages[0].attrib
     old_set = old_pages[0].find(f"{{{DRAW}}}layer-set")
     new_set = new_pages[0].find(f"{{{DRAW}}}layer-set")
-    assert new_set is not None
+    assert (old_set is None) == (new_set is None)
     # The imported wrapper is appended after every old page node. Restoring the
     # old layer-set state must recover exactly the receiving body XML.
     added = [
@@ -66,15 +66,7 @@ def oracle(before, after):
     assert len(added) == 1 and added[0].tag == f"{{{DRAW}}}g"
     assert added[0].get(f"{{{DRAW}}}z-index") == "28"
     new_pages[0].remove(added[0])
-    if old_set is None:
-        if new_set.tail:
-            previous = new_set.getprevious()
-            if previous is None:
-                new_pages[0].text = (new_pages[0].text or "") + new_set.tail
-            else:
-                previous.tail = (previous.tail or "") + new_set.tail
-        new_pages[0].remove(new_set)
-    else:
+    if old_set is not None:
         assert len(old_set) == 0
         for n in list(new_set):
             new_set.remove(n)

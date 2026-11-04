@@ -589,12 +589,17 @@ struct Catalog {
           !child(node, DRAW, "object-ole").isNull())
         note(slide.unsupported, "Embedded document objects");
       shape.paragraph_style = node.attributeNS(DRAW, "text-style-name");
-      if (!shape.text.empty()) {
+      const auto text_box = child(node, DRAW, "text-box");
+      const bool has_flow = !text_box.isNull() ||
+                            !children(node, TEXT, "p").empty() ||
+                            !children(node, TEXT, "h").empty() ||
+                            !children(node, TABLE, "table").empty();
+      if (has_flow) {
         TextParagraph base;
         base.font = shape.paint.font;
         if (!shape.paint.use_window_text_color)
           base.color = shape.paint.text_color;
-        auto container = child(node, DRAW, "text-box");
+        auto container = text_box;
         if (container.isNull())
           container = node;
         shape.text_flow =

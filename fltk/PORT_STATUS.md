@@ -1867,3 +1867,38 @@ and context-specific cell/style isolation, next/list behavior, navigation/global
 fields, final layer policy, asynchronous history/stale guards and clipboard UI
 still need integration. The source-only increment remains uninstalled;353c016
 stays installed. Stage remains active, Words paused and further Sheets deferred.
+
+
+## Repeated import cells and empty Stage tables — 2026-11-04
+
+A detached selection helper now expands repeated rows/cells into explicit
+instances for later point-of-use formatting. Original first-instance identities
+remain; cloned local IDs, drawing identities, bookmarks/sections/table names and
+known references are rewritten by their grammars. External references continue
+to reach the original first instance. Shared name reservation covers source and
+receiving definitions, unresolved URI/XML references and opaque resource values.
+
+Expansion checks node/instance quotas and estimated clone allocation cost before
+copying repeated subtrees. It preserves ordinary nested/empty cell formatting on
+the tested XML/model/print cases. Repeated inline embedded XML identities reject
+until scoped cloning is implemented; the existing formula-bearing text-table
+import guard remains. Broader list/field/embedded and point-of-use context
+semantics still require integration before a publishable paste transaction.
+
+The receiving assembler now keeps document-layer inheritance: fresh imported
+layers go into the effective document set when the page inherits it, or into an
+existing own page set. Old layer definitions and missing references remain
+unchanged, and later document-layer edits still affect old page objects. This
+replaces the earlier draft's local snapshot policy.
+
+Stage now reads text flow from an empty text box/table container even when no
+plain text exists. Tables containing only empty cells render in native Wayland
+and PDF/CUPS rather than disappearing. Image-only frames keep their existing
+flow behavior. Fragment extraction retains the text/paragraph defaults used by
+object paint even without text paragraphs; an empty object's11pt source font
+no longer becomes18pt in the extracted subset.
+
+These changes remain source-only. Native clipboard paste/history/controls and
+full source/receiving context isolation are unfinished; installed353c016 remains
+unchanged. Stage is active, Words paused and further Sheets work deferred. Full
+ODF1.2 functionality remains incomplete.

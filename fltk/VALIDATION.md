@@ -3282,3 +3282,48 @@ print inputs remain separate from repaired exports. Schema validation corrected
 a fixture's empty page layer-set order before the final run. This is an internal
 assembly draft, not complete context isolation, live paste/history or clipboard
 controls. Optimized staging and installation remain separate evidence.
+
+
+## Repeated import cells and empty-table validation — 2026-11-04
+
+The increment passes95 selected Release and95 ASan/UBSan suites with core leak
+checking enabled and no suppressions. The same three outline-font tests remain
+excluded under the bitmap runtime. The frozen source inventory contains5827
+files. Focused cases verify independent nested/empty row/cell instances, unique
+IDs and bookmark/table names, local link targets, retained original source and
+selected paths, source/receiving reservation, estimated allocation rejection
+before large repeated copies and guarded inline embedded XML identities.
+
+The layer corpus verifies that a receiving page keeps document-layer inheritance,
+including after a later global layer edit. A separately compiled before/after
+probe reproduces the old object remaining visible after its document layer was
+hidden, then verifies that the corrected draft hides it. Imported fresh-layer
+objects remain independent. Empty frame extraction has a separate before/after
+probe: the11pt source became18pt before, and remains11pt after.
+
+The repeat producer prunes the source selection independently from the original
+fixture in Python. It checks four explicit cells, nested content, unique local
+reference targets, matching source/expanded rasters and every export reopened.
+Its empty-table PDF case reproduces zero blue-border pixels in the previous
+build and6100 in the corrected build. Native Wayland GPU checks independently
+reproduce zero cells/paints/border pixels before, then four cells,20 paints and
+487 blue-ink pixels in both current Release and sanitizer builds. The GPU mask
+includes subpixel border coverage at the preview scale. Captures were visually
+reviewed. GUI leak detection uses only the established Fontconfig/Mesa startup
+cache suppression file; native allocations remain unsuppressed. The fixture
+uses an isolated Cage/DomeD headless Wayland host, no X server or desktop input.
+
+The final repeat and receiving-assembly producers complete16 private CUPS jobs
+covering34 pages; all captured PDF hashes match their generated documents and
+all reopened rasters match. Four new table pages were visually reviewed,12
+assembly pages match previously reviewed output and18 suite pages retain the
+prior reviewed baseline. Thirty-seven current fixture/export packages pass
+version-matched content/styles schemas with Jing and libxml2. Thirty-one generated/
+exported packages pass the manifest schema and selected ODF1.2 plain-package
+checks; six legacy original suite inputs remain separate from repaired exports.
+
+This validates internal preparation and the native empty-table fix, not complete
+ODF1.2 behavior or usable clipboard paste. Source default/unknown properties,
+context-specific style graphs, next/list semantics, navigation/fields/embedded
+scopes and guarded paste/history/UI still require implementation. Staging and
+installed evidence stay separate;353c016 remains installed.
