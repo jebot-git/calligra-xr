@@ -2073,3 +2073,34 @@ edits, labels/paint/selection, source/archive history, clipboard scope, native
 controls, screen/print/CUPS and installed verification. The ODF1.2 functionality
 baseline stays incomplete. The prior marker and dash stages retain their own
 installation receipts and must not be replaced with this source-only checkpoint.
+
+
+## Native connector endpoint resolution — 2026-11-04
+
+The native connector source API now resolves endpoints through a caller-owned
+complete object catalog. Explicit numeric glue IDs remain exact. Omitted choices
+use the closest physical pair in slide coordinates with stable numeric-ID ties;
+nonuniform connector transforms cannot distort that choice. Aliased self-links
+prefer distinct ports where available; two explicit identical ports are retained.
+The result includes connector-local and original slide points, normalized affine
+escape vectors and transformed target bounding boxes. Free endpoints retain
+local coordinates. Missing identities/ports, duplicate IDs, invalid masks,
+singular attached coordinate frames and exhausted work budgets reject without
+mutating source or target models. Candidate sets are bounded to10000 points per
+target and the default automatic-pair work budget is1000000 comparisons.
+
+Focused Release and ASan/UBSan checks cover explicit/automatic/free/aliased/self
+attachments, a nonuniform-transform choice that differs under an incorrect local
+metric, rotated/scaled exit vectors, stable wide IDs, missing targets and bounded
+rejection. Core leak checking remains enabled without suppressions. This is a
+source-model checkpoint: scene identity collection, enhanced/group/hidden target
+integration, paths/routes, live transactions and controls remain unfinished.
+It does not establish native connector rendering or installed support.
+
+During the identity audit, the shared ODF schema gate was corrected to scope
+`xml:id` uniqueness to each XML file, as ODF1.2 Part1 section19.914 specifies.
+The old gate rejected an independently valid ID reused in content.xml and
+styles.xml. Both Jing and libxml2 regression runs now accept cross-part reuse
+and reject duplicates inside either file. Scene connector catalogs must retain
+this file scope; legacy draw:id is ignored when xml:id is present under19.187.3.
+The wider ODF1.2 functionality and installation gates remain open.

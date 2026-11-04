@@ -191,4 +191,137 @@ SceneConnectorSpec read_scene_connector(XmlElement node) {
   }
   return out;
 }
+namespace {
+void matrix(const SceneTransform &m) {
+  for (double v : {m.a, m.b, m.c, m.d, m.e, m.f})
+    bounded(v);
+}
+ScenePoint checked(ScenePoint p) {
+  bounded(p.x);
+  bounded(p.y);
+  return p;
+}
+SceneRect mapped_bounds(const SceneRect &r, const SceneTransform &m) {
+  if (r.width < 0 || r.height < 0)
+    fail("Invalid connector target bounds");
+  for (double v : {r.x, r.y, r.width, r.height})
+    bounded(v);
+  double left = INFINITY, top = INFINITY, right = -INFINITY, bottom = -INFINITY;
+  for (auto p : {ScenePoint{r.x, r.y},
+                 {r.x + r.width, r.y},
+                 {r.x, r.y + r.height},
+                 {r.x + r.width, r.y + r.height}}) {
+    p = checked(m.map(checked(p)));
+    left = std::min(left, p.x);
+    right = std::max(right, p.x);
+    top = std::min(top, p.y);
+    bottom = std::max(bottom, p.y);
+  }
+  return {left, top, right - left, bottom - top};
+}
+struct Candidates {
+  const SceneConnectorObject *object = nullptr;
+  std::vector<SceneConnectorAnchor> values;
+};
+Candidates candidates(const SceneConnectorEnd &end,
+                      const SceneTransform &to_slide,
+                      const SceneConnectorLookup &lookup) {
+  Candidates result;
+  if (end.shape.empty()) {
+    if (!end.x || !end.y)
+      fail("Missing free connector endpoint coordinates");
+    SceneConnectorAnchor a;
+    a.point = checked({*end.x, *end.y});
+    a.slide_point = checked(to_slide.map(a.point));
+    a.directions = {{0, -1}, {1, 0}, {0, 1}, {-1, 0}};
+    result.values.push_back(std::move(a));
+    return result;
+  }
+  if (!lookup || !(result.object = lookup(end.shape)))
+    fail("Unresolved connector shape identity");
+  auto inverse = to_slide.inverse();
+  if (!inverse)
+    fail("Attached connector transform is singular");
+  matrix(result.object->transform);
+  auto mapping = *inverse * result.object->transform;
+  matrix(mapping);
+  auto obstacle = mapped_bounds(result.object->bounds, mapping);
+  if (result.object->points.size() > 10000)
+    fail("Too many connector target glue points");
+  std::set<uint64_t> ids;
+  for (const auto &point : result.object->points) {
+    if (!ids.insert(point.id).second)
+      fail("Duplicate connector target glue ID");
+    if (!point.escape || (point.escape & ~SceneGluePoint::All))
+      fail("Invalid connector target escape mask");
+    checked(point.position);
+    if (end.glue && point.id != *end.glue)
+      continue;
+    SceneConnectorAnchor a;
+    a.slide_point = checked(result.object->transform.map(point.position));
+    a.point = checked(inverse->map(a.slide_point));
+    a.obstacle = obstacle;
+    a.glue = point.id;
+    a.shape = end.shape;
+    for (auto [bit, vector] :
+         {std::pair<unsigned, ScenePoint>{SceneGluePoint::Up, {0, -1}},
+          {SceneGluePoint::Right, {1, 0}},
+          {SceneGluePoint::Down, {0, 1}},
+          {SceneGluePoint::Left, {-1, 0}}}) {
+      if (!(point.escape & bit))
+        continue;
+      ScenePoint v{mapping.a * vector.x + mapping.c * vector.y,
+                   mapping.b * vector.x + mapping.d * vector.y};
+      auto n = std::hypot(v.x, v.y);
+      if (!std::isfinite(n))
+        fail("Invalid connector escape vector");
+      if (n > 0)
+        a.directions.push_back({v.x / n, v.y / n});
+    }
+    result.values.push_back(std::move(a));
+  }
+  if (result.values.empty())
+    fail("Connector target has no matching glue point");
+  std::sort(result.values.begin(), result.values.end(),
+            [](const auto &a, const auto &b) { return a.glue < b.glue; });
+  return result;
+}
+} // namespace
+SceneConnectorEnds resolve_scene_connector_ends(
+    const SceneConnectorSpec &spec, const SceneTransform &to_slide,
+    const SceneConnectorLookup &lookup, size_t work_limit) {
+  if (work_limit < 1 || work_limit > 100000000)
+    fail("Invalid connector resolution work limit");
+  matrix(to_slide);
+  auto from = candidates(spec.start, to_slide, lookup),
+       to = candidates(spec.end, to_slide, lookup);
+  const bool same = from.object && from.object == to.object;
+  const bool distinct = same && (!spec.start.glue || !spec.end.glue) &&
+                        (from.values.size() > 1 || to.values.size() > 1);
+  long double best = INFINITY;
+  size_t start = 0, end = 0, work = 0;
+  bool found = false;
+  for (size_t i = 0; i < from.values.size(); ++i)
+    for (size_t j = 0; j < to.values.size(); ++j) {
+      if (++work > work_limit)
+        fail("Automatic connector glue resolution exceeds the work limit");
+      const auto &a = from.values[i], &b = to.values[j];
+      if (distinct && a.glue == b.glue)
+        continue;
+      long double dx = static_cast<long double>(a.slide_point.x) -
+                       b.slide_point.x,
+                  dy = static_cast<long double>(a.slide_point.y) -
+                       b.slide_point.y;
+      auto cost = dx * dx + dy * dy;
+      if (!found || cost < best) {
+        best = cost;
+        start = i;
+        end = j;
+        found = true;
+      }
+    }
+  if (!found)
+    fail("No connector attachment pair is available");
+  return {std::move(from.values[start]), std::move(to.values[end]), same};
+}
 } // namespace DomeOffice

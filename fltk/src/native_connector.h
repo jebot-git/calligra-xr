@@ -2,6 +2,7 @@
 #pragma once
 #include "native_path.h"
 #include <cstdint>
+#include <functional>
 namespace DomeOffice {
 struct SceneGluePoint {
   enum Direction : unsigned { Up = 1, Right = 2, Down = 4, Left = 8, All = 15 };
@@ -33,4 +34,30 @@ struct SceneConnectorSpec {
 // Parse source semantics without resolving identities, choosing omitted glue
 // points, replacing supplied geometry, or mutating the source document.
 SceneConnectorSpec read_scene_connector(XmlElement);
+struct SceneConnectorObject {
+  SceneRect bounds;
+  SceneTransform transform; // Object-local to slide coordinates.
+  std::vector<SceneGluePoint> points;
+};
+struct SceneConnectorAnchor {
+  ScenePoint point;       // Connector-local coordinates.
+  ScenePoint slide_point; // Source-space target for physical nearest choices.
+  std::vector<ScenePoint> directions; // Normalized transformed escape vectors.
+  std::optional<SceneRect> obstacle;
+  std::optional<uint64_t> glue;
+  Text shape;
+};
+struct SceneConnectorEnds {
+  SceneConnectorAnchor start, end;
+  bool same_object = false;
+};
+using SceneConnectorLookup =
+    std::function<const SceneConnectorObject *(const Text &)>;
+// Lookup is over the complete identity catalog, so forward references and
+// aliases work independently of source order. Explicit glue IDs remain exact;
+// omitted IDs choose the nearest pair with stable ID tie breaking. Self-links
+// prefer distinct ports where available. No source or object is mutated.
+SceneConnectorEnds resolve_scene_connector_ends(
+    const SceneConnectorSpec &, const SceneTransform &connector_to_slide,
+    const SceneConnectorLookup &, size_t work_limit = 1000000);
 } // namespace DomeOffice

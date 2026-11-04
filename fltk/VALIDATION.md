@@ -3500,3 +3500,22 @@ per-axis retention is tolerant input handling and does not claim that incomplete
 coordinate pairs satisfy the 1.2 schema. No connector UI/rendering/routing,
 full-suite regression, CUPS, staging or installed claims follow from this focused
 source-API checkpoint. Those remain gates for the functional connector increment.
+
+
+## Connector resolution and XML identity scope — 2026-11-04
+
+The focused native-connectors executable now also exercises explicit and
+automatic endpoint resolution, physical-distance selection under a nonuniform
+connector matrix, alias/self links, affine direction vectors, wide-ID ties and
+failed lookups/limits. Release and ASan/UBSan runs pass with core leak checking
+and no suppressions. The complete native scene/route/edit/print workflow is
+still unimplemented; these source-model checks do not imply UI/CUPS coverage.
+
+`odf_identity_scope.py --source STAGE_ODP --artifacts DIR --schema-dir SCHEMAS`
+creates one valid cross-part-ID package and invalid duplicate-ID packages for
+each XML file. Optional `--jing-jar JAR --java JAVA` selects the independent Jing
+backend. Both backend runs accept the valid package and reject both invalid
+ones. The pre-fix false rejection is retained in the artifact evidence. The
+shared validator's explicit identity check and diagnostic now identify one XML
+file, following ODF1.2 Part1 section19.914. Existing archive/source/history gates
+and full connector functionality remain separate requirements.

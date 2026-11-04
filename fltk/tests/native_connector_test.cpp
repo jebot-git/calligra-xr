@@ -178,6 +178,120 @@ void sources() {
                "forward attached references, independent axis omission, source "
                "retention and invalid-input rejection\n";
 }
+void resolution() {
+  auto shape = document("rect");
+  SceneConnectorObject a{
+      {0, 0, 100, 60},
+      {1, 0, 0, 1, 10, 20},
+      read_scene_glue_points(shape.documentElement(), {0, 0, 100, 60})};
+  SceneConnectorObject b{
+      {0, 0, 80, 40},
+      {1, 0, 0, 1, 200, 30},
+      read_scene_glue_points(shape.documentElement(), {0, 0, 80, 40})};
+  std::map<Text, SceneConnectorObject> objects{{"a", a}, {"b", b}};
+  auto lookup = [&](const Text &id) -> const SceneConnectorObject * {
+    if (id == "alias-a")
+      return &objects.at("a");
+    auto it = objects.find(id);
+    return it == objects.end() ? nullptr : &it->second;
+  };
+  SceneConnectorSpec spec;
+  spec.start.shape = "a";
+  spec.end.shape = "b";
+  auto before = objects.at("a").points;
+  auto resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  assert(!resolved.same_object && resolved.start.glue == 1 &&
+         resolved.end.glue == 3);
+  near(resolved.start.point, {110, 50});
+  near(resolved.end.point, {200, 50});
+  near(resolved.start.slide_point, {110, 50});
+  assert(resolved.start.directions.size() == 1);
+  near(resolved.start.directions[0], {1, 0});
+  assert(resolved.start.obstacle && resolved.start.obstacle->x == 10 &&
+         resolved.start.obstacle->width == 100);
+  // Connector transforms change local coordinates, not physical nearest ports.
+  const SceneTransform connector{0, 2, -.5, 0, 50, -10};
+  auto transformed = resolve_scene_connector_ends(spec, connector, lookup);
+  near(connector.map(transformed.start.point), {110, 50});
+  near(connector.map(transformed.end.point), {200, 50});
+  assert(transformed.start.glue == 1 && transformed.end.glue == 3);
+  near(transformed.start.directions[0], {0, -1});
+  // A nonuniform connector transform must not distort automatic choices.
+  // Slide distances are 3 versus 2; local distances would be .3 versus 2.
+  objects["metric"] = {
+      {0, 0, 10, 10}, {}, {{4, {3, 0}, 15, false}, {5, {0, 2}, 15, false}}};
+  SceneConnectorSpec metric;
+  metric.start.x = metric.start.y = 0;
+  metric.end.shape = "metric";
+  auto physical = resolve_scene_connector_ends(metric, {10, 0, 0, 1}, lookup);
+  assert(physical.end.glue == 5);
+  near(physical.end.point, {0, 2});
+  spec.start.glue = 0;
+  spec.end.glue = 2;
+  resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  near(resolved.start.point, {60, 20});
+  near(resolved.end.point, {240, 70});
+  spec.start.glue = 999;
+  rejects([&] { resolve_scene_connector_ends(spec, {}, lookup); });
+  spec.start.glue.reset();
+  spec.end.glue.reset();
+  spec.end.shape = "alias-a";
+  resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  assert(resolved.same_object && resolved.start.glue != resolved.end.glue);
+  spec.start.glue = 1;
+  spec.end.glue = 1;
+  resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  assert(resolved.same_object && resolved.start.glue == 1 &&
+         resolved.end.glue == 1);
+  near(resolved.start.point, resolved.end.point);
+  spec.start = {};
+  spec.start.x = 0;
+  spec.start.y = 50;
+  spec.end = {};
+  spec.end.shape = "a";
+  resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  assert(!resolved.start.glue && !resolved.start.obstacle &&
+         resolved.end.glue == 3);
+  near(resolved.end.point, {10, 50});
+  spec.end.shape = "missing";
+  rejects([&] { resolve_scene_connector_ends(spec, {}, lookup); });
+  spec.end.shape = "a";
+  rejects([&] { resolve_scene_connector_ends(spec, {0, 0, 0, 0}, lookup); });
+  rejects([&] { resolve_scene_connector_ends(spec, {}, lookup, 2); });
+  // Stable numeric ID ties, not source point order or int truncation.
+  objects["ports"] = {
+      {0, 0, 10, 10},
+      {},
+      {{UINT64_MAX, {1, 0}, 15, false}, {4, {-1, 0}, 15, false}}};
+  spec.start.x = 0;
+  spec.start.y = 0;
+  spec.end.shape = "ports";
+  resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  assert(resolved.end.glue == 4);
+  objects["ports"].transform = {0, 2, -3, 0, 100, 200};
+  spec.end.glue = UINT64_MAX;
+  resolved = resolve_scene_connector_ends(spec, {}, lookup);
+  near(resolved.end.point, {100, 202});
+  near(resolved.end.directions[0], {1, 0});
+  near(resolved.end.directions[1], {0, 1});
+  near(resolved.end.directions[2], {-1, 0});
+  near(resolved.end.directions[3], {0, -1});
+  auto broken = objects["ports"];
+  objects["ports"].points.push_back(objects["ports"].points[0]);
+  rejects([&] { resolve_scene_connector_ends(spec, {}, lookup); });
+  objects["ports"] = broken;
+  objects["ports"].points[0].escape = 32;
+  rejects([&] { resolve_scene_connector_ends(spec, {}, lookup); });
+  objects["ports"] = broken;
+  objects["ports"].points.clear();
+  rejects([&] { resolve_scene_connector_ends(spec, {}, lookup); });
+  assert(objects.at("a").points.size() == before.size());
+  for (size_t i = 0; i < before.size(); ++i)
+    near(objects.at("a").points[i].position, before[i].position);
+  std::cout << "PASS explicit/automatic/aliased/self attachment resolution, "
+               "physical nearest choices, affine directions, stable wide IDs "
+               "and nonmutating bounded failures\n";
+}
 void documents(const Text &directory) {
   if (directory.empty())
     return;
@@ -230,6 +344,7 @@ void documents(const Text &directory) {
 int main(int argc, char **argv) {
   attachments();
   sources();
+  resolution();
   if (argc == 3 && std::string(argv[1]) == "--documents")
     documents(argv[2]);
 }
