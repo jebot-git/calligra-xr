@@ -7,6 +7,7 @@
 #include "gpu_image.h"
 #include "native_path.h"
 #include "native_stroke.h"
+#include "native_marker.h"
 #include "native_table_layout.h"
 #include "suite/fltk_appearance.h"
 #include <FL/fl_draw.H>
@@ -202,6 +203,18 @@ struct SlideCanvas::Impl {
       if (geometry_points > 1000000)
         throw std::runtime_error(
             "Slide geometry exceeds the display point limit");
+      auto marker_geometry = marker_stroke_geometry(
+          shape, contours,
+          SceneTransform{scale_x, 0, 0, scale_y} * shape.transform);
+      std::map<size_t, std::vector<SceneContour>> strokes, markers;
+      for (auto &c : marker_geometry.shafts)
+        strokes[c.paint_group].push_back(std::move(c));
+      for (auto &c : marker_geometry.markers) {
+        geometry_points += c.points.size();
+        if (geometry_points > 1000000)
+          throw std::runtime_error("Slide markers exceed the point limit");
+        markers[c.paint_group].push_back(std::move(c));
+      }
       std::map<size_t, std::vector<SceneContour>> groups;
       for (auto &contour : contours)
         groups[contour.paint_group].push_back(std::move(contour));
@@ -218,10 +231,11 @@ struct SlideCanvas::Impl {
                               : shape.paint.even_odd;
           geometry.triangles = Tess::make(filled, even_odd);
         }
-        if (shape.paint.stroke && shape.paint.stroke_width > 0) {
+        if (shape.paint.stroke) {
           auto outlines = stroke_pass_outlines(
-              geometry.contours, shape.paint,
-              SceneTransform{scale_x, 0, 0, scale_y} * shape.transform);
+              strokes[id], shape.paint,
+              SceneTransform{scale_x, 0, 0, scale_y} * shape.transform, .125,
+              200000, markers[id]);
           for (const auto &outline : outlines)
             geometry.stroke_triangles.push_back(Tess::make(outline, false));
         }
@@ -342,7 +356,7 @@ struct SlideCanvas::Impl {
             vertex(transform.map(p));
           glEnd();
         }
-        if (shape.paint.stroke && shape.paint.stroke_width > 0) {
+        if (shape.paint.stroke) {
           scene_color(shape.paint.stroke_color);
           for (const auto &pass : geometry.stroke_triangles) {
             glBegin(GL_TRIANGLES);

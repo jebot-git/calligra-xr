@@ -66,7 +66,7 @@ XmlElement add(XmlElement parent, const Text &name) {
   parent.appendChild(node);
   return node;
 }
-void set(XmlElement node, const Text &uri, const char *name,
+void set(XmlElement node, const Text &uri, const Text &name,
          const Text &value) {
   node.setAttributeNS(uri,
                       Text(uri == FO      ? "fo:"
@@ -347,6 +347,12 @@ XmlElement NativeStageContextStyles::graphic(const ScenePaint &value,
       value.stroke ? (value.dashed ? "dash" : "solid") : "none");
   set(p, DRAW, "stroke-dash", value.dash_name);
   set(p, DRAW, "stroke-dash-names", value.dash_names.join(' '));
+  for (auto [name, marker] : {std::pair{"marker-start", &value.marker_start},
+                              std::pair{"marker-end", &value.marker_end}}) {
+    set(p, DRAW, name, marker->name);
+    set(p, DRAW, Text(name) + "-width", pt(marker->width));
+    set(p, DRAW, Text(name) + "-center", marker->centered ? "true" : "false");
+  }
   set(p, SVG, "stroke-color", rgb_opaque(value.stroke_color));
   set(p, SVG, "stroke-opacity", number(value.stroke_color.alpha * 100) + "%");
   set(p, SVG, "stroke-width", pt(value.stroke_width));

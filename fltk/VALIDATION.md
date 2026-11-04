@@ -3433,3 +3433,51 @@ narrow system Fontconfig/Mesa GUI cache suppressions remain explicit; native
 allocations are not suppressed. The separate system-FLTK early-dismiss alert
 surface leak has not been resolved by this increment. No selected dash corpus
 establishes full ODF1.2, whole-suite compatibility or physical-printer coverage.
+
+
+## Stage endpoint markers — 2026-11-04
+
+The marker increment passes 100 selected Release and 100 ASan/UBSan suites
+(103 configured; native-text-shaping, native-text-hit and native-text-editing
+are the established outline-font exclusions). Core leak checking is enabled
+without suppressions. The native Wayland GUI sanitizer run uses only the three
+existing Fontconfig/Mesa cache suppressions in `native_ui_lsan.supp`; native
+application allocations remain unsuppressed. The separately recorded system
+FLTK early-dismissed alert proxy leak remains unresolved.
+
+`calligra-native-marker-test --output DIR` checks exact line/cubic/quadratic/arc
+endpoint directions and singular/zero-segment fallbacks; actual geometry bounds
+versus viewBox; independent Cairo polygon/alpha references; overlapping and
+hollow markers; zero-width shafts; trim-preserved dash phase; cached hit tests;
+limits; common resources and actual guarded clipboard paste; independent endpoint
+editing, group/mixed selections, existing-name assignments, removals, rejected
+edits, exact archive undo/redo, no-ops and save/reopen. First styles.xml and
+first automatic-styles creation have separate multi-object source checks.
+
+`native_stage_marker_ui.py --bin-dir BIN --test-bin-dir TESTS --artifacts DIR`
+exercises real native Wayland controls and source-preserving move/width/marker
+edits, nested parent cancellation, unchanged Apply, undo/redo and reopen.
+`--minimum-window` checks the 780x560 application size; pixel probes use interior
+center samples there because four-point shafts occupy fewer than three pixels.
+The normal-size and minimum-size Release workflows and minimum-size sanitizer
+workflow pass. The prior dash UI also passes as a regression check.
+
+`stage_marker_print.py DIR --bin-dir BIN --source ORIGINAL --ui-artifacts UI`
+completes four actual private CUPS jobs / twelve pages, covering original,
+moved, stroke-width-edited and marker-authored documents. Independent probes
+check tangent orientation, affine paths, centering, marker holes, opacity/dash
+overlays, zero-width shafts, phase, scoped resources and unrelated content.
+All reopened rasters are exact. Six unique page views were visually reviewed;
+unrelated pages remain exact across edits. The separate three-application
+baseline completes three CUPS jobs / nine pages, all exact to the previously
+reviewed baseline, including nine reopened rasters.
+
+Thirteen selected model, UI, printed-export and suite-export packages pass
+version-matched official schemas using Jing and selected ODF1.2 Part3 package
+checks. Eight libxml2 interleave diagnostics are retained separately; Jing
+accepts the same official-schema content/styles. The fixture generator now
+rejects duplicate XML identities. These are selected functional checks, not an
+exhaustive ODF1.2 or external-consumer interoperability claim. Corrected OASIS
+marker placement and native closed-path/junction policies are documented in
+PORT_STATUS.md. Stage, source publication and installation have separate
+artifact receipts; tests against a build do not prove installed behavior.

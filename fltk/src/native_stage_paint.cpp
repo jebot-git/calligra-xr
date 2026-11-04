@@ -3,6 +3,7 @@
 #include "native_stage_source.h"
 #include "native_stroke.h"
 #include "native_path.h"
+#include "native_marker.h"
 #include "text_documents.h"
 #include <charconv>
 #include <cmath>
@@ -89,7 +90,27 @@ double alpha(Text value) {
     fail("Invalid drawing opacity");
   return v;
 }
+std::shared_ptr<const SceneMarkerDefinition>
+marker_definition(const NativeMarkerDefinition &definition) {
+  auto xml = read_document_xml(
+      ("<draw:marker xmlns:draw=\"" + DRAW + "\" xmlns:svg=\"" + SVG + "\"/>")
+          .toUtf8());
+  auto node = xml.documentElement();
+  node.setAttributeNS(SVG, "svg:d", definition.data);
+  node.setAttributeNS(SVG, "svg:viewBox", definition.view_box);
+  return read_scene_marker(node);
+}
 void validate(const NativePaintFormat &p) {
+  for (const auto *m : {&p.marker_start, &p.marker_end}) {
+    if (m->width &&
+        (!std::isfinite(*m->width) || *m->width < 0 || *m->width > 10000))
+      fail("Marker width must be between 0 and 10000 points");
+    if (m->definition) {
+      auto parsed = marker_definition(*m->definition);
+      (void)marker_contours(*parsed, m->width.value_or(10), false,
+                            {{0, 0}, {1, 0}});
+    }
+  }
   if (p.stroke_cap &&
       !TextList{"butt", "round", "square"}.contains(*p.stroke_cap))
     fail("Choose Butt, Round or Square stroke caps");
@@ -122,6 +143,8 @@ struct Catalog {
   std::set<Text> reserved;
   std::map<Text, XmlElement> dashes;
   std::optional<Text> created_dash;
+  std::map<Text, XmlElement> markers;
+  std::map<std::pair<Text, Text>, Text> created_markers;
   explicit Catalog(const OdfPackage &p) {
     const auto bytes = p.entry("styles.xml");
     if (!bytes.empty()) {
@@ -142,9 +165,12 @@ struct Catalog {
       const bool aut = group.localName() == "automatic-styles";
       if (!aut && group.localName() != "styles")
         continue;
-      if (!aut)
+      if (!aut) {
         for (auto node : children(group, DRAW, "stroke-dash"))
           dashes[node.attributeNS(DRAW, "name")] = node;
+        for (auto node : children(group, DRAW, "marker"))
+          markers[node.attributeNS(DRAW, "name")] = node;
+      }
       for (auto node : children(group, STYLE)) {
         auto name = node.attributeNS(STYLE, "name"),
              family = node.attributeNS(STYLE, "family");
@@ -230,6 +256,24 @@ struct Catalog {
     for (std::string name; input >> name;)
       names.push_back(Text(name));
     out.dash_names = names;
+    auto marker_info = [&](const Text &end) {
+      NativeMarkerFormat m;
+      m.name = get(DRAW, "marker-" + end, "");
+      m.width =
+          parse_scene_length(get(DRAW, "marker-" + end + "-width", "0pt"));
+      auto center = get(DRAW, "marker-" + end + "-center", "false");
+      if (center != "true" && center != "false" && center != "1" &&
+          center != "0")
+        fail("Invalid marker centering");
+      m.centered = center == "true" || center == "1";
+      if (auto at = markers.find(*m.name); at != markers.end())
+        m.definition =
+            NativeMarkerDefinition{at->second.attributeNS(SVG, "d"),
+                                   at->second.attributeNS(SVG, "viewBox")};
+      return m;
+    };
+    out.marker_start = marker_info("start");
+    out.marker_end = marker_info("end");
     return out;
   }
   Text name() {
@@ -240,10 +284,7 @@ struct Catalog {
     }
     fail("No drawing style name is available");
   }
-  Text dash(OdfPackage &p, const SceneDashPattern &pattern) {
-    if (created_dash)
-      return *created_dash;
-    (void)pattern.lengths(1);
+  XmlElement common_styles(OdfPackage &p) {
     auto root = styles.documentElement();
     if (root.isNull()) {
       styles = read_document_xml(
@@ -262,6 +303,30 @@ struct Catalog {
         following = child(root, OFFICE, "master-styles");
       root.insertBefore(common_node, following);
     }
+    return common_node;
+  }
+  Text marker(OdfPackage &p, const NativeMarkerDefinition &definition) {
+    const auto key = std::make_pair(definition.data, definition.view_box);
+    if (auto at = created_markers.find(key); at != created_markers.end())
+      return at->second;
+    auto common_node = common_styles(p);
+    if (children(common_node, DRAW, "marker").size() >= 100000)
+      fail("Too many drawing marker definitions");
+    auto node = styles.createElementNS(DRAW, "draw:marker");
+    auto id = name();
+    node.setAttributeNS(DRAW, "draw:name", id);
+    node.setAttributeNS(SVG, "svg:d", definition.data);
+    node.setAttributeNS(SVG, "svg:viewBox", definition.view_box);
+    common_node.appendChild(node);
+    p.set_entry("styles.xml", styles.toByteArray(), "text/xml");
+    created_markers.emplace(key, id);
+    return id;
+  }
+  Text dash(OdfPackage &p, const SceneDashPattern &pattern) {
+    if (created_dash)
+      return *created_dash;
+    (void)pattern.lengths(1);
+    auto common_node = common_styles(p);
     if (children(common_node, DRAW, "stroke-dash").size() >= 100000)
       fail("Too many drawing dash definitions");
     auto node = styles.createElementNS(DRAW, "draw:stroke-dash");
@@ -315,6 +380,32 @@ struct Catalog {
     auto put = [&](const Text &ns, const Text &key, const Text &value) {
       graphic.setAttributeNS(ns, key, value);
     };
+    auto current = info(object);
+    auto put_marker = [&](const Text &end, const NativeMarkerFormat &m,
+                          const NativeMarkerFormat &before) {
+      if (m.name && m.definition) {
+        auto at = markers.find(*m.name);
+        if (at == markers.end() ||
+            at->second.attributeNS(SVG, "d") != m.definition->data ||
+            at->second.attributeNS(SVG, "viewBox") != m.definition->view_box)
+          fail("Choose an existing marker or a new definition");
+      }
+      if (m.name) {
+        if (!m.name->empty() && !markers.contains(*m.name))
+          fail("Choose a defined common marker name");
+        put(DRAW, "draw:marker-" + end, *m.name);
+      }
+      if (m.definition && !m.name && m.definition != before.definition)
+        put(DRAW, "draw:marker-" + end, marker(p, *m.definition));
+      if (m.width)
+        put(DRAW, "draw:marker-" + end + "-width",
+            Text::number(*m.width, 'g', 17) + "pt");
+      if (m.centered)
+        put(DRAW, "draw:marker-" + end + "-center",
+            *m.centered ? "true" : "false");
+    };
+    put_marker("start", patch.marker_start, current.marker_start);
+    put_marker("end", patch.marker_end, current.marker_end);
     if (patch.fill)
       put(DRAW, "draw:fill", *patch.fill);
     if (patch.dash_pattern) {
@@ -373,8 +464,23 @@ void aggregate(std::optional<T> &value, const std::optional<T> &next) {
   if (value != next)
     value.reset();
 }
+bool changes(const NativeMarkerFormat &before,
+             const NativeMarkerFormat &patch) {
+  return (patch.name && patch.name != before.name) ||
+         (patch.definition && patch.definition != before.definition) ||
+         (patch.width && patch.width != before.width) ||
+         (patch.centered && patch.centered != before.centered);
+}
+void aggregate(NativeMarkerFormat &value, const NativeMarkerFormat &next) {
+  aggregate(value.name, next.name);
+  aggregate(value.definition, next.definition);
+  aggregate(value.width, next.width);
+  aggregate(value.centered, next.centered);
+}
 bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
-  return (patch.dash_pattern && (patch.dash_pattern != before.dash_pattern ||
+  return changes(before.marker_start, patch.marker_start) ||
+         changes(before.marker_end, patch.marker_end) ||
+         (patch.dash_pattern && (patch.dash_pattern != before.dash_pattern ||
                                  (!patch.stroke && before.stroke != "dash"))) ||
          (patch.dash_names && patch.dash_names != before.dash_names) ||
          (patch.stroke_cap && patch.stroke_cap != before.stroke_cap) ||
@@ -395,7 +501,8 @@ bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
 bool NativePaintFormat::empty() const {
   return !fill && !fill_color && !stroke && !stroke_color && !fill_opacity &&
          !stroke_opacity && !stroke_width && !even_odd && !image_opacity &&
-         !stroke_cap && !stroke_join && !dash_pattern && !dash_names;
+         !stroke_cap && !stroke_join && !dash_pattern && !dash_names &&
+         marker_start.empty() && marker_end.empty();
 }
 NativePaintInfo
 Presentation::object_paint(int index,
@@ -405,6 +512,8 @@ Presentation::object_paint(int index,
   NativePaintInfo result;
   for (const auto &[name, node] : catalog.dashes)
     result.available_dashes.push_back(name);
+  for (const auto &[name, node] : catalog.markers)
+    result.available_markers.push_back(name);
   auto nodes = objects(model, refs);
   result.editable = !read_only();
   for (auto ref : native_object_selection(model, refs))
@@ -434,6 +543,8 @@ Presentation::object_paint(int index,
       aggregate(result.values.stroke_join, info.stroke_join);
       aggregate(result.values.dash_pattern, info.dash_pattern);
       aggregate(result.values.dash_names, info.dash_names);
+      aggregate(result.values.marker_start, info.marker_start);
+      aggregate(result.values.marker_end, info.marker_end);
     }
   }
   result.values.image_opacity = image_opacity;
@@ -489,11 +600,17 @@ Presentation::set_object_paint(int index,
   (void)read_presentation_scenes(candidate, reader, SceneTarget::Print);
   for (const auto &slide : scenes)
     for (const auto &shape : slide.shapes)
-      if (shape.paint.dashed || !shape.paint.dash_names.empty()) {
+      if (shape.paint.dashed || !shape.paint.dash_names.empty() ||
+          shape.paint.marker_start.definition ||
+          shape.paint.marker_end.definition) {
         auto contours = shape.path ? flatten_path(*shape.path, shape.path_map,
                                                   shape.transform)
                                    : shape.contours;
-        (void)stroke_pass_outlines(contours, shape.paint, shape.transform);
+        auto geometry =
+            marker_stroke_geometry(shape, contours, shape.transform);
+        (void)stroke_pass_outlines(geometry.shafts, shape.paint,
+                                   shape.transform, .125, 200000,
+                                   geometry.markers);
       }
   auto next_refs = native_object_selection(
       scenes.at(index), native_object_references(scenes.at(index), chosen));

@@ -21,5 +21,11 @@ std::vector<SceneContour> stroke_outlines(const std::vector<SceneContour> &,
 std::vector<std::vector<SceneContour>>
 stroke_pass_outlines(const std::vector<SceneContour> &, const ScenePaint &,
                      const SceneTransform &device = {}, double tolerance = .125,
+                     size_t point_limit = 200000,
+                     const std::vector<SceneContour> &extra_fills = {});
+// Nonzero canonicalization, including holes and source winding. Union the
+// shaft and its markers before applying stroke alpha once.
+std::vector<SceneContour>
+filled_contour_union(const std::vector<SceneContour> &,
                      size_t point_limit = 200000);
 } // namespace DomeOffice

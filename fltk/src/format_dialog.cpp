@@ -3,6 +3,7 @@
 #include <array>
 #include "native_text_shaper.h"
 #include "native_words_geometry.h"
+#include "native_marker.h"
 #include "suite/fltk_appearance.h"
 #include <charconv>
 #include <numeric>
@@ -2118,6 +2119,143 @@ stage_layers_dialog(Fl_Window &window, NativeStageLayerEdit draft) {
 
 namespace DomeOffice {
 namespace {
+void merge_marker(NativeMarkerFormat &value, const NativeMarkerFormat &patch) {
+  if (patch.name) {
+    value.name = patch.name;
+    value.definition.reset();
+  }
+  if (patch.definition) {
+    value.definition = patch.definition;
+    value.name.reset();
+  }
+  if (patch.width)
+    value.width = patch.width;
+  if (patch.centered)
+    value.centered = patch.centered;
+}
+std::optional<NativePaintFormat>
+marker_format_dialog(Fl_Window &window, const NativePaintInfo &initial) {
+  const int width = 660, height = 520,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Line markers");
+  background.hint.copy_label(
+      "Start and end are independent; outer Apply commits changes");
+  struct End {
+    Fl_Choice mode;
+    Fl_Input name, width;
+    Fl_Choice center;
+    Fl_Input data, view;
+    const NativeMarkerFormat &initial;
+    Text available;
+    End(int x, int y, const char *title, const NativeMarkerFormat &value,
+        const TextList &names)
+        : mode(x, y + 75, 290, 30, title),
+          name(x, y + 135, 290, 30, "Existing style:"),
+          width(x, y + 195, 290, 30, "Width (pt; blank keeps current):"),
+          center(x, y + 255, 290, 30, "Placement:"),
+          data(x, y + 315, 290, 30, "Custom SVG path:"),
+          view(x, y + 375, 290, 30, "Custom viewBox:"), initial(value),
+          available("Available styles: " + names.join(' ')) {
+      for (auto *w : std::initializer_list<Fl_Widget *>{&mode, &center, &name,
+                                                        &width, &data, &view})
+        w->align(FL_ALIGN_TOP_LEFT);
+      mode.add("Keep current|None|Arrow|Diamond|Circle|Existing style|Custom");
+      mode.value(0);
+      center.add("Keep current|Tip at endpoint|Center at endpoint");
+      center.value(value.centered ? (*value.centered ? 2 : 1) : 0);
+      if (value.name)
+        name.value(value.name->toUtf8().c_str());
+      name.tooltip(available.toUtf8().c_str());
+      number(width, value.width);
+      if (value.definition) {
+        data.value(value.definition->data.toUtf8().c_str());
+        view.value(value.definition->view_box.toUtf8().c_str());
+      }
+      mode.callback(
+          [](Fl_Widget *, void *p) {
+            auto &e = *static_cast<End *>(p);
+            if (e.mode.value() >= 2 && e.mode.value() <= 4) {
+              auto definition = preset(e.mode.value());
+              e.data.value(definition.data.toUtf8().c_str());
+              e.view.value(definition.view_box.toUtf8().c_str());
+            }
+            if (e.mode.value() >= 2 && e.mode.value() <= 6 &&
+                Text(e.width.value()).trimmed() == "0")
+              e.width.value("6");
+          },
+          this);
+      name.when(FL_WHEN_CHANGED);
+      name.callback(
+          [](Fl_Widget *, void *p) { static_cast<End *>(p)->mode.value(5); },
+          this);
+      for (auto *field : {&data, &view}) {
+        field->when(FL_WHEN_CHANGED);
+        field->callback(
+            [](Fl_Widget *, void *p) { static_cast<End *>(p)->mode.value(6); },
+            this);
+      }
+    }
+    static NativeMarkerDefinition preset(int selected) {
+      const TextList paths{"M10 0L0 20H20Z", "M10 0L0 10L10 20L20 10Z",
+                           "M10 0A10 10 0 1 1 10 20A10 10 0 1 1 10 0Z"};
+      return {paths.at(selected - 2), "0 0 20 20"};
+    }
+    NativeMarkerFormat patch(const TextList &names) {
+      NativeMarkerFormat out;
+      const int selected = mode.value();
+      if (selected == 1)
+        out.name = "";
+      if (selected == 5) {
+        auto id = Text(name.value()).trimmed();
+        if (!names.contains(id))
+          throw std::runtime_error("Choose an available common marker style");
+        out.name = id;
+      }
+      if (selected >= 2 && selected <= 4)
+        out.definition = preset(selected);
+      if (selected == 6)
+        out.definition = NativeMarkerDefinition{Text(data.value()).trimmed(),
+                                                Text(view.value()).trimmed()};
+      if (out.definition) {
+        auto xml = read_document_xml(("<draw:marker xmlns:draw=\"" + DRAW +
+                                      "\" xmlns:svg=\"" + SVG + "\"/>")
+                                         .toUtf8());
+        auto node = xml.documentElement();
+        node.setAttributeNS(SVG, "svg:d", out.definition->data);
+        node.setAttributeNS(SVG, "svg:viewBox", out.definition->view_box);
+        (void)read_scene_marker(node);
+      }
+      changed_number(width, initial.width, out.width);
+      if (center.value() > 0 && initial.centered != (center.value() == 2))
+        out.centered = center.value() == 2;
+      return out;
+    }
+  };
+  End start(x + 20, y, "Start marker:", initial.values.marker_start,
+            initial.available_markers),
+      end(x + 350, y, "End marker:", initial.values.marker_end,
+          initial.available_markers);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  while (panel.run(start.mode)) {
+    try {
+      NativePaintFormat result;
+      result.marker_start = start.patch(initial.available_markers);
+      result.marker_end = end.patch(initial.available_markers);
+      return result;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      window.redraw();
+    }
+  }
+  return {};
+}
 std::optional<NativePaintFormat>
 dash_format_dialog(Fl_Window &window, const NativePaintInfo &initial) {
   const int width = 660, height = 520,
@@ -2302,7 +2440,9 @@ bool object_paint_dialog(
   int action = 0;
   ActionButton dash_button(panel, action, 1, x + 160, y + 315, 160,
                            "Dash pattern...");
-  NativePaintFormat dash_patch;
+  ActionButton marker_button(panel, action, 2, x + 20, y + 315, 130,
+                             "Markers...");
+  NativePaintFormat dash_patch, marker_patch;
   Fl_Box summary(x + 20, y + 365, width - 40, 50);
   auto label = Text::number(initial.objects) +
                (initial.objects == 1 ? " object. " : " objects. ") +
@@ -2315,7 +2455,7 @@ bool object_paint_dialog(
     for (auto *widget : std::initializer_list<Fl_Widget *>{
              &fill, &stroke, &fill_color, &stroke_color, &fill_opacity,
              &stroke_opacity, &stroke_width, &rule, &image_opacity, &cap, &join,
-             &dash_button, &buttons.apply})
+             &dash_button, &marker_button, &buttons.apply})
       widget->deactivate();
     background.hint.copy_label(
         "This selection is read-only or contains protected objects");
@@ -2327,6 +2467,17 @@ bool object_paint_dialog(
     try {
       if (!initial.editable)
         continue;
+      if (action == 2) {
+        action = 0;
+        auto info = initial;
+        merge_marker(info.values.marker_start, marker_patch.marker_start);
+        merge_marker(info.values.marker_end, marker_patch.marker_end);
+        if (auto patch = marker_format_dialog(window, info)) {
+          merge_marker(marker_patch.marker_start, patch->marker_start);
+          merge_marker(marker_patch.marker_end, patch->marker_end);
+        }
+        continue;
+      }
       if (action == 1) {
         action = 0;
         auto info = initial;
@@ -2348,6 +2499,8 @@ bool object_paint_dialog(
         continue;
       }
       NativePaintFormat result = dash_patch;
+      result.marker_start = marker_patch.marker_start;
+      result.marker_end = marker_patch.marker_end;
       auto changed_mode = [](Fl_Choice &field, const std::optional<Text> &old,
                              std::optional<Text> &out) {
         if (field.value()) {

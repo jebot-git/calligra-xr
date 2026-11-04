@@ -1290,3 +1290,16 @@ objects and old shared definitions. Undo/redo includes styles and manifest parts
 Clipboard paste preserves/remaps primary and overlay references. See
 PORT_STATUS.md for omitted-value/cap policies and remaining interoperability
 limits, and VALIDATION.md for the feature-specific evidence requirements.
+
+
+Stage line markers are available in Format → Fill and stroke → Markers. Set the
+start and end independently, using Arrow, Diamond, Circle, an existing common
+style or a custom SVG path/viewBox. Width is an absolute point measure separate
+from stroke width; placement anchors the marker tip or center at the endpoint.
+Blank/mixed fields keep their current values. The nested panel stages changes
+until the outer Apply; outer Cancel discards them. Shared definitions and other
+objects retain their formatting. Markers use stroke color/opacity and share
+native screen/PDF geometry, clipboard resource isolation and archive undo/redo.
+See PORT_STATUS.md for corrected OASIS placement, closed-path policy, bounded
+curve approximations and remaining interoperability limits. Installation is
+tracked separately in each build's receipt.

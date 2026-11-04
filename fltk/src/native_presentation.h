@@ -22,6 +22,13 @@ SceneTransform parse_scene_transform(const Text &);
 double parse_scene_length(const Text &, double fallback = 0);
 Text format_scene_transform(const SceneTransform &);
 using SceneColor = TextColor;
+struct SceneMarkerDefinition;
+struct SceneMarkerUse {
+  Text name;
+  double width = 0; // Absolute ODF length, independent of stroke width.
+  bool centered = false;
+  std::shared_ptr<const SceneMarkerDefinition> definition;
+};
 struct ScenePaint {
   bool fill = false, stroke = false;
   bool even_odd = false;
@@ -45,6 +52,7 @@ struct ScenePaint {
   // One base pass followed by draw:stroke-dash-names in source order. An empty
   // pattern is solid. Paint passes separately to preserve ODF opacity.
   std::vector<SceneDashPattern> stroke_patterns;
+  SceneMarkerUse marker_start, marker_end;
 };
 struct SceneContour {
   std::vector<ScenePoint> points;
@@ -57,6 +65,8 @@ struct SceneContour {
   // when that initial segment has zero length. Joins and square caps use it.
   // Genuinely directionless zero-length source subpaths stay axis-aligned.
   std::optional<ScenePoint> stroke_start_tangent;
+  bool stroke_butt_start = false, stroke_butt_end = false;
+  double stroke_dash_offset = 0; // Original phase after marker trimming.
 };
 struct ScenePath;
 struct SceneHandle {
@@ -84,6 +94,7 @@ struct SceneShape {
   Text paragraph_style;
   double width = 0, height = 0;
   std::vector<SceneContour> contours;
+  std::vector<SceneContour> marker_contours; // Cached local fill for hit tests.
   std::shared_ptr<const ScenePath> path;
   SceneTransform path_map;
   std::optional<SceneRect> text_area;

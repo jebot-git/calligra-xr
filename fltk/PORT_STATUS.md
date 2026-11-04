@@ -1990,3 +1990,51 @@ remain separate evidence. Source support does not imply that an increment is
 installed. Markers, advanced fills, broader drawing/presentation semantics and
 full ODF1.2 functionality remain open. Stage stays active, Words paused and
 further Sheets work deferred.
+
+## Native Stage endpoint markers — 2026-11-04
+
+Stage reads common `draw:marker` resources and cascades the two endpoint names,
+absolute widths and centering independently. SVG paths retain their original
+spelling and support the existing bounded line/Bezier/arc parser. Original path
+endpoint tangents determine placement independently of flattening tolerance;
+leading/trailing zero segments and collapsed projections have explicit fallback
+rules. Each open original subpath receives its pair before dash splitting.
+Closed and move-only subpaths do not draw markers in the native policy.
+
+Physical marker width uses the actual geometry bounds. Placement follows the
+corrected OASIS definition associated with OFFICE-3685 and OFFICE-3756: positive
+local y points into the stroke; false centering anchors the top-edge center,
+true anchors the geometry center. This retains ODF1.2 syntax but deliberately
+uses the corrected placement rather than the erroneous literal 1.2 end-axis
+and 0.3-offset prose. See ODF1.2 Part1 section16.40.8 and the corrected
+[ODF1.4 section16.42.8](https://docs.oasis-open.org/office/OpenDocument/v1.4/OpenDocument-v1.4-part3-schema.html).
+Zero viewBox dimensions disable drawing. Undefined names retain their source
+references and produce a diagnostic; zero width produces no marker ink.
+
+The shaft is shortened along its flattened arc length to the attached marker
+base, retaining its original dash phase. Attached shaft caps are suppressed.
+Markers and shaft outlines share a nonzero union before each stroke-opacity
+pass, preserving marker holes and avoiding doubled alpha inside a pass.
+Duplicate dash overlays still paint separate passes. The native GPU and PDF
+paths share this geometry; positive absolute-width markers can remain visible
+with a zero-width shaft. Marker fills participate in hit testing outside the
+original logical line bounds.
+
+Format → Fill and stroke → Markers stages independent start/end assignments,
+widths and tip/center placement. Arrow, diamond and circle presets, existing
+common styles and custom SVG path/viewBox definitions are available. Custom
+geometry creates fresh scoped common resources; old shared definitions remain
+untouched. Identical new geometry within one edit shares a resource. Removal
+clears only the endpoint reference. Mixed fields remain independent. Parent
+Cancel discards nested changes; unchanged Apply retains source/history/redo.
+Source/style/manifest changes and selection share the native paint transaction,
+including first styles-part creation and exact undo/redo. Clipboard dependency
+closure/context materialization preserves and remaps marker resources, widths
+and placement independently of receiving defaults.
+
+Per-build receipts distinguish model, GUI, schema, sanitizer, printing, staging
+and installed evidence. Selected fixtures do not establish exhaustive marker
+interoperability, high-curvature shaft/marker junction fidelity or full ODF1.2
+support. Advanced fills, connectors, broader frame/text/presentation semantics
+and the wider Words/Sheets/package baseline remain unfinished. Stage remains
+active; Words is paused and additional Sheets work waits.

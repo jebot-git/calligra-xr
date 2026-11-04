@@ -3,6 +3,7 @@
 #include "native_image_decode.h"
 #include "native_path.h"
 #include "native_stroke.h"
+#include "native_marker.h"
 #include "native_table_layout.h"
 #include "native_text_shaper.h"
 #include "native_tabs.h"
@@ -397,6 +398,14 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
                                         shape.transform,
                                     .1)
                      : shape.contours;
+      auto marker_geometry = marker_stroke_geometry(
+          shape, contours,
+          SceneTransform{300 / 72., 0, 0, 300 / 72.} * shape.transform, .05);
+      std::map<size_t, std::vector<SceneContour>> strokes, markers;
+      for (auto &c : marker_geometry.shafts)
+        strokes[c.paint_group].push_back(std::move(c));
+      for (auto &c : marker_geometry.markers)
+        markers[c.paint_group].push_back(std::move(c));
       std::map<size_t, std::vector<SceneContour>> groups;
       for (auto &c : contours)
         groups[c.paint_group].push_back(std::move(c));
@@ -422,7 +431,8 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
                                             : CAIRO_FILL_RULE_WINDING);
           cairo_fill(pdf.cr());
         }
-        if (shape.paint.stroke && shape.paint.stroke_width > 0) {
+        if (shape.paint.stroke &&
+            (shape.paint.stroke_width > 0 || !markers[id].empty())) {
           const bool degenerate = std::any_of(
               items.begin(), items.end(), [](const SceneContour &c) {
                 return c.stroke && !c.points.empty() &&
@@ -435,7 +445,7 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
               });
           if (shape.paint.stroke_join != ScenePaint::Join::None &&
               !degenerate && !shape.paint.dashed &&
-              shape.paint.dash_names.empty()) {
+              shape.paint.dash_names.empty() && markers[id].empty()) {
             // Preserve vector stroke operators and thin-stroke hinting for
             // ordinary paths, with the SVG default miter limit explicit.
             draw_path(false);
@@ -459,9 +469,9 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
             // Cairo has no join=None, and its square zero-length behavior
             // differs from SVG. Paint the bounded native outline once.
             auto outlines = stroke_pass_outlines(
-                items, shape.paint,
+                strokes[id], shape.paint,
                 SceneTransform{300 / 72., 0, 0, 300 / 72.} * shape.transform,
-                .05);
+                .05, 200000, markers[id]);
             for (const auto &outline : outlines) {
               cairo_new_path(pdf.cr());
               for (const auto &c : outline) {

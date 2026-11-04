@@ -219,6 +219,23 @@ struct Outline {
 };
 } // namespace
 std::vector<SceneContour>
+filled_contour_union(const std::vector<SceneContour> &contours,
+                     size_t point_limit) {
+  if (point_limit < 1 || point_limit > 1000000)
+    fail();
+  size_t count = 0;
+  for (const auto &c : contours) {
+    if (c.points.size() > point_limit - count)
+      fail();
+    count += c.points.size();
+    for (auto p : c.points)
+      if (!std::isfinite(p.x) || !std::isfinite(p.y) || std::abs(p.x) > 1e10 ||
+          std::abs(p.y) > 1e10)
+        fail();
+  }
+  return Union::make(contours, point_limit);
+}
+std::vector<SceneContour>
 stroke_outlines(const std::vector<SceneContour> &contours,
                 const ScenePaint &paint, const SceneTransform &device,
                 double tolerance, size_t point_limit) {
@@ -258,7 +275,20 @@ stroke_outlines(const std::vector<SceneContour> &contours,
       // a moveto-only subpath has no ink. A directionless square is
       // axis-aligned.
       if (contour.stroke_zero_length || contour.points.size() > 1) {
-        if (paint.stroke_cap == ScenePaint::Cap::Round)
+        if (contour.stroke_butt_start || contour.stroke_butt_end) {
+          auto direction =
+              contour.stroke_start_tangent.value_or(ScenePoint{1, 0});
+          auto size = std::hypot(direction.x, direction.y);
+          if (!std::isfinite(size) || size == 0)
+            fail();
+          direction = mul(direction, 1 / size);
+          out.cap(points.front(), direction, true,
+                  contour.stroke_butt_start ? ScenePaint::Cap::Butt
+                                            : paint.stroke_cap);
+          out.cap(points.front(), direction, false,
+                  contour.stroke_butt_end ? ScenePaint::Cap::Butt
+                                          : paint.stroke_cap);
+        } else if (paint.stroke_cap == ScenePaint::Cap::Round)
           out.disk(points.front());
         else if (paint.stroke_cap == ScenePaint::Cap::Square) {
           auto p = points.front();
@@ -309,8 +339,12 @@ stroke_outlines(const std::vector<SceneContour> &contours,
         const auto d = *contour.stroke_start_tangent;
         first = mul(d, 1 / std::hypot(d.x, d.y));
       }
-      out.cap(points.front(), first, true, paint.stroke_cap);
-      out.cap(points.back(), directions.back(), false, paint.stroke_cap);
+      out.cap(points.front(), first, true,
+              contour.stroke_butt_start ? ScenePaint::Cap::Butt
+                                        : paint.stroke_cap);
+      out.cap(points.back(), directions.back(), false,
+              contour.stroke_butt_end ? ScenePaint::Cap::Butt
+                                      : paint.stroke_cap);
     }
   }
   return Union::make(out.contours, point_limit);

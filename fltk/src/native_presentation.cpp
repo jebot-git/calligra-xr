@@ -3,6 +3,7 @@
 #include "native_document_scope.h"
 #include "native_enhanced_geometry.h"
 #include "native_path.h"
+#include "native_marker.h"
 #include "native_stage_order.h"
 #include <charconv>
 #include <cmath>
@@ -197,7 +198,9 @@ struct Catalog {
   const OdfPackage &source_package;
   Source styles, content;
   std::map<std::pair<Text, Text>, XmlElement> common;
-  std::map<Text, XmlElement> defaults, masters, dash_definitions;
+  std::map<Text, XmlElement> defaults, masters, dash_definitions,
+      marker_definitions;
+  std::map<Text, std::shared_ptr<const SceneMarkerDefinition>> marker_cache;
   std::shared_ptr<OdfTextReader> text_reader;
   std::vector<XmlDocument> documents;
   std::map<std::string, int> editor_ids;
@@ -226,6 +229,12 @@ struct Catalog {
     for (auto group : children(doc.documentElement(), OFFICE)) {
       bool automatic = group.localName() == "automatic-styles";
       if (automatic || group.localName() == "styles") {
+        if (!automatic)
+          for (auto e : children(group, DRAW, "marker")) {
+            if (marker_definitions.size() >= 100000)
+              fail("Too many marker definitions");
+            marker_definitions[e.attributeNS(DRAW, "name")] = e;
+          }
         if (!automatic)
           for (auto e : children(group, DRAW, "stroke-dash")) {
             if (dash_definitions.size() >= 100000)
@@ -321,6 +330,24 @@ struct Catalog {
         if (paint.dash_names.size() >= 63)
           fail("Too many drawing dash overlay passes");
         paint.dash_names.push_back(Text(name));
+      }
+    }
+    for (auto [name, marker] : {std::pair{"marker-start", &paint.marker_start},
+                                std::pair{"marker-end", &paint.marker_end}}) {
+      if (p.hasAttributeNS(DRAW, name))
+        marker->name = p.attributeNS(DRAW, name);
+      auto width_name = Text(name) + "-width",
+           center_name = Text(name) + "-center";
+      if (p.hasAttributeNS(DRAW, width_name)) {
+        marker->width = length(p.attributeNS(DRAW, width_name));
+        if (marker->width < 0)
+          fail("Negative marker width");
+      }
+      if (p.hasAttributeNS(DRAW, center_name)) {
+        auto value = p.attributeNS(DRAW, center_name);
+        if (value != "true" && value != "false" && value != "1" && value != "0")
+          fail("Invalid marker centering value");
+        marker->centered = value == "true" || value == "1";
       }
     }
     if (p.hasAttributeNS(SVG, "stroke-color")) {
@@ -448,11 +475,10 @@ struct Catalog {
       if (paint.font.size <= 0 || paint.font.size > 1000)
         fail("Invalid presentation text size");
     }
-    for (const auto &name :
-         {"shadow", "clip", "fill-gradient-name", "marker-start", "marker-end"})
+    for (const auto &name : {"shadow", "clip", "fill-gradient-name"})
       if (p.hasAttributeNS(DRAW, name) || p.hasAttributeNS(FO, name))
         note(slide.unsupported,
-             "Shadows, clipping, markers and advanced paint properties");
+             "Shadows, clipping and advanced paint properties");
   }
   ScenePaint paint(const Source &source, const XmlElement &node,
                    SlideScene &slide) {
@@ -486,6 +512,17 @@ struct Catalog {
       for (const auto &name : result.dash_names)
         result.stroke_patterns.push_back(resolve(name));
     }
+    for (auto marker : {&result.marker_start, &result.marker_end})
+      if (!marker->name.empty()) {
+        if (auto at = marker_definitions.find(marker->name);
+            at != marker_definitions.end()) {
+          auto &cached = marker_cache[marker->name];
+          if (!cached)
+            cached = read_scene_marker(at->second);
+          marker->definition = cached;
+        } else
+          note(slide.unsupported, "Missing drawing marker definition");
+      }
     return result;
   }
   SceneTransform position(const XmlElement &node,
@@ -788,6 +825,22 @@ struct Catalog {
                     {0, shape.height}};
         shape.contours.push_back({std::move(points), true});
       }
+      if (shape.paint.stroke && (shape.paint.marker_start.definition ||
+                                 shape.paint.marker_end.definition))
+        shape.marker_contours =
+            marker_stroke_geometry(shape, shape.contours, shape.transform, .1)
+                .markers;
+      for (const auto &c : shape.marker_contours) {
+        points += c.points.size();
+        if (points > 1000000)
+          fail("Presentation marker geometry exceeds the point limit");
+        for (auto p : c.points) {
+          auto q = shape.transform.map(p);
+          if (!std::isfinite(q.x) || !std::isfinite(q.y) ||
+              std::abs(q.x) > 1e9 || std::abs(q.y) > 1e9)
+            fail("Presentation marker coordinates exceed the limit");
+        }
+      }
       for (const auto &c : shape.contours) {
         points += c.points.size();
         if (points > 1000000)
@@ -1029,6 +1082,18 @@ bool SceneShape::hit(ScenePoint point) const {
   for (const auto &[group, state] : fills)
     if (even_odd ? state.first : state.second != 0)
       return true;
+  int marker_winding = 0;
+  for (const auto &c : marker_contours)
+    for (size_t i = 0; i < c.points.size(); ++i) {
+      auto a = c.points[i], b = c.points[(i + 1) % c.points.size()];
+      double cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+      if (a.y <= p.y && b.y > p.y && cross > 0)
+        ++marker_winding;
+      if (a.y > p.y && b.y <= p.y && cross < 0)
+        --marker_winding;
+    }
+  if (marker_winding)
+    return true;
   if (!text.empty()) {
     auto area = text_area.value_or(SceneRect{0, 0, width, height});
     if (p.x >= area.x && p.y >= area.y && p.x <= area.x + area.width &&

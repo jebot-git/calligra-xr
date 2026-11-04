@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_path.h"
+#include "native_marker.h"
 #include <charconv>
 #include <limits>
 #include <numbers>
@@ -490,5 +491,86 @@ ScenePath ellipse_path(double w, double h, double start, double sweep,
   p.closed = closure != EllipseClosure::Open;
   path.subpaths.push_back(std::move(p));
   return path;
+}
+std::vector<ScenePathEnds> scene_path_ends(const ScenePath &path,
+                                           const SceneTransform &coordinates) {
+  matrix(coordinates);
+  auto unit = [&](ScenePoint v) -> std::optional<ScenePoint> {
+    v = vector_map(coordinates, v);
+    double size = std::hypot(v.x, v.y);
+    if (!std::isfinite(size))
+      fail("Invalid path endpoint tangent");
+    return size > 0 ? std::optional<ScenePoint>{{v.x / size, v.y / size}}
+                    : std::nullopt;
+  };
+  auto fallback = unit({1, 0}).value_or(ScenePoint{1, 0});
+  auto direction = [&](ScenePoint from, const PathSegment &segment,
+                       bool start) -> std::optional<ScenePoint> {
+    const auto end = segment.end;
+    if (segment.kind == PathSegment::Cubic) {
+      for (auto p : start ? std::vector<ScenePoint>{segment.control1,
+                                                    segment.control2, end}
+                          : std::vector<ScenePoint>{segment.control2,
+                                                    segment.control1, from})
+        if (auto d = unit(sub(p, start ? from : end)))
+          return d;
+    } else if (segment.kind == PathSegment::Quadratic) {
+      for (auto p : {segment.control1, start ? end : from})
+        if (auto d = unit(sub(p, start ? from : end)))
+          return d;
+    } else if (segment.kind == PathSegment::Arc) {
+      if (auto curve = arc(from, segment)) {
+        const double angle = start ? curve->start : curve->start + curve->delta;
+        const double sign = (curve->delta < 0 ? -1 : 1) * (start ? 1 : -1);
+        auto sine = std::sin(angle), cosine = std::cos(angle);
+        // Avoid spurious directions when a singular projection collapses the
+        // first derivative at an exact axis extremum of an ellipse.
+        if (std::abs(sine) < 1e-15)
+          sine = 0;
+        if (std::abs(cosine) < 1e-15)
+          cosine = 0;
+        if (auto d = unit(
+                mul(add(mul(curve->u, -sine), mul(curve->v, cosine)), sign)))
+          return d;
+        if (auto d = unit(add(mul(curve->u, -cosine), mul(curve->v, -sine))))
+          return d;
+      }
+    }
+    return unit(start ? sub(end, from) : sub(from, end));
+  };
+  std::vector<ScenePathEnds> result;
+  if (path.subpaths.size() > 100000)
+    fail("Too many path endpoint pairs");
+  for (const auto &subpath : path.subpaths) {
+    ScenePathEnds ends;
+    ends.open = !subpath.closed && !subpath.segments.empty();
+    ends.paint_group = subpath.paint_group;
+    if (!path.paints.empty()) {
+      if (subpath.paint_group >= path.paints.size())
+        fail("Invalid path paint group");
+      ends.stroke = path.paints[subpath.paint_group].stroke;
+    }
+    ends.first.point = coordinates.map(subpath.start);
+    ends.last.point = ends.first.point;
+    ends.first.inward = fallback;
+    ends.last.inward = mul(fallback, -1);
+    bool first = true;
+    auto current = subpath.start;
+    for (const auto &segment : subpath.segments) {
+      if (first)
+        if (auto d = direction(current, segment, true)) {
+          ends.first.inward = *d;
+          first = false;
+        }
+      if (auto d = direction(current, segment, false))
+        ends.last.inward = *d;
+      ends.last.point = coordinates.map(segment.end);
+      current = segment.end;
+    }
+    check(ends.first.point);
+    check(ends.last.point);
+    result.push_back(ends);
+  }
+  return result;
 }
 } // namespace DomeOffice

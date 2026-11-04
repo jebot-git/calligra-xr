@@ -12,7 +12,9 @@ namespace {
 bool equal(ScenePoint a, ScenePoint b) { return a.x == b.x && a.y == b.y; }
 struct Splitter {
   const std::vector<double> &pattern;
-  size_t limit, points = 0, work = 0;
+  size_t limit;
+  double period;
+  size_t points = 0, work = 0;
   std::vector<SceneContour> result;
   void budget() {
     if (++work > limit * 8)
@@ -62,6 +64,16 @@ struct Splitter {
       at = (at + 1) % pattern.size();
       left = pattern[at];
     };
+    if (!std::isfinite(input.stroke_dash_offset) ||
+        input.stroke_dash_offset < 0 || input.stroke_dash_offset > 1e10)
+      fail();
+    double offset = std::fmod(input.stroke_dash_offset, period);
+    while (offset > left) {
+      offset -= left;
+      next();
+    }
+    left -= offset;
+    bool origin = true;
     auto zeros = [&](ScenePoint position, bool dots,
                      std::optional<ScenePoint> direction) {
       size_t traversed = 0;
@@ -70,6 +82,9 @@ struct Splitter {
           fail();
         if (!(at & 1) && dots) {
           point(current, position);
+          current.stroke_butt_start = origin && input.stroke_butt_start;
+          current.stroke_butt_end =
+              vertices.size() == 1 && input.stroke_butt_end;
           current.stroke_start_tangent = direction;
           finish();
         }
@@ -82,6 +97,8 @@ struct Splitter {
       zeros(vertices.front(), true, input.stroke_start_tangent);
       if (!(at & 1)) {
         point(current, vertices.front());
+        current.stroke_butt_start = input.stroke_butt_start;
+        current.stroke_butt_end = input.stroke_butt_end;
         finish();
       }
       return;
@@ -118,13 +135,18 @@ struct Splitter {
         if (i == 0 && used == 0)
           first_on = on;
         if (on) {
+          if (current.points.empty() && origin)
+            current.stroke_butt_start = input.stroke_butt_start;
           point(current, position);
           point(current, to);
+          if (i + 1 == edges && amount == remaining)
+            current.stroke_butt_end = input.stroke_butt_end;
         } else {
           finish();
           gap = true;
         }
         used = final;
+        origin = false;
         if (amount == left) {
           if (on)
             finish();
@@ -182,7 +204,7 @@ std::vector<SceneContour> stroke_dashes(const std::vector<SceneContour> &input,
   // SVG's all-zero pattern is an undashed stroke.
   if (total == 0)
     return input;
-  Splitter splitter{normalized, point_limit};
+  Splitter splitter{normalized, point_limit, total};
   for (const auto &c : input)
     splitter.run(c);
   return std::move(splitter.result);
@@ -190,12 +212,13 @@ std::vector<SceneContour> stroke_dashes(const std::vector<SceneContour> &input,
 std::vector<std::vector<SceneContour>>
 stroke_pass_outlines(const std::vector<SceneContour> &contours,
                      const ScenePaint &paint, const SceneTransform &device,
-                     double tolerance, size_t point_limit) {
+                     double tolerance, size_t point_limit,
+                     const std::vector<SceneContour> &extra_fills) {
   if (point_limit < 1 || point_limit > 1000000 ||
       paint.stroke_patterns.size() > 64)
     fail();
   std::vector<std::vector<SceneContour>> result;
-  if (!paint.stroke || paint.stroke_width == 0)
+  if (!paint.stroke || (paint.stroke_width == 0 && extra_fills.empty()))
     return result;
   const auto fallback = std::vector<SceneDashPattern>{SceneDashPattern{}};
   size_t used = 0;
@@ -206,10 +229,16 @@ stroke_pass_outlines(const std::vector<SceneContour> &contours,
     // use the cascaded SVG cap (butt by default); solid passes keep that cap.
     if (pattern.round)
       pass.stroke_cap = ScenePaint::Cap::Round;
-    auto split = stroke_dashes(contours, pattern.lengths(paint.stroke_width),
-                               point_limit);
-    auto outlines =
-        stroke_outlines(split, pass, device, tolerance, point_limit);
+    std::vector<SceneContour> outlines;
+    if (paint.stroke_width != 0) {
+      auto split = stroke_dashes(contours, pattern.lengths(paint.stroke_width),
+                                 point_limit);
+      outlines = stroke_outlines(split, pass, device, tolerance, point_limit);
+    }
+    if (!extra_fills.empty()) {
+      outlines.insert(outlines.end(), extra_fills.begin(), extra_fills.end());
+      outlines = filled_contour_union(outlines, point_limit);
+    }
     for (const auto &c : outlines) {
       if (c.points.size() > point_limit - used)
         fail();
