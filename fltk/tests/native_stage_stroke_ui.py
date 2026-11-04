@@ -380,9 +380,12 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
             width, height = data()["window_size"]
             click((width - 660) / 2 + x, max(0, (height - 540) / 2) + y)
 
+        choice_focus = [0]
+
         def open_paint():
             menu_action("Fill and stroke…")
             wait(lambda: data()["format_dialog"])
+            choice_focus[0] = 0  # Panel initially focuses Fill.
             time.sleep(0.2)
 
         def text(x, y, value):
@@ -392,10 +395,25 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
                 key("3", ("Shift_L",)) if c == "#" else key(c)
 
         def picker(x, y, index, current):
-            panel_click(x, y)
+            # A pointer-opened popup can close on release before the arrow
+            # events arrive. FLTK Choice opens from the keyboard with Space;
+            # arrows on a closed choice instead navigate the surrounding group.
+            # Focus order is fixed here; image opacity is inactive in this
+            # image-free fixture. Never send Return to a closed popup, where
+            # it would activate the panel's default Apply button.
+            target = {(540, 280): 8, (540, 330): 9}[(x, y)]
+            while choice_focus[0] != target:
+                if choice_focus[0] < target:
+                    key("Tab")
+                    choice_focus[0] += 1
+                else:
+                    key("Tab", ("Shift_L",))
+                    choice_focus[0] -= 1
+            key("Space")
             for _ in range(abs(index - current)):
                 key("Down" if index > current else "Up")
             key("Return")
+            assert data()["format_dialog"], "Choice selection applied the panel early"
 
         def apply():
             panel_click(585, 505)
