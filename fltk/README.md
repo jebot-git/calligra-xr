@@ -1274,3 +1274,19 @@ Known source formatting is materialized without replacing receiving defaults;
 broader ODF1.2 context and editing fidelity remains incomplete. New source
 features require a separate verified installation receipt before counting as
 installed functionality.
+
+## Stage dash patterns
+
+Choose Format → Fill and stroke → Dash pattern to edit both dash sequences,
+their counts and lengths, the gap and rectangular/round shape. Lengths accept
+absolute units or percentages of the final stroke width. The inner Apply stages
+the pattern; the outer Apply commits it with the selection's paint changes.
+Cancel leaves the document and undo/redo unchanged. Mixed patterns remain
+unchanged unless Apply this pattern is selected. Replace overlay styles allows
+an ordered list of existing names; an explicitly empty replacement clears it.
+
+New patterns are scoped through fresh common definitions, preserving other
+objects and old shared definitions. Undo/redo includes styles and manifest parts.
+Clipboard paste preserves/remaps primary and overlay references. See
+PORT_STATUS.md for omitted-value/cap policies and remaining interoperability
+limits, and VALIDATION.md for the feature-specific evidence requirements.

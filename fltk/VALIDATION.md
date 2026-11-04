@@ -3381,3 +3381,55 @@ suite fixtures remain separate from their repaired exports.
 Staging and installed validation require their own receipts. The object
 clipboard is partial ODF1.2 behavior; unsupported source contexts/semantics and
 broader Words/Sheets/Stage, OpenFormula and package functionality remain open.
+
+## Stage named dash patterns — 2026-11-04
+
+The relevant ODF1.2 references are Part1 §§16.40.9,19.134.3–19.138,19.218.5
+and20.160–20.164:
+[ODF1.2 Part1](https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html).
+The native omitted-value and conflicting cap/shape policies are documented in
+PORT_STATUS.md; they do not claim identical choices by other office consumers.
+
+`native-dash-geometry` checks378 cap/join/pattern/path combinations with
+translucent ink, closed seams, repeated vertices, subpath resets, self-crossings,
+zero on lengths and zero gaps. Ordinary cases use Cairo's independent dash
+stroker. Degenerate zero-on cases use global-distance point/square/circle
+oracles. A folded closed line has an independent one-dimensional strip,
+semicircle and square construction; zero-gap intervals are computed globally
+and painted with Cairo's solid stroker. Those cases avoid copying Cairo's
+inconsistent degenerate dash/cap behavior. The comparison retains the strict
+existing stable-pixel boundary margin and does not relax its error tolerance.
+The SVG stroke-union/cap construction is also described in
+[SVG painting](https://www.w3.org/TR/SVG2/painting.html#StrokeShape); ODF1.2 itself
+references SVG1.1. The existing756 solid-stroke Cairo/affine cases remain a
+separate regression gate. Native round caps now use semicircles; full disks
+incorrectly add ink around sufficiently short reversing paths.
+
+`native-stage-dashes` covers independently authored mixed-unit definitions,
+ordered/repeated overlays, missing-name diagnostics, scoped width/pattern edits,
+source/archive no-ops and exact undo/redo. First styles.xml creation/removal and
+multi-object edits without an existing automatic-styles section are separate
+cases. Excessive/tiny/invalid patterns and undefined overlay names preserve
+source and redo. Actual guarded paste checks dependency closure, repeated list
+remapping, conflicting destination definitions, unrelated receiving paint and
+save/reopen. This complements the broader existing clipboard transport/UI
+corpus; it is not an exhaustive import interoperability corpus.
+
+`stage_dash_producer.py` independently writes strict ODF source and verifies
+native authoring XML, new resource properties, unrelated common definitions,
+other objects/slides and exact non-content archive data. Native Wayland UI checks
+exercise nested real controls, minimum window layout, cancellation/no-op redo,
+loaded mixed measures, round dots, alpha over multiple passes, scoped changes,
+history and save/reopen. Source-count/signature assertions do not replace those
+behavior checks. `stage_dash_print.py` sends actual jobs to private CUPS, verifies
+captured PDF byte equality, independent dash/gap/cap/opacity pixels, source
+isolation and all-page exact reopened rasters. Curved/closed/reversing/affine
+specimens also require visual review. Official version-matched content/styles
+schemas and Part3 plain-package checks remain separate gates.
+
+Build, sanitizer, UI, printing, staging and installed results are recorded per
+artifact directory. The three established outline-font exclusions and existing
+narrow system Fontconfig/Mesa GUI cache suppressions remain explicit; native
+allocations are not suppressed. The separate system-FLTK early-dismiss alert
+surface leak has not been resolved by this increment. No selected dash corpus
+establishes full ODF1.2, whole-suite compatibility or physical-printer coverage.

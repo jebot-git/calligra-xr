@@ -504,7 +504,8 @@ styles_dialog(Fl_Window &window, OdfPackage working,
   background.hint.resize(x + 20, y + height - 180, width - 40, 28);
   background.hint.copy_label("Choose a style, or create and edit definitions");
   Fl_Hold_Browser browser(x + 20, y + 50, width - 40, height - 240);
-  browser.format_char(0);browser.column_char(0);
+  browser.format_char(0);
+  browser.column_char(0);
   browser.textfont(dx::font);
   browser.textsize(dx::size);
   Fl_Box description(x + 20, y + height - 142, width - 40, 36);
@@ -1139,7 +1140,8 @@ tab_stops_dialog(Fl_Window &window, OdfPackage original, size_t begin,
   background.hint.copy_label(
       "Changes are staged until Apply; Cancel discards them");
   Fl_Hold_Browser browser(x + 20, y + 50, width - 40, 210);
-  browser.format_char(0);browser.column_char(0);
+  browser.format_char(0);
+  browser.column_char(0);
   browser.textfont(dx::font);
   browser.textsize(dx::size);
   Fl_Box scope(x + 20, y + 270, width - 40, 28);
@@ -1489,8 +1491,7 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
   NativeTextShaper shaper(
       Text(dx::font_name.substr(0, dx::font_name.find(" / "))), dx::size);
   auto flow = read_text_flow(original);
-  auto measured =
-      measure_words_table_geometry(flow, path, body_width, shaper);
+  auto measured = measure_words_table_geometry(flow, path, body_width, shaper);
   const auto table_alignment = flow.tables.at(address.table).alignment;
   const double mm = 25.4 / 72.;
   const int width = 740, height = 440,
@@ -1529,7 +1530,7 @@ table_sizing_dialog(Fl_Window &window, OdfPackage original,
   column_mode.value(initial.column.mode);
   align.value(table_alignment == TextTable::Center  ? 1
               : table_alignment == TextTable::Right ? 2
-                                                   : 0);
+                                                    : 0);
   auto display = [](double n) { return Text::number(n, 'g', 9); };
   const double current_width =
       std::accumulate(measured.columns.begin(), measured.columns.end(), 0.);
@@ -2116,6 +2117,121 @@ stage_layers_dialog(Fl_Window &window, NativeStageLayerEdit draft) {
 } // namespace DomeOffice
 
 namespace DomeOffice {
+namespace {
+std::optional<NativePaintFormat>
+dash_format_dialog(Fl_Window &window, const NativePaintInfo &initial) {
+  const int width = 660, height = 520,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height, "Dash pattern");
+  background.hint.copy_label(
+      "Blank lengths use one stroke width; outer Apply commits the changes");
+  Fl_Check_Button use(x + 20, y + 50, 600, 30,
+                      "Apply this pattern to the stroke");
+  use.value(initial.values.stroke == "dash" &&
+            initial.values.dash_pattern.has_value());
+  Fl_Input count1(x + 170, y + 100, 100, 30, "First count:"),
+      length1(x + 450, y + 100, 170, 30, "First length:"),
+      count2(x + 170, y + 145, 100, 30, "Second count:"),
+      length2(x + 450, y + 145, 170, 30, "Second length:"),
+      distance(x + 170, y + 190, 140, 30, "Gap:");
+  Fl_Choice shape(x + 450, y + 190, 170, 30, "Dash shape:");
+  shape.add("Rectangular|Round");
+  shape.tooltip(
+      "Round dash shapes use round ends; rectangular shapes use the line cap");
+  SceneDashPattern default_pattern;
+  default_pattern.first = 1;
+  default_pattern.first_length = SceneDashLength{4, true};
+  default_pattern.distance = SceneDashLength{2, true};
+  auto pattern = initial.values.dash_pattern.value_or(default_pattern);
+  count1.value(Text::number(pattern.first).toUtf8().c_str());
+  count2.value(Text::number(pattern.second).toUtf8().c_str());
+  auto show = [](Fl_Input &field, const std::optional<SceneDashLength> &value) {
+    if (value)
+      field.value(
+          (Text::number(value->value * (value->relative ? 100 : 1), 'g', 12) +
+           (value->relative ? "%" : "pt"))
+              .toUtf8()
+              .c_str());
+  };
+  show(length1, pattern.first_length);
+  show(length2, pattern.second_length);
+  show(distance, pattern.distance);
+  shape.value(pattern.round ? 1 : 0);
+  Fl_Box units(
+      x + 20, y + 235, 600, 30,
+      "Lengths: pt, mm, cm or % of stroke width; blank uses one stroke width.");
+  units.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Fl_Check_Button replace_overlays(x + 20, y + 275, 600, 30,
+                                   "Replace overlay styles (blank clears)");
+  replace_overlays.value(0);
+  Fl_Input overlays(x + 170, y + 315, 450, 30, "Overlay styles:");
+  overlays.when(FL_WHEN_CHANGED);
+  overlays.callback(
+      [](Fl_Widget *, void *data) {
+        static_cast<Fl_Check_Button *>(data)->value(1);
+      },
+      &replace_overlays);
+  if (initial.values.dash_names)
+    overlays.value(initial.values.dash_names->join(' ').toUtf8().c_str());
+  overlays.tooltip("Space-separated existing dash style names, in paint order; "
+                   "empty clears overlays");
+  Fl_Box available(x + 20, y + 355, 600, 50);
+  available.copy_label(
+      ("Available styles: " + initial.available_dashes.join(' '))
+          .toUtf8()
+          .c_str());
+  available.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  while (panel.run(use)) {
+    try {
+      NativePaintFormat result;
+      if (use.value()) {
+        auto doc = read_document_xml(
+            ("<draw:stroke-dash xmlns:draw=\"" + DRAW + "\"/>").toUtf8());
+        auto node = doc.documentElement();
+        for (auto [key, field] :
+             {std::pair{"dots1", &count1}, std::pair{"dots2", &count2},
+              std::pair{"dots1-length", &length1},
+              std::pair{"dots2-length", &length2},
+              std::pair{"distance", &distance}}) {
+          auto value = Text(field->value()).trimmed();
+          if (!value.empty())
+            node.setAttributeNS(DRAW, Text("draw:") + key, value);
+        }
+        node.setAttributeNS(DRAW, "draw:style",
+                            shape.value() ? "round" : "rect");
+        result.dash_pattern = read_scene_dash_pattern(node);
+        result.stroke = "dash";
+      }
+      if (replace_overlays.value()) {
+        TextList names;
+        std::istringstream input(Text(overlays.value()).toStdString());
+        for (std::string name; input >> name;) {
+          if (!initial.available_dashes.contains(Text(name)) ||
+              names.size() >= 63)
+            throw std::runtime_error(
+                "Choose available dash style names for overlays");
+          names.push_back(Text(name));
+        }
+        if (initial.values.dash_names != names)
+          result.dash_names = names;
+      }
+      return result;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      window.redraw();
+    }
+  }
+  return {};
+}
+} // namespace
 bool object_paint_dialog(
     Fl_Window &window, const NativePaintInfo &initial,
     const std::function<void(const NativePaintFormat &)> &apply) {
@@ -2146,6 +2262,9 @@ bool object_paint_dialog(
   };
   mode(fill, initial.values.fill);
   mode(stroke, initial.values.stroke);
+  stroke.add("Dash");
+  if (initial.values.stroke == "dash")
+    stroke.value(3);
   if (initial.values.fill_color)
     fill_color.value(initial.values.fill_color->toUtf8().c_str());
   if (initial.values.stroke_color)
@@ -2180,6 +2299,10 @@ bool object_paint_dialog(
          initial.values.stroke_cap);
   choice(join, "Keep current|Miter|Round|Bevel|None", joins,
          initial.values.stroke_join);
+  int action = 0;
+  ActionButton dash_button(panel, action, 1, x + 160, y + 315, 160,
+                           "Dash pattern...");
+  NativePaintFormat dash_patch;
   Fl_Box summary(x + 20, y + 365, width - 40, 50);
   auto label = Text::number(initial.objects) +
                (initial.objects == 1 ? " object. " : " objects. ") +
@@ -2192,7 +2315,7 @@ bool object_paint_dialog(
     for (auto *widget : std::initializer_list<Fl_Widget *>{
              &fill, &stroke, &fill_color, &stroke_color, &fill_opacity,
              &stroke_opacity, &stroke_width, &rule, &image_opacity, &cap, &join,
-             &buttons.apply})
+             &dash_button, &buttons.apply})
       widget->deactivate();
     background.hint.copy_label(
         "This selection is read-only or contains protected objects");
@@ -2204,17 +2327,51 @@ bool object_paint_dialog(
     try {
       if (!initial.editable)
         continue;
-      NativePaintFormat result;
+      if (action == 1) {
+        action = 0;
+        auto info = initial;
+        if (dash_patch.dash_pattern)
+          info.values.dash_pattern = dash_patch.dash_pattern;
+        if (dash_patch.dash_names)
+          info.values.dash_names = dash_patch.dash_names;
+        if (dash_patch.stroke)
+          info.values.stroke = dash_patch.stroke;
+        if (auto patch = dash_format_dialog(window, info)) {
+          if (patch->dash_pattern) {
+            dash_patch.dash_pattern = patch->dash_pattern;
+            dash_patch.stroke = "dash";
+            stroke.value(3);
+          }
+          if (patch->dash_names)
+            dash_patch.dash_names = patch->dash_names;
+        }
+        continue;
+      }
+      NativePaintFormat result = dash_patch;
       auto changed_mode = [](Fl_Choice &field, const std::optional<Text> &old,
                              std::optional<Text> &out) {
         if (field.value()) {
-          Text value = field.value() == 1 ? "none" : "solid";
+          Text value = field.value() == 1   ? "none"
+                       : field.value() == 2 ? "solid"
+                                            : "dash";
           if (!old || *old != value)
             out = value;
         }
       };
       changed_mode(fill, initial.values.fill, result.fill);
       changed_mode(stroke, initial.values.stroke, result.stroke);
+      if (stroke.value() != 3) {
+        result.dash_pattern.reset();
+        if (dash_patch.stroke && stroke.value())
+          result.stroke = stroke.value() == 1 ? "none" : "solid";
+      } else if (!result.dash_pattern && !initial.values.dash_pattern &&
+                 initial.values.stroke != "dash") {
+        SceneDashPattern pattern;
+        pattern.first = 1;
+        pattern.first_length = SceneDashLength{4, true};
+        pattern.distance = SceneDashLength{2, true};
+        result.dash_pattern = pattern;
+      }
       auto changed_choice = [](Fl_Choice &field, const TextList &values,
                                const std::optional<Text> &old,
                                std::optional<Text> &out) {

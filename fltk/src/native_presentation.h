@@ -2,6 +2,7 @@
 #pragma once
 #include "native_text_layout.h"
 #include "native_layers.h"
+#include "native_dash_pattern.h"
 #include <optional>
 namespace DomeOffice {
 struct ScenePoint {
@@ -38,6 +39,12 @@ struct ScenePaint {
   enum class Join { Miter, Round, Bevel, None } stroke_join = Join::Miter;
   // SVG's initial miter limit. ODF1.2 has no standard miter-limit attribute.
   static constexpr double stroke_miter_limit = 4;
+  bool dashed = false;
+  Text dash_name;
+  TextList dash_names;
+  // One base pass followed by draw:stroke-dash-names in source order. An empty
+  // pattern is solid. Paint passes separately to preserve ODF opacity.
+  std::vector<SceneDashPattern> stroke_patterns;
 };
 struct SceneContour {
   std::vector<ScenePoint> points;
@@ -46,6 +53,10 @@ struct SceneContour {
   bool fill = true, stroke = true;
   bool stroke_zero_length =
       false; // Distinguish a segment/close from moveto only.
+  // A dash beginning exactly at a vertex retains the incoming tangent, even
+  // when that initial segment has zero length. Joins and square caps use it.
+  // Genuinely directionless zero-length source subpaths stay axis-aligned.
+  std::optional<ScenePoint> stroke_start_tangent;
 };
 struct ScenePath;
 struct SceneHandle {

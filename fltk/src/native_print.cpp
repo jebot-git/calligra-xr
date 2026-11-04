@@ -434,7 +434,8 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
                                    });
               });
           if (shape.paint.stroke_join != ScenePaint::Join::None &&
-              !degenerate) {
+              !degenerate && !shape.paint.dashed &&
+              shape.paint.dash_names.empty()) {
             // Preserve vector stroke operators and thin-stroke hinting for
             // ordinary paths, with the SVG default miter limit explicit.
             draw_path(false);
@@ -457,20 +458,22 @@ PrintResult print_pdf(const Presentation &document, const Text &path,
           } else {
             // Cairo has no join=None, and its square zero-length behavior
             // differs from SVG. Paint the bounded native outline once.
-            auto outline = stroke_outlines(
+            auto outlines = stroke_pass_outlines(
                 items, shape.paint,
                 SceneTransform{300 / 72., 0, 0, 300 / 72.} * shape.transform,
                 .05);
-            cairo_new_path(pdf.cr());
-            for (const auto &c : outline) {
-              cairo_move_to(pdf.cr(), c.points.front().x, c.points.front().y);
-              for (size_t j = 1; j < c.points.size(); ++j)
-                cairo_line_to(pdf.cr(), c.points[j].x, c.points[j].y);
-              cairo_close_path(pdf.cr());
+            for (const auto &outline : outlines) {
+              cairo_new_path(pdf.cr());
+              for (const auto &c : outline) {
+                cairo_move_to(pdf.cr(), c.points.front().x, c.points.front().y);
+                for (size_t j = 1; j < c.points.size(); ++j)
+                  cairo_line_to(pdf.cr(), c.points[j].x, c.points[j].y);
+                cairo_close_path(pdf.cr());
+              }
+              color(pdf.cr(), shape.paint.stroke_color);
+              cairo_set_fill_rule(pdf.cr(), CAIRO_FILL_RULE_WINDING);
+              cairo_fill(pdf.cr());
             }
-            color(pdf.cr(), shape.paint.stroke_color);
-            cairo_set_fill_rule(pdf.cr(), CAIRO_FILL_RULE_WINDING);
-            cairo_fill(pdf.cr());
           }
         }
       }

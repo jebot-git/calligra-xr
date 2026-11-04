@@ -343,7 +343,10 @@ XmlElement NativeStageContextStyles::graphic(const ScenePaint &value,
   set(p, DRAW, "fill", value.fill ? "solid" : "none");
   set(p, DRAW, "fill-color", rgb_opaque(value.fill_color));
   set(p, DRAW, "opacity", number(value.fill_color.alpha * 100) + "%");
-  set(p, DRAW, "stroke", value.stroke ? "solid" : "none");
+  set(p, DRAW, "stroke",
+      value.stroke ? (value.dashed ? "dash" : "solid") : "none");
+  set(p, DRAW, "stroke-dash", value.dash_name);
+  set(p, DRAW, "stroke-dash-names", value.dash_names.join(' '));
   set(p, SVG, "stroke-color", rgb_opaque(value.stroke_color));
   set(p, SVG, "stroke-opacity", number(value.stroke_color.alpha * 100) + "%");
   set(p, SVG, "stroke-width", pt(value.stroke_width));

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_stage_paint.h"
 #include "native_stage_source.h"
+#include "native_stroke.h"
+#include "native_path.h"
 #include "text_documents.h"
 #include <charconv>
 #include <cmath>
@@ -94,9 +96,15 @@ void validate(const NativePaintFormat &p) {
   if (p.stroke_join &&
       !TextList{"miter", "round", "bevel", "none"}.contains(*p.stroke_join))
     fail("Choose Miter, Round, Bevel or None stroke joins");
-  for (auto mode : {p.fill, p.stroke})
-    if (mode && *mode != "none" && *mode != "solid")
-      fail("Choose None or Solid paint");
+  if (p.fill && *p.fill != "none" && *p.fill != "solid")
+    fail("Choose None or Solid fill");
+  if (p.stroke && *p.stroke != "none" && *p.stroke != "solid" &&
+      *p.stroke != "dash")
+    fail("Choose None, Solid or Dash stroke");
+  if (p.dash_pattern)
+    (void)p.dash_pattern->lengths(p.stroke_width.value_or(1));
+  if (p.dash_names && p.dash_names->size() > 63)
+    fail("Too many drawing dash overlay passes");
   for (auto value : {p.fill_color, p.stroke_color})
     if (value)
       (void)color(*value);
@@ -112,6 +120,8 @@ struct Catalog {
   std::map<std::pair<Text, Text>, XmlElement> common, automatic;
   std::map<Text, XmlElement> defaults;
   std::set<Text> reserved;
+  std::map<Text, XmlElement> dashes;
+  std::optional<Text> created_dash;
   explicit Catalog(const OdfPackage &p) {
     const auto bytes = p.entry("styles.xml");
     if (!bytes.empty()) {
@@ -132,6 +142,9 @@ struct Catalog {
       const bool aut = group.localName() == "automatic-styles";
       if (!aut && group.localName() != "styles")
         continue;
+      if (!aut)
+        for (auto node : children(group, DRAW, "stroke-dash"))
+          dashes[node.attributeNS(DRAW, "name")] = node;
       for (auto node : children(group, STYLE)) {
         auto name = node.attributeNS(STYLE, "name"),
              family = node.attributeNS(STYLE, "family");
@@ -209,6 +222,14 @@ struct Catalog {
     out.even_odd = get(SVG, "fill-rule", "nonzero") == "evenodd";
     out.stroke_cap = get(SVG, "stroke-linecap", "butt");
     out.stroke_join = get(DRAW, "stroke-linejoin", "miter");
+    auto dash = get(DRAW, "stroke-dash", "");
+    if (auto at = dashes.find(dash); at != dashes.end())
+      out.dash_pattern = read_scene_dash_pattern(at->second);
+    TextList names;
+    std::istringstream input(get(DRAW, "stroke-dash-names", "").toStdString());
+    for (std::string name; input >> name;)
+      names.push_back(Text(name));
+    out.dash_names = names;
     return out;
   }
   Text name() {
@@ -218,6 +239,49 @@ struct Catalog {
         return candidate;
     }
     fail("No drawing style name is available");
+  }
+  Text dash(OdfPackage &p, const SceneDashPattern &pattern) {
+    if (created_dash)
+      return *created_dash;
+    (void)pattern.lengths(1);
+    auto root = styles.documentElement();
+    if (root.isNull()) {
+      styles = read_document_xml(
+          ("<office:document-styles xmlns:office=\"" + OFFICE + "\"/>")
+              .toUtf8());
+      root = styles.documentElement();
+      root.setAttributeNS(
+          OFFICE, "office:version",
+          p.xml.documentElement().attributeNS(OFFICE, "version", "1.2"));
+    }
+    auto common_node = child(root, OFFICE, "styles");
+    if (common_node.isNull()) {
+      common_node = styles.createElementNS(OFFICE, "office:styles");
+      auto following = child(root, OFFICE, "automatic-styles");
+      if (following.isNull())
+        following = child(root, OFFICE, "master-styles");
+      root.insertBefore(common_node, following);
+    }
+    if (children(common_node, DRAW, "stroke-dash").size() >= 100000)
+      fail("Too many drawing dash definitions");
+    auto node = styles.createElementNS(DRAW, "draw:stroke-dash");
+    auto id = name();
+    node.setAttributeNS(DRAW, "draw:name", id);
+    node.setAttributeNS(DRAW, "draw:style", pattern.round ? "round" : "rect");
+    node.setAttributeNS(DRAW, "draw:dots1", Text::number(pattern.first));
+    node.setAttributeNS(DRAW, "draw:dots2", Text::number(pattern.second));
+    for (auto [key, value] : {std::pair{"dots1-length", pattern.first_length},
+                              std::pair{"dots2-length", pattern.second_length},
+                              std::pair{"distance", pattern.distance}})
+      if (value)
+        node.setAttributeNS(
+            DRAW, Text("draw:") + key,
+            Text::number(value->value * (value->relative ? 100 : 1), 'g', 17) +
+                (value->relative ? "%" : "pt"));
+    common_node.appendChild(node);
+    p.set_entry("styles.xml", styles.toByteArray(), "text/xml");
+    created_dash = id;
+    return id;
   }
   void change(OdfPackage &p, XmlElement object,
               const NativePaintFormat &patch) {
@@ -253,6 +317,17 @@ struct Catalog {
     };
     if (patch.fill)
       put(DRAW, "draw:fill", *patch.fill);
+    if (patch.dash_pattern) {
+      put(DRAW, "draw:stroke-dash", dash(p, *patch.dash_pattern));
+      if (!patch.stroke)
+        put(DRAW, "draw:stroke", "dash");
+    }
+    if (patch.dash_names) {
+      for (const auto &id : *patch.dash_names)
+        if (!dashes.contains(id))
+          fail("Choose defined common dash names for overlays");
+      put(DRAW, "draw:stroke-dash-names", patch.dash_names->join(' '));
+    }
     if (patch.stroke)
       put(DRAW, "draw:stroke", *patch.stroke);
     if (patch.fill_color)
@@ -299,7 +374,10 @@ void aggregate(std::optional<T> &value, const std::optional<T> &next) {
     value.reset();
 }
 bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
-  return (patch.stroke_cap && patch.stroke_cap != before.stroke_cap) ||
+  return (patch.dash_pattern && (patch.dash_pattern != before.dash_pattern ||
+                                 (!patch.stroke && before.stroke != "dash"))) ||
+         (patch.dash_names && patch.dash_names != before.dash_names) ||
+         (patch.stroke_cap && patch.stroke_cap != before.stroke_cap) ||
          (patch.stroke_join && patch.stroke_join != before.stroke_join) ||
          (patch.fill && patch.fill != before.fill) ||
          (patch.stroke && patch.stroke != before.stroke) ||
@@ -317,7 +395,7 @@ bool changes(const NativePaintFormat &before, const NativePaintFormat &patch) {
 bool NativePaintFormat::empty() const {
   return !fill && !fill_color && !stroke && !stroke_color && !fill_opacity &&
          !stroke_opacity && !stroke_width && !even_odd && !image_opacity &&
-         !stroke_cap && !stroke_join;
+         !stroke_cap && !stroke_join && !dash_pattern && !dash_names;
 }
 NativePaintInfo
 Presentation::object_paint(int index,
@@ -325,6 +403,8 @@ Presentation::object_paint(int index,
   const auto &model = scene(index);
   Catalog catalog(package_);
   NativePaintInfo result;
+  for (const auto &[name, node] : catalog.dashes)
+    result.available_dashes.push_back(name);
   auto nodes = objects(model, refs);
   result.editable = !read_only();
   for (auto ref : native_object_selection(model, refs))
@@ -352,6 +432,8 @@ Presentation::object_paint(int index,
       aggregate(result.values.even_odd, info.even_odd);
       aggregate(result.values.stroke_cap, info.stroke_cap);
       aggregate(result.values.stroke_join, info.stroke_join);
+      aggregate(result.values.dash_pattern, info.dash_pattern);
+      aggregate(result.values.dash_names, info.dash_names);
     }
   }
   result.values.image_opacity = image_opacity;
@@ -380,14 +462,22 @@ Presentation::set_object_paint(int index,
   Catalog catalog(package_);
   OdfPackage candidate = package_;
   candidate.xml = read_document_xml(package_.xml.toByteArray());
+  // Capture all candidate identities before inserting an automatic-styles
+  // sibling. Structural insertion changes serialized element-rank paths.
+  std::vector<XmlElement> chosen, candidate_nodes;
+  for (auto ref : refs)
+    chosen.push_back(stage_candidate_source(native_object_source(model, ref),
+                                            candidate.xml));
+  for (auto node : nodes)
+    candidate_nodes.push_back(stage_candidate_source(node, candidate.xml));
   bool changed = false;
-  for (auto node : nodes) {
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    auto node = nodes[i];
     auto requested = patch;
     if (child(node, DRAW, "image").isNull())
       requested.image_opacity.reset();
     if (changes(catalog.info(node), requested)) {
-      catalog.change(candidate, stage_candidate_source(node, candidate.xml),
-                     requested);
+      catalog.change(candidate, candidate_nodes[i], requested);
       changed = true;
     }
   }
@@ -397,10 +487,14 @@ Presentation::set_object_paint(int index,
   auto reader = std::make_shared<OdfTextReader>(candidate);
   auto scenes = read_presentation_scenes(candidate, reader);
   (void)read_presentation_scenes(candidate, reader, SceneTarget::Print);
-  std::vector<XmlElement> chosen;
-  for (auto ref : refs)
-    chosen.push_back(stage_candidate_source(native_object_source(model, ref),
-                                            candidate.xml));
+  for (const auto &slide : scenes)
+    for (const auto &shape : slide.shapes)
+      if (shape.paint.dashed || !shape.paint.dash_names.empty()) {
+        auto contours = shape.path ? flatten_path(*shape.path, shape.path_map,
+                                                  shape.transform)
+                                   : shape.contours;
+        (void)stroke_pass_outlines(contours, shape.paint, shape.transform);
+      }
   auto next_refs = native_object_selection(
       scenes.at(index), native_object_references(scenes.at(index), chosen));
   if (next_refs.empty())
@@ -418,12 +512,13 @@ Presentation::set_object_paint(int index,
     after.selection = text_selection;
   }
   auto original = package_.xml.toByteArray();
+  auto parts = candidate.part_changes_from(package_);
   package_ = std::move(candidate);
   scenes_ = std::move(scenes);
   text_reader_ = std::move(reader);
   ++revision_;
   end_text_edit();
-  remember(original, std::move(before), after);
+  remember(original, std::move(before), after, false, std::move(parts));
   return after;
 }
 } // namespace DomeOffice

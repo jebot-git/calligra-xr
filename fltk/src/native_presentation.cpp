@@ -197,7 +197,7 @@ struct Catalog {
   const OdfPackage &source_package;
   Source styles, content;
   std::map<std::pair<Text, Text>, XmlElement> common;
-  std::map<Text, XmlElement> defaults, masters;
+  std::map<Text, XmlElement> defaults, masters, dash_definitions;
   std::shared_ptr<OdfTextReader> text_reader;
   std::vector<XmlDocument> documents;
   std::map<std::string, int> editor_ids;
@@ -226,6 +226,12 @@ struct Catalog {
     for (auto group : children(doc.documentElement(), OFFICE)) {
       bool automatic = group.localName() == "automatic-styles";
       if (automatic || group.localName() == "styles") {
+        if (!automatic)
+          for (auto e : children(group, DRAW, "stroke-dash")) {
+            if (dash_definitions.size() >= 100000)
+              fail("Too many drawing dash definitions");
+            dash_definitions[e.attributeNS(DRAW, "name")] = e;
+          }
         for (auto e : children(group, STYLE)) {
           auto name = e.attributeNS(STYLE, "name"),
                family = e.attributeNS(STYLE, "family");
@@ -301,8 +307,21 @@ struct Catalog {
     if (p.hasAttributeNS(DRAW, "stroke")) {
       auto value = p.attributeNS(DRAW, "stroke");
       paint.stroke = value == "solid" || value == "dash";
-      if (value != "solid" && value != "none")
-        note(slide.unsupported, "Dashed and advanced strokes");
+      paint.dashed = value == "dash";
+      if (value != "solid" && value != "none" && value != "dash")
+        note(slide.unsupported, "Advanced strokes");
+    }
+    if (p.hasAttributeNS(DRAW, "stroke-dash"))
+      paint.dash_name = p.attributeNS(DRAW, "stroke-dash");
+    if (p.hasAttributeNS(DRAW, "stroke-dash-names")) {
+      paint.dash_names.clear();
+      std::istringstream input(
+          p.attributeNS(DRAW, "stroke-dash-names").toStdString());
+      for (std::string name; input >> name;) {
+        if (paint.dash_names.size() >= 63)
+          fail("Too many drawing dash overlay passes");
+        paint.dash_names.push_back(Text(name));
+      }
     }
     if (p.hasAttributeNS(SVG, "stroke-color")) {
       auto alpha = paint.stroke_color.alpha;
@@ -429,8 +448,8 @@ struct Catalog {
       if (paint.font.size <= 0 || paint.font.size > 1000)
         fail("Invalid presentation text size");
     }
-    for (const auto &name : {"shadow", "clip", "fill-gradient-name",
-                             "stroke-dash", "marker-start", "marker-end"})
+    for (const auto &name :
+         {"shadow", "clip", "fill-gradient-name", "marker-start", "marker-end"})
       if (p.hasAttributeNS(DRAW, name) || p.hasAttributeNS(FO, name))
         note(slide.unsupported,
              "Shadows, clipping, markers and advanced paint properties");
@@ -454,6 +473,19 @@ struct Catalog {
     }
     if (result.stroke && legacy_middle)
       note(slide.unsupported, "Deprecated middle stroke joins");
+    auto resolve = [&](const Text &name) {
+      if (auto at = dash_definitions.find(name); at != dash_definitions.end())
+        return read_scene_dash_pattern(at->second);
+      note(slide.unsupported,
+           "Missing drawing dash definition; solid fallback");
+      return SceneDashPattern{};
+    };
+    if (result.stroke) {
+      result.stroke_patterns.push_back(result.dashed ? resolve(result.dash_name)
+                                                     : SceneDashPattern{});
+      for (const auto &name : result.dash_names)
+        result.stroke_patterns.push_back(resolve(name));
+    }
     return result;
   }
   SceneTransform position(const XmlElement &node,

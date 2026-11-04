@@ -141,14 +141,42 @@ struct Outline {
     }
     polygon(std::move(points));
   }
+  void cap(ScenePoint center, ScenePoint direction, bool start,
+           ScenePaint::Cap mode) {
+    if (mode == ScenePaint::Cap::Butt)
+      return;
+    auto outward = mul(direction, start ? -radius : radius);
+    auto normal = ScenePoint{-direction.y * radius, direction.x * radius};
+    if (mode == ScenePaint::Cap::Square) {
+      polygon({add(center, normal), add(add(center, normal), outward),
+               add(sub(center, normal), outward), sub(center, normal)});
+      return;
+    }
+    // Caps are semicircles, not disks. A full disk adds incorrect ink when a
+    // short segment immediately reverses or a dash starts at a corner.
+    double estimate = std::ceil(std::numbers::pi *
+                                std::sqrt(device_radius / (8 * tolerance)));
+    if (!std::isfinite(estimate) || estimate + 2 > double(limit - count))
+      fail();
+    size_t steps = std::max(size_t(6), size_t(estimate));
+    steps = (steps + 1) / 2 * 2;
+    std::vector<ScenePoint> arc{center};
+    double angle = std::atan2(direction.y, direction.x) +
+                   (start ? std::numbers::pi / 2 : -std::numbers::pi / 2);
+    for (size_t i = 0; i <= steps; ++i) {
+      double a = angle + std::numbers::pi * double(i) / double(steps);
+      arc.push_back(add(center, {radius * std::cos(a), radius * std::sin(a)}));
+    }
+    polygon(std::move(arc));
+  }
   void join(ScenePoint vertex, ScenePoint before, ScenePoint after,
             ScenePaint::Join mode) {
     if (mode == ScenePaint::Join::None)
       return;
     double turn = cross(before, after);
     double dot = before.x * after.x + before.y * after.y;
-    if (mode == ScenePaint::Join::Round && turn == 0 && dot < 0) {
-      disk(vertex);
+    if (mode == ScenePaint::Join::Round && std::abs(turn) <= 1e-14 && dot < 0) {
+      cap(vertex, before, false, ScenePaint::Cap::Round);
       return;
     }
     if (turn == 0)
@@ -234,10 +262,17 @@ stroke_outlines(const std::vector<SceneContour> &contours,
           out.disk(points.front());
         else if (paint.stroke_cap == ScenePaint::Cap::Square) {
           auto p = points.front();
-          out.polygon({{p.x - out.radius, p.y - out.radius},
-                       {p.x + out.radius, p.y - out.radius},
-                       {p.x + out.radius, p.y + out.radius},
-                       {p.x - out.radius, p.y + out.radius}});
+          ScenePoint along{out.radius, 0};
+          if (contour.stroke_start_tangent) {
+            auto d = *contour.stroke_start_tangent;
+            double size = std::hypot(d.x, d.y);
+            if (!std::isfinite(size) || size <= 0)
+              fail();
+            along = mul(d, out.radius / size);
+          }
+          auto normal = ScenePoint{-along.y, along.x};
+          out.polygon({add(add(p, along), normal), add(sub(p, along), normal),
+                       sub(sub(p, along), normal), sub(add(p, along), normal)});
         }
       }
       continue;
@@ -253,22 +288,29 @@ stroke_outlines(const std::vector<SceneContour> &contours,
       auto d = mul(delta, 1 / length);
       directions.push_back(d);
       auto normal = ScenePoint{-d.y * out.radius, d.x * out.radius};
-      if (!contour.closed && paint.stroke_cap == ScenePaint::Cap::Square) {
-        if (i == 0)
-          a = sub(a, mul(d, out.radius));
-        if (i + 1 == segments)
-          b = add(b, mul(d, out.radius));
-      }
       out.polygon(
           {add(a, normal), add(b, normal), sub(b, normal), sub(a, normal)});
+    }
+    if (!contour.closed && contour.stroke_start_tangent) {
+      auto d = *contour.stroke_start_tangent;
+      double size = std::hypot(d.x, d.y);
+      if (!std::isfinite(size) || size <= 0)
+        fail();
+      out.join(points.front(), mul(d, 1 / size), directions.front(),
+               paint.stroke_join);
     }
     for (size_t i = contour.closed ? 0 : 1;
          i < points.size() - (contour.closed ? 0 : 1); ++i)
       out.join(points[i], directions[(i + segments - 1) % segments],
                directions[i % segments], paint.stroke_join);
-    if (!contour.closed && paint.stroke_cap == ScenePaint::Cap::Round) {
-      out.disk(points.front());
-      out.disk(points.back());
+    if (!contour.closed) {
+      auto first = directions.front();
+      if (contour.stroke_start_tangent) {
+        const auto d = *contour.stroke_start_tangent;
+        first = mul(d, 1 / std::hypot(d.x, d.y));
+      }
+      out.cap(points.front(), first, true, paint.stroke_cap);
+      out.cap(points.back(), directions.back(), false, paint.stroke_cap);
     }
   }
   return Union::make(out.contours, point_limit);

@@ -185,12 +185,12 @@ native_stage_style_references(XmlElement node, const Text &context_family,
         kind = "fill-image";
       else if (attr == "opacity-name")
         kind = "opacity";
-      else if (attr == "stroke-dash")
+      else if (attr == "stroke-dash" || attr == "stroke-dash-names")
         kind = "stroke-dash";
       else if (attr == "marker-start" || attr == "marker-end")
         kind = "marker";
       if (!kind.empty())
-        add(a, kind);
+        add(a, kind, {}, true, attr == "stroke-dash-names");
     }
   }
   return out;

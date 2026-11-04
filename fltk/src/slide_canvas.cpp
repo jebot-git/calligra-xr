@@ -158,7 +158,8 @@ struct SlideCanvas::Impl {
   struct Prepared {
     struct Geometry {
       std::vector<SceneContour> contours;
-      std::vector<ScenePoint> triangles, stroke_triangles;
+      std::vector<ScenePoint> triangles;
+      std::vector<std::vector<ScenePoint>> stroke_triangles;
     };
     std::vector<Geometry> groups;
     SceneRect text_area;
@@ -218,10 +219,11 @@ struct SlideCanvas::Impl {
           geometry.triangles = Tess::make(filled, even_odd);
         }
         if (shape.paint.stroke && shape.paint.stroke_width > 0) {
-          auto outline = stroke_outlines(
+          auto outlines = stroke_pass_outlines(
               geometry.contours, shape.paint,
               SceneTransform{scale_x, 0, 0, scale_y} * shape.transform);
-          geometry.stroke_triangles = Tess::make(outline, false);
+          for (const auto &outline : outlines)
+            geometry.stroke_triangles.push_back(Tess::make(outline, false));
         }
         p.groups.push_back(std::move(geometry));
       }
@@ -342,10 +344,12 @@ struct SlideCanvas::Impl {
         }
         if (shape.paint.stroke && shape.paint.stroke_width > 0) {
           scene_color(shape.paint.stroke_color);
-          glBegin(GL_TRIANGLES);
-          for (auto p : geometry.stroke_triangles)
-            vertex(transform.map(p));
-          glEnd();
+          for (const auto &pass : geometry.stroke_triangles) {
+            glBegin(GL_TRIANGLES);
+            for (auto p : pass)
+              vertex(transform.map(p));
+            glEnd();
+          }
         }
       }
       if (!shape.image.empty())

@@ -273,6 +273,12 @@ void OdfPackage::set_entry(const Text& name, const Bytes& data, const Text& medi
     auto entry = XmlElement();
     for (auto e : children(root, MANIFEST, "file-entry"))
         if (e.attributeNS(MANIFEST, "full-path") == name) entry = e;
+    // Updating an existing part with the same media type does not change the
+    // manifest. Retain its exact source bytes, including unrelated metadata.
+    if (!entry.isNull() && entry.attributeNS(MANIFEST, "media-type") == mediaType) {
+        put(name, data);
+        return;
+    }
     if (entry.isNull()) {
         entry = manifest.createElementNS(MANIFEST, "manifest:file-entry");
         root.appendChild(entry);

@@ -10,11 +10,14 @@ struct NativePaintFormat {
       image_opacity;
   std::optional<bool> even_odd;
   std::optional<Text> stroke_cap, stroke_join;
+  std::optional<SceneDashPattern> dash_pattern;
+  std::optional<TextList> dash_names;
   bool empty() const;
 };
 struct NativePaintInfo {
   NativePaintFormat values;
   size_t objects = 0, image_objects = 0;
   bool editable = true;
+  TextList available_dashes;
 };
 } // namespace DomeOffice

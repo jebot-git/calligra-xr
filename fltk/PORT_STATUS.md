@@ -228,7 +228,7 @@ establishes all three FLTK applications; it does not complete the office suite.
 | Shared shell | Native Wayland FLTK, OpenGL widgets, DomeD Unicode appearance, universal menus, file dialogs, basic editing shortcuts, OpenDocument export and native CUPS printing | Broader IME/input-method validation, accessibility, session recovery, advanced print/export controls, broad XR workflow tests |
 | Words | DOCX paragraph/table import with ODT saving, ODT paragraph text, common/automatic style inheritance, page geometry/master continuation, native HarfBuzz/FreeType shaping and glyph rendering, document fonts and script fallback, ICU bidi line ordering, numeric font weights/standard variable axes, native pagination and GPU page view, ordered native tables with row/column editing and structural undo, independent split/merged/nested cell cursors, repeated headers/master-width reflow and source cell selection, document ink/page colors, keep/widow/orphan rules, span/link-preserving body/section/cell paragraph splits and joins, explicit soft breaks, item/range list levels and empty-item exit, native range/caret character formatting and paragraph controls, named paragraph/character style management and assignment with archive-part undo, native page setup with shared-layout isolation, scoped header/footer editing and native rendering with dynamic page fields, direct tab-stop/leader controls and document defaults, direct page caret/selection/input and Wayland IME transactions, XML undo/redo with selection and saved-state tracking, atomic save | Remaining KWDocument/KoText/textlayout/frame behavior; full font/style/shaping and line-breaking fidelity, embedded fonts, color-font glyphs, synthetic/vertical text, remaining table navigation, remaining table styles/optimal sizing and reflow performance, complex paragraph-level list reparenting, remaining character/list controls and visited-link/style-class cascades, advanced table keeps/header-boundary spans and nested table master behavior, section layout, structural list editing, columns, advanced header/footer geometry and anchored content, notes, images/anchors, tracked changes and print/PDF fidelity |
 | Sheets | Native C++ parser/calculation engine, typed arrays, reference/lookup/matrix functions, fixed ODF matrices and XLSX array import, dependencies, workbook-specific ODF null dates and retained XLSX 1904 epochs, cross-sheet references, named-range import, multi-sheet ODS and XLSX cell-data import, cell edits, undo/redo, TSV paste, repeated cells, cached formula updates | Remaining upstream calculation catalogue and settings, full core/style model and ODF loader, formatting/date/currency display, selection ranges, merged cells, matrix-block creation/deletion, sort/filter, validation, structural row/column operations, charts, printing and format filters |
-| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, direct affine resize/center-rotation/line-endpoint handles, embedded image insertion, scoped character/paragraph controls with future typing and selection history, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, layer authoring, animation/timing, transitions, speaker notes/view and export fidelity |
+| Stage | PPTX direct text/PNG/JPEG import with ODP saving, per-slide ODP master/page layouts, scoped/inherited basic paint, rectangles/ellipses/polygons/lines, native Bézier/arc paths and rounded/partial primitives, explicit enhanced geometry/equations and modifier paint sets, ordered groups and affine transforms, native paragraph/run fonts and colors, bidi and continuous frame layout with side padding/vertical alignment, PNG/JPEG/SVG/GIF/BMP GPU preview, native continuous tables with merged/nested/repeated cells and clipped GPU paint, inverse frame selection and nested edits, primitive/text creation, own-object deletion, position/size/rotation panel, direct affine resize/center-rotation/line-endpoint handles, embedded image insertion, scoped character/paragraph controls with future typing and selection history, slide insert/delete, presentation navigation, package preservation | Complete KPrDocument, KoPADocument and Flake behavior; theme/placeholder fields, structural list/table editing, column and vertical text layout, text auto-growth/fit, advanced typography, custom preset lookup/stretch points, extrusion/text-on-path, connectors/3D objects, advanced fills/strokes, broader layer interoperability, animation/timing, transitions, speaker notes/view and export fidelity |
 | Interchange | ODT/ODS/ODP packages, DOCX/PPTX content import with ODT/ODP saving, XLSX cell-data import with ODS saving, and toolkit-independent upstream ODF formula conversion | Office export and full DOCX/XLSX/PPTX import fidelity, legacy formats, filter/plugin discovery, full external-office interoperability corpus |
 | Rendering | Main windows/content widgets use FLTK's GL driver; native Words page display lists and glyph cache; native Wayland GPU tests passed | Full Words text/shape display fidelity, complete Stage shape/3D rendering, hardware/UI profiling, native XR mapping for genuinely spatial content |
 
@@ -272,9 +272,11 @@ page-column worktree is uninstalled and preserved.
    formatting, direct resize/rotation, stacking and group/selection tools are installed.
    Layer visibility/protection and separate screen/print scenes are installed.
    Transactional layer editing and separate image/fill opacity are installed.
-   Native stroke caps and joins are installed. A native multi-MIME clipboard
-   helper and selected-object ODP extraction exist behind model APIs;
-   destination import, cut and actual clipboard/menu integration remain unfinished.
+   Native stroke caps and joins are installed. Native multi-MIME object
+   copy/cut/paste now has independent source, model, Wayland and CUPS evidence;
+   its verified source increment remains separate from installed353c016.
+   Named dash rendering and scoped authoring have their own verified source
+   corpus and staged payload; installation requires a separate receipt.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -413,8 +415,9 @@ native text, with stable group/z ordering and inverse frame hit testing. Rich
 text retains paragraph/inline font and color styles with continuous clipped
 flow, including the shared textual list and continuous table engines. Column/vertical
 layout, structural table editing, remaining list features above, auto-growth, fit-to-size and rich
-editing controls remain incomplete. Gradient/bitmap/hatch fills, stroke dashes/caps/joins,
-custom preset lookup, stretch points, extrusion, text on
+editing controls remain incomplete. Native caps/joins are installed; named dashes
+have a separately verified source/staged increment below. Gradient/bitmap/hatch fills,
+markers, exhaustive dash interoperability, custom preset lookup, stretch points, extrusion, text on
 paths, master placeholder fields and image crop remain incomplete. Explicit
 enhanced geometry supports standard formulas/commands, modifiers, mirrors,
 independent paint sets and horizontal text areas. Vertical text remains
@@ -1944,3 +1947,46 @@ unknown/default inheritance, next/list semantics, frame resizing, globals,
 embedded namespaces and broader interoperability remain unfinished. Stage stays
 active, Words paused and additional Sheets work deferred. Full ODF1.2 remains
 incomplete. See VALIDATION.md and per-build/install receipts for verified scope.
+
+## Native Stage named dash patterns — 2026-11-04
+
+Stage now consumes common `draw:stroke-dash` definitions after the graphic and
+presentation style cascade, retaining both sequences and each measure's unit.
+Percentage lengths and gaps independently use the final stroke width, including
+a later width edit. Ordered `draw:stroke-dash-names` references add separate
+paint passes, including repeated names. Stroke union occurs within each pass;
+opacity is applied between passes. GPU and dashed PDF output share bounded
+local-space dash/outline geometry. Ordinary solid PDF strokes retain vector
+stroke operators and thin-stroke hinting.
+
+Format → Fill and stroke offers Dash and a nested pattern panel with both
+counts, lengths, gap, rectangular/round shape and existing overlay style names.
+The nested panel stages changes until the outer Apply. Each scoped edit creates
+a fresh common definition and automatic object style without changing old
+shared definitions. Pattern and archive-part changes share one undo step.
+Invalid/dense geometry rejects before live mutation. Selection identities are
+captured before creating the first automatic-styles section; first external
+styles creation and multi-object edits have separate history checks. Updating
+an existing archive part with the same media type retains exact manifest bytes.
+
+Clipboard dependency closure and import remapping now include the complete dash
+name list. Context styles explicitly preserve the primary mode/reference and
+reset empty overlay lists, isolating pasted objects from receiving defaults.
+The model corpus checks actual paste, repeated-name ordering, colliding receiving
+definitions, unrelated destination paint, exact history and save/reopen.
+
+The native policy for omitted optional measures is one stroke width; omitted
+counts are zero and omitted shape is rectangular. Explicit zero lengths/gaps
+remain zero. Empty/all-zero patterns use solid fallback. Undefined names retain
+source spelling and produce a solid-fallback diagnostic. A round dash shape
+requests round ends; rectangular shapes use the SVG cap, butt by default.
+Conflicting cap/shape conventions across other consumers remain an explicit
+interoperability limit. Curves use the bounded flattened path approximation;
+exhaustive curve-length fidelity and all external-consumer conventions are not
+established by the selected corpus.
+
+Per-build Release, sanitizer, real Wayland, CUPS, schema and installation receipts
+remain separate evidence. Source support does not imply that an increment is
+installed. Markers, advanced fills, broader drawing/presentation semantics and
+full ODF1.2 functionality remain open. Stage stays active, Words paused and
+further Sheets work deferred.
