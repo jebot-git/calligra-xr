@@ -3481,3 +3481,22 @@ exhaustive ODF1.2 or external-consumer interoperability claim. Corrected OASIS
 marker placement and native closed-path/junction policies are documented in
 PORT_STATUS.md. Stage, source publication and installation have separate
 artifact receipts; tests against a build do not prove installed behavior.
+
+
+## Connector input checkpoint — 2026-11-04
+
+Build `calligra-native-connector-test`; run it directly or through the
+`native-connectors` CTest entry. `--documents DIR` writes a source fixture with
+all connector modes, supplied cubic data, free endpoints, forward references and
+eight custom glue-point alignments. Focused Release and ASan/UBSan runs pass
+without core leak suppressions. The generated package passes version-matched
+ODF1.2 content/styles schemas and selected Part3 checks.
+
+Independent expected coordinates cover edge centers, all schema alignment
+anchors, percentages including out-of-box values, all escape masks, unit
+conversion, exact 64-bit identifiers, source immutability and rejection of invalid
+inputs. Omitted attached coordinates/glue choices stay represented explicitly;
+per-axis retention is tolerant input handling and does not claim that incomplete
+coordinate pairs satisfy the 1.2 schema. No connector UI/rendering/routing,
+full-suite regression, CUPS, staging or installed claims follow from this focused
+source-API checkpoint. Those remain gates for the functional connector increment.

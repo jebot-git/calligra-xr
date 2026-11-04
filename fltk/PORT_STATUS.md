@@ -2038,3 +2038,38 @@ interoperability, high-curvature shaft/marker junction fidelity or full ODF1.2
 support. Advanced fills, connectors, broader frame/text/presentation semantics
 and the wider Words/Sheets/package baseline remain unfinished. Stage remains
 active; Words is paused and additional Sheets work waits.
+
+
+## Native connector source inputs — 2026-11-04
+
+The native source API now reads connector mode, independently retained attached
+endpoint coordinates, shape/glue identifiers, required viewBox, supplied SVG path
+and one-to-three signed skew offsets. It preserves omitted glue choices and
+forward shape references rather than inventing an attachment. Shape IDREF edge
+whitespace is normalized in the model while source bytes stay untouched.
+
+A separate bounded helper reads the four standard edge-center points and custom
+user glue points. Percentages use the bounds center; aligned lengths use the
+named edge/corner. The eight alignment values in the ODF1.2 schema and all seven
+escape-direction values have focused math checks. Bottom-edge-center alignment
+is absent from that schema; it is rejected instead of being emitted as 1.2.
+Required glue-point attributes, duplicate/reserved IDs, overflow and malformed
+coordinates reject. IDs use uint64_t without truncating to the old signed-int
+range. Out-of-box percentage positions remain bounded without silent clamping.
+Enhanced-geometry replacement/none rules belong to the later object resolver.
+
+The source parser and point helper pass focused Release and ASan/UBSan tests,
+with core leak checking enabled and no suppressions. A generated package with
+twelve free/forward-attached supplied-path connectors and eight custom glue
+alignments passes official ODF1.2 schemas and selected plain-package checks.
+These tests establish input parsing and coordinate semantics only. They do not
+establish connector rendering, routing, live endpoint updates or native controls.
+The current renderer still omits all four connector modes in a separately
+schema/package-validated fixture beside a visible native line control.
+
+Next work remains identity/glue resolution including groups and enhanced points,
+supplied-path placement, all four route modes and skew, dependent geometry during
+edits, labels/paint/selection, source/archive history, clipboard scope, native
+controls, screen/print/CUPS and installed verification. The ODF1.2 functionality
+baseline stays incomplete. The prior marker and dash stages retain their own
+installation receipts and must not be replaced with this source-only checkpoint.
