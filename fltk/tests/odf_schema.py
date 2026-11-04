@@ -39,7 +39,6 @@ valid = True
 temporary = tempfile.TemporaryDirectory(prefix='calligra-odf-schema-')
 for path in sorted(files):
     record = {'file': str(path.resolve()), 'parts': []}
-    identities = set()
     try:
         with zipfile.ZipFile(path) as archive:
             for name in ('content.xml', 'styles.xml'):
@@ -48,11 +47,13 @@ for path in sorted(files):
                         raise ValueError('Missing content.xml')
                     continue
                 root = ET.fromstring(archive.read(name), ET.XMLParser(resolve_entities=False, no_network=True))
+                # ODF1.2 Part1 section19.914 scopes xml:id to its XML file.
+                identities = set()
                 for node in root.iter():
                     identity = node.get('{http://www.w3.org/XML/1998/namespace}id')
                     if identity:
                         if identity in identities:
-                            raise ValueError('Duplicate XML identity across archive parts: ' + identity)
+                            raise ValueError('Duplicate XML identity in ' + name + ': ' + identity)
                         identities.add(identity)
                 version = root.get('{urn:oasis:names:tc:opendocument:xmlns:office:1.0}version')
                 if version not in ('1.0', '1.1', '1.2', '1.3', '1.4'):
@@ -70,7 +71,7 @@ for path in sorted(files):
                     schema = args.schema_dir / ('OpenDocument-v' + version + '-schema.rng')
                     # The ODF schemas are not RELAX NG DTD-compatible. -i skips
                     # that additional ID/IDREF compatibility layer; XML identity
-                    # uniqueness is checked separately across package parts.
+                    # uniqueness is checked separately within each XML file.
                     run = subprocess.run([args.java, '-jar', str(args.jing_jar.resolve()),
                                           '-i', str(schema.resolve()), str(xml)],
                                          capture_output=True, text=True, timeout=60)
