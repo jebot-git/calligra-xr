@@ -2,6 +2,10 @@
 #include "native_limits.h"
 #include "native_print.h"
 #include "native_image_input.h"
+#include "native_stage_clipboard.h"
+#include "native_clipboard_process.h"
+#include "native_stage_cut.h"
+#include "native_stage_paste.h"
 #include "print_dialog.h"
 #include "format_dialog.h"
 #include "suite/desktop-menu.h"
@@ -375,6 +379,15 @@ public:
     Options options;
     std::vector<Fl_Widget*> presentation_hidden;
     int canvas_x = 0, canvas_y = 0, canvas_w = 0, canvas_h = 0;
+    std::unique_ptr<NativeClipboardProcess> rich_clipboard;
+    uint64_t stage_epoch = 0;
+    struct StageClipboardPending {
+        int action;
+        uint64_t epoch, revision;
+        PresentationPosition position;
+        std::optional<NativeStageCut> cut;
+    };
+    std::optional<StageClipboardPending> stage_clipboard_pending;
     std::optional<TextSelection> words_edit_previous;
     std::optional<TextCellAddress> pending_word_cell;
     std::vector<TextCellAddress> pending_word_cells;
@@ -883,6 +896,7 @@ public:
     }
     ~Office()
     {
+        cancel_stage_clipboard();
         Fl::remove_timeout(tick, this);
         Fl::remove_timeout(format_timeout, this);
         Fl::remove_timeout(error_timeout, this);
@@ -1845,6 +1859,8 @@ public:
     }
     void reset()
     {
+        cancel_stage_clipboard();
+        ++stage_epoch;
         page_selection.reset();
         page_selection_revision = 0;
         workbook.reset();
@@ -1994,6 +2010,72 @@ public:
         pending_word_cell.reset();
         text_pages->selection_changed();
     }
+    bool stage_objects_focused() const
+    {
+        return kind == Kind::Stage && (Fl::focus() == canvas || !editor->active_r());
+    }
+    PresentationPosition stage_object_position()
+    {
+        return {slide, box, canvas->selected_shape, word_selection(false), canvas->selected_objects};
+    }
+    void cancel_stage_clipboard()
+    {
+        if (rich_clipboard) rich_clipboard->cancel();
+        stage_clipboard_pending.reset();
+    }
+    void stage_object_clipboard(int action)
+    {
+        if (presenting) throw std::runtime_error("Exit presentation mode to edit objects");
+        if (action != Copy && readonly()) throw std::runtime_error("This presentation is read-only");
+        commit_text();
+        cancel_stage_clipboard();
+        if (!rich_clipboard)
+            rich_clipboard = std::make_unique<NativeClipboardProcess>(native_clipboard_helper());
+        StageClipboardPending pending{action, stage_epoch, stage->revision(), stage_object_position(), {}};
+        if (action == Paste) {
+            rich_clipboard->receive(stage_clipboard_preferences());
+        } else {
+            NativeStageFragment fragment;
+            if (action == Cut) {
+                pending.cut.emplace(stage->prepare_cut_objects(slide, canvas->selected_objects));
+                fragment = pending.cut->fragment();
+            } else {
+                fragment = stage->copy_objects(slide, canvas->selected_objects);
+            }
+            rich_clipboard->offer(stage_clipboard_formats(fragment));
+        }
+        stage_clipboard_pending.emplace(std::move(pending));
+        message(action == Paste ? "Receiving clipboard objects…" : "Copying objects…");
+    }
+    void poll_stage_clipboard()
+    {
+        if (!rich_clipboard || printing || formatting_dialog || error_dialog_active || queued_format) return;
+        auto result = rich_clipboard->poll();
+        if (!result || !stage_clipboard_pending) return;
+        auto pending = std::move(*stage_clipboard_pending);
+        stage_clipboard_pending.reset();
+        if (!result->success) throw std::runtime_error(result->error);
+        if (pending.action == Copy) { message("Objects copied"); return; }
+        if (!stage || pending.epoch != stage_epoch || pending.revision != stage->revision() ||
+            presenting || canvas->dragging() || pending.position != stage_object_position())
+            throw std::runtime_error("The presentation or selection changed while the clipboard was pending");
+        PresentationPosition position;
+        if (pending.action == Cut) {
+            position = stage->commit_cut_objects(std::move(*pending.cut));
+        } else {
+            if (result->formats.size() != 1) throw std::runtime_error("Invalid clipboard response");
+            auto wire = stage_clipboard_fragment(result->formats.front());
+            if (wire.empty()) { message("Clipboard text is empty"); return; }
+            auto paste = stage->prepare_paste_objects(slide, wire, pending.position);
+            position = stage->commit_paste_objects(std::move(paste));
+        }
+        slide = position.slide;
+        box = position.box;
+        refresh_stage(position.shape < 0 ? -2 : position.shape, position.objects);
+        if (position.selection && position.box >= 0) restore_stage_selection(*position.selection);
+        modified = stage->modified(); title(); canvas->take_focus();
+        message(pending.action == Cut ? "Objects cut" : "Objects pasted");
+    }
     void refresh_stage(int selected_shape = -1, const std::vector<NativeObjectRef> &requested = {})
     {
         auto current = stage->slide(slide);
@@ -2042,6 +2124,8 @@ public:
     }
     void load(const std::string& path)
     {
+        cancel_stage_clipboard();
+        ++stage_epoch;
         cell_pending = false;
         if (kind == Kind::Sheets) {
             auto fresh = std::make_unique<Workbook>();
@@ -2269,6 +2353,7 @@ public:
                                                                                          : true;
                 title();
             } else if (c == Copy) {
+                if (stage_objects_focused()) { stage_object_clipboard(Copy); return; }
                 if (editor && kind == Kind::Words && page_view) {
                     auto text = words->selected_text(word_selection()).toUtf8();
                     Fl::copy(text.constData(), int(text.size()), 1);
@@ -2279,6 +2364,7 @@ public:
                     Fl::copy(text.data(), text.size(), 1);
                 }
             } else if (c == Paste) {
+                if (stage_objects_focused()) { stage_object_clipboard(Paste); return; }
                 if (editor && editor->active_r()) {
                     if (kind == Kind::Words)
                         Fl::paste(page_view ? static_cast<Fl_Widget&>(*text_pages) : static_cast<Fl_Widget&>(*editor), 1);
@@ -2287,6 +2373,7 @@ public:
                 } else if (!editor)
                     Fl::paste(*grid, 1);
             } else if (c == Cut) {
+                if (stage_objects_focused()) { stage_object_clipboard(Cut); return; }
                 if (editor && editor->active_r()) {
                     if (kind == Kind::Words && page_view && words->selection_crosses_cells(word_selection())) {
                         auto copied = words->selected_text(word_selection()).toUtf8();
@@ -2843,6 +2930,7 @@ public:
             self->text_font_revision = dx::font_revision;
             self->guard([&] { self->refresh_pages(); });
         }
+        self->guard([&] { self->poll_stage_clipboard(); });
         self->report();
         if (self->window.shown())
             Fl::repeat_timeout(.1, tick, data);
@@ -2869,6 +2957,11 @@ int Window::handle(int event)
                 command(c);
                 return 1;
             }
+        }
+        if (stage_app && (state & FL_CTRL) && !(state & (FL_ALT | FL_META)) &&
+            (key == 'c' || key == 'x' || key == 'v')) {
+            command(key == 'c' ? Copy : key == 'x' ? Cut : Paste);
+            return 1;
         }
         if ((state & FL_CTRL) && !(state & (FL_ALT | FL_META))) {
             int c = key == 'n' ? New

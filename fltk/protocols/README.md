@@ -32,8 +32,8 @@ seat is required; ambiguous multi-seat clipboards are rejected.
 `application/x-calligra-stage-objects` is a private, versioned selection
 representation, separate from the helper's multi-MIME process bundle. Public
 `application/vnd.oasis.opendocument.presentation` data remains a standalone ODP
-without private selection attributes. Neither representation is an integrated
-Stage clipboard command yet.
+without private selection attributes. Current native Stage canvas commands offer
+both representations alongside UTF-8 and plain text.
 
 The private representation uses unsigned, big-endian fields:
 
@@ -69,3 +69,12 @@ rewriting remain required before objects can be pasted into another document.
 The helper's 64 MiB aggregate limit still applies when offering public ODP,
 private selection and text together. A producer must validate the complete
 bundle before publishing or committing a prepared cut.
+
+
+`--receive-preferred MIME...` chooses the first advertised MIME from its ordered
+arguments and receives it on the same Wayland connection. Success writes a
+one-format process bundle containing the chosen MIME and complete payload;
+missing formats exit 3 with no output. The existing `--receive MIME` remains a
+raw-byte operation. Failed/truncated/oversized transfers never publish partial
+bytes. The native asynchronous controller uses this framed operation, reaps
+completed helpers and preserves acknowledged clipboard ownership after exit.

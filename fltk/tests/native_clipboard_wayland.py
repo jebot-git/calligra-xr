@@ -279,6 +279,30 @@ def main():
                 )
             owner = own(formats)
             assert types() == {mime for mime, _ in formats}
+            preferred = run(
+                [
+                    executable,
+                    "--receive-preferred",
+                    "image/png",
+                    "text/plain;charset=utf-8",
+                    formats[0][0],
+                ]
+            )
+            assert preferred.stdout == bundle([("text/plain;charset=utf-8", utf8)])
+            empty = run(
+                [executable, "--receive-preferred", "application/x-calligra-empty"]
+            )
+            assert empty.stdout == bundle([("application/x-calligra-empty", b"")])
+            absent = run(
+                [executable, "--receive-preferred", "image/png", "image/jpeg"],
+                expected=3,
+            )
+            assert absent.stdout == b""
+            checks += [
+                "one_connection_preferred_format_and_framing",
+                "preferred_empty_payload",
+                "preferred_absent_formats",
+            ]
             for mime, value in formats:
                 native = paste(mime)
                 external = external_paste(mime)

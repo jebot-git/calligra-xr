@@ -1251,3 +1251,26 @@ retain object text/paragraph defaults even without plain text. The independent
 `stage_repeat_producer.py` checks repeated/expanded XML and print equivalence;
 `native_stage_empty_table_ui.py` checks the same empty table under an isolated
 native Wayland host without desktop input or an X server.
+
+
+## Stage object clipboard
+
+Focus the slide canvas to copy, cut or paste selected objects with Ctrl+C,
+Ctrl+X and Ctrl+V, or the universal Edit menu. The text editor continues to copy
+and paste text. Native Wayland clipboard support uses the sibling
+`calligra-wayland-clipboard` helper and ext-data-control-v1 on DomeD. It offers
+private selected objects, public single-slide ODP and Unicode plain text.
+Acknowledged ownership persists after closing the source window. Cut waits for
+ownership before deleting; receiving paste is asynchronous and rejects a changed
+document or selection. Native undo/redo restores source, assets and selection.
+
+Unsupported rich source semantics produce an error before insertion. Current
+limits include conditional styles, formula-bearing text tables, inline embedded
+documents, document-global fields, incompatible source versions and custom
+navigation orders. Public multi-slide ODP data is not an object selection.
+Plain-text input uses the native frame limits (4 million characters, 1 million
+per paragraph, 100,000 paragraphs) and a bounded XML node budget.
+Known source formatting is materialized without replacing receiving defaults;
+broader ODF1.2 context and editing fidelity remains incomplete. New source
+features require a separate verified installation receipt before counting as
+installed functionality.

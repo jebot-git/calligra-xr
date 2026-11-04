@@ -402,7 +402,7 @@ struct Client {
     while (!cancelled || !transfers.empty())
       dispatch(Clock::now() + transfer_timeout);
   }
-  int receive(const std::string &type) {
+  int receive(const std::string &type, bool framed = false) {
     if (!selection ||
         std::find(selection->types.begin(), selection->types.end(), type) ==
             selection->types.end())
@@ -426,7 +426,10 @@ struct Client {
           fail("Clipboard source transfer timed out");
         auto n = read(read_end.value, buffer.data(), buffer.size());
         if (!n) {
-          output(bytes);
+          if (framed)
+            output(encode_clipboard_bundle({{type, std::move(bytes)}}));
+          else
+            output(bytes);
           return 0;
         }
         if (n < 0 && errno == EINTR)
@@ -450,9 +453,10 @@ int main(int argc, char **argv) {
   std::signal(SIGPIPE, SIG_IGN);
   try {
     std::string mode, type, seat;
+    std::vector<std::string> preferred;
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
       std::cout << "Native Wayland clipboard: --offer | --types | --receive "
-                   "MIME [--seat NAME]\n"
+                   "MIME | --receive-preferred MIME... [--seat NAME]\n"
                    "Offer reads a bounded binary bundle, prints READY and owns "
                    "it until replaced.\n"
                    "Receive prints raw bytes only after a complete bounded "
@@ -466,12 +470,18 @@ int main(int argc, char **argv) {
       else if (arg == "--receive" && mode.empty() && i + 1 < argc) {
         mode = arg;
         type = argv[++i];
-      } else if ((arg == "--offer" || arg == "--types") && mode.empty())
+      } else if (arg == "--receive-preferred" && mode.empty())
+        mode = arg;
+      else if (mode == "--receive-preferred" && native_clipboard_mime(arg) &&
+               preferred.size() < clipboard_format_limit)
+        preferred.push_back(arg);
+      else if ((arg == "--offer" || arg == "--types") && mode.empty())
         mode = arg;
       else
         fail("Invalid native clipboard arguments; use --help");
     }
-    if (mode.empty() || (mode == "--receive" && !native_clipboard_mime(type)))
+    if (mode.empty() || (mode == "--receive" && !native_clipboard_mime(type)) ||
+        (mode == "--receive-preferred" && preferred.empty()))
       fail("Invalid native clipboard operation");
     Client client;
     // Validate before touching the compositor or replacing its selection.
@@ -482,7 +492,15 @@ int main(int argc, char **argv) {
       client.own();
     else if (mode == "--receive")
       return client.receive(type);
-    else if (client.selection) {
+    else if (mode == "--receive-preferred") {
+      if (client.selection)
+        for (const auto &mime : preferred)
+          if (std::find(client.selection->types.begin(),
+                        client.selection->types.end(),
+                        mime) != client.selection->types.end())
+            return client.receive(mime, true);
+      return 3;
+    } else if (client.selection) {
       std::string types;
       for (const auto &mime : client.selection->types)
         if (native_clipboard_mime(mime))

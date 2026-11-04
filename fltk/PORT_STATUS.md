@@ -13,11 +13,14 @@ output need feature-appropriate independent checks.
 
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
-uninstalled. Further Sheets catalogue/settings work waits. Runtime build `353c016`,
+uninstalled. Further Sheets catalogue/settings work waits. The preceding runtime build `353c016`,
 including layer authoring, separate frame/image opacity and stroke caps/joins,
-is installed and independently verified. Test-only followup `7b5a47f` has the same
-installed payload. Clipboard transport, fragment, cut-draft and import-source work below is not integrated into Stage
-or installed. Subsequent source/build/stage/installation claims require their
+was installed and independently verified. Test-only followup `7b5a47f` has the same
+installed payload. Current source connects object copy/cut/paste to the native Wayland helper,
+keyboard commands and universal Edit menu, including native/private ODP and
+Unicode text representations. Its source, release, sanitizer, schema, print,
+staging and installed evidence remain separate gates; the matching installation
+receipt determines whether this increment is installed. Subsequent source/build/stage/installation claims require their
 own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
@@ -1902,3 +1905,42 @@ These changes remain source-only. Native clipboard paste/history/controls and
 full source/receiving context isolation are unfinished; installed353c016 remains
 unchanged. Stage is active, Words paused and further Sheets work deferred. Full
 ODF1.2 functionality remains incomplete.
+
+
+## Native Stage object clipboard and guarded paste — 2026-11-04
+
+Stage now connects selected-object extraction, typed import names/resources,
+receiving-package assembly and source-context materialization to a prepared
+paste transaction. Repeated rows/cells/columns become independent instances.
+Known frame, paragraph, table, row, column and nested/empty cell properties are
+isolated from receiving defaults; imported source style graphs and unsupported
+leaf properties remain retained. Existing receiving source, definitions,
+defaults, assets and other slides remain unchanged. Existing explicit object
+navigation retains its spelling and receives the new physical object targets.
+
+Cut publishes the complete rich clipboard bundle and waits for the Wayland
+owner acknowledgement before committing removal. Paste chooses the preferred
+representation and receives its complete bytes through a single Wayland
+connection. The UI continues processing events during helper I/O. Cancellation,
+replacement, document reload, changed revision/selection and stale prepared
+transactions cannot consume document edits or redo. Acknowledged clipboard
+ownership survives the source application's exit. Undo/redo includes archive
+parts and object selection; copying read-only/protected source remains possible.
+
+With the slide canvas focused, Ctrl+C/X/V and the universal Edit menu operate on
+objects; the text editor retains ordinary text clipboard behavior. Offers contain
+private selected-object data, a standalone public ODP, UTF-8 and plain text.
+Incoming preference follows that order. Public ODP object input must contain
+exactly one slide. Plain UTF-8 text creates a text box with paragraphs; malformed
+rich data fails rather than silently falling back to text. The helper requires
+native Wayland ext-data-control support and reports unavailable protocols/seats.
+
+This is partial native ODF functionality. Imported conditional style maps,
+formula-bearing text tables, inline embedded documents, document-global fields,
+newer source versions requiring an upgrade, and custom source navigation orders
+outside the supported physical order reject before publication. Source context
+materialization captures known properties and finite tab coverage; complete
+unknown/default inheritance, next/list semantics, frame resizing, globals,
+embedded namespaces and broader interoperability remain unfinished. Stage stays
+active, Words paused and additional Sheets work deferred. Full ODF1.2 remains
+incomplete. See VALIDATION.md and per-build/install receipts for verified scope.

@@ -3327,3 +3327,57 @@ ODF1.2 behavior or usable clipboard paste. Source default/unknown properties,
 context-specific style graphs, next/list semantics, navigation/fields/embedded
 scopes and guarded paste/history/UI still require implementation. Staging and
 installed evidence stay separate;353c016 remains installed.
+
+
+## Stage clipboard transactions and native controls — 2026-11-04
+
+`native-stage-paste` compares source and receiving native frame/table layout
+under deliberately different receiving defaults. It covers repeated/nested and
+empty cells, native and public ODP representations, Unicode text, old receiving
+content and assets, source cancellation, exact undo/redo, move-only/foreign/stale
+transactions, reload identity, read-only/drag/version/field/conditional-style/
+navigation guards, save/reopen and plain-text preallocation limits. The new
+asynchronous process test covers acknowledgement, exact binary receive, helper
+failure, malformed output, absent formats, cancellation and replacement.
+
+Ninety-seven selected Release suites and97 ASan/UBSan suites pass with core leak
+detection enabled and no sanitizer suppressions. The same three outline-font
+probes remain excluded under the enforced bitmap-only policy. Compiled-input
+fingerprints cover5901 files; subsequent diagnostic display-close code was
+reverted to those exact inputs. No toolkit library was changed.
+
+`native_stage_clipboard_ui.py --bin-dir BUILD/fltk --test-bin-dir BUILD/fltk
+--artifacts OUTPUT` runs actual keyboard/universal-menu commands in private
+headless Cage/DomeD Wayland sessions. Release and sanitizer runs cover clipboard
+ownership after source-app exit, native/public ODP and Unicode text, nested table
+GPU rendering, complete source/history save/reopen, and delayed receive after
+selection/revision changes. The test waits for exposed alerts before dismissing
+them. GUI leak detection retains only the existing Fontconfig/Mesa cache
+suppressions; native allocations remain unsuppressed. The transport corpus also
+passes19 checks in Release and ASan, including single-connection preference,
+empty/absent formats, independent receivers, hostile peers and exact payloads.
+
+A separate `--early-dismiss-alerts` diagnostic exposes an unresolved96-byte
+Wayland surface leak in system FLTK1.4.5 when an alert is dismissed before its
+first configure event. Proxy tracing confirms the surface destroy request;
+the allocation remains reported by LeakSanitizer. Original failures and traces
+are retained in the build artifacts. No new suppression or production display-
+close workaround is used. Passing exposed-dialog tests does not establish leak
+freedom for this early-dismiss path.
+
+`uv run --no-project --with lxml --with pillow --with pypdf --with odfpy python
+fltk/tests/stage_paste_producer.py --bin-dir BUILD/fltk --artifacts OUTPUT`
+checks receiving XML/defaults/definitions/assets independently, retaining old
+navigation and appending fresh targets. Source/materialized and actual-pasted
+selected rasters match exactly. Eleven private CUPS jobs cover21 pages; captured
+PDF bytes match generated output and all exports reopen identically. Twelve new
+pages were visually reviewed; nine suite baseline pages match earlier reviewed
+PNGs exactly. Forty-seven current fixture/export packages pass Jing's version-
+matched official content/styles schemas; three libxml2 named-style/default
+interleave diagnostics remain recorded separately. Forty-four generated/exported
+packages pass manifest schema and selected Part3 checks; three legacy original
+suite fixtures remain separate from their repaired exports.
+
+Staging and installed validation require their own receipts. The object
+clipboard is partial ODF1.2 behavior; unsupported source contexts/semantics and
+broader Words/Sheets/Stage, OpenFormula and package functionality remain open.

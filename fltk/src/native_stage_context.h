@@ -26,6 +26,11 @@ public:
   // paragraph. List geometry needs separate treatment. This does not rewrite
   // next-style links or list numbering/structure.
   XmlElement paragraph(const TextParagraph &);
+  XmlElement cell(const TextCellStyle &, const TextParagraph &before_frame);
+  XmlElement table(const TextTable &, double resolved_width,
+                   double available_width);
+  XmlElement row(const TextTableRow &);
+  XmlElement column(const TextTableColumn &, double resolved_width);
   // Explicit tab stops retain their resolved leader formatting. Their default
   // interval/relative origin stay in the input model; valid ODF only evaluates
   // those properties on a default style, so callers must not write them onto

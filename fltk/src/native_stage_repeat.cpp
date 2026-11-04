@@ -177,7 +177,8 @@ struct Expansion {
     if (n.namespaceURI() == TABLE && n.localName() == "table-row")
       attribute = "number-rows-repeated";
     if (n.namespaceURI() == TABLE && (n.localName() == "table-cell" ||
-                                      n.localName() == "covered-table-cell"))
+                                      n.localName() == "covered-table-cell" ||
+                                      n.localName() == "table-column"))
       attribute = "number-columns-repeated";
     if (!attribute.empty() && n.hasAttributeNS(TABLE, attribute)) {
       bool ok = false;
@@ -209,6 +210,10 @@ struct Expansion {
   }
 };
 } // namespace
+XmlElement clone_stage_source_identities(XmlElement source,
+                                         NativeStageNames &names) {
+  return clone(source, names);
+}
 NativeStageFragment materialize_stage_repeated_cells(const Bytes &wire) {
   auto fragment = decode_stage_fragment(wire);
   OdfPackage p(Kind::Stage);

@@ -2,6 +2,7 @@
 #include "native_stage_merge.h"
 #include "native_stage_order.h"
 #include "native_stage_styles.h"
+#include "native_stage_repeat.h"
 #include <limits>
 namespace DomeOffice {
 namespace {
@@ -44,7 +45,9 @@ struct Assembly {
     const auto pages = children(target.body(), DRAW, "page");
     if (slide < 0 || size_t(slide) >= pages.size())
       fail("Clipboard destination slide is out of range");
-    auto fragment = remap_stage_fragment_for_destination(target, wire);
+    auto expanded = materialize_stage_repeated_cells(wire);
+    auto fragment = remap_stage_fragment_for_destination(
+        target, encode_stage_fragment(expanded));
     draft.source.load_bytes(fragment.archive);
     draft.package = target;
     draft.package.xml = read_document_xml(target.xml.toByteArray());

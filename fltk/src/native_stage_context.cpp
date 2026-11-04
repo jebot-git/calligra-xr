@@ -69,10 +69,11 @@ XmlElement add(XmlElement parent, const Text &name) {
 void set(XmlElement node, const Text &uri, const char *name,
          const Text &value) {
   node.setAttributeNS(uri,
-                      Text(uri == FO     ? "fo:"
-                           : uri == DRAW ? "draw:"
-                           : uri == SVG  ? "svg:"
-                                         : "style:") +
+                      Text(uri == FO      ? "fo:"
+                           : uri == DRAW  ? "draw:"
+                           : uri == SVG   ? "svg:"
+                           : uri == TABLE ? "table:"
+                                          : "style:") +
                           name,
                       value);
 }
@@ -374,6 +375,106 @@ XmlElement NativeStageContextStyles::graphic(const ScenePaint &value,
       value.use_window_text_color ? "true" : "false");
   if (!value.use_window_text_color)
     set(t, FO, "color", rgb(value.text_color));
+  return node;
+}
+
+XmlElement NativeStageContextStyles::cell(const TextCellStyle &value,
+                                          const TextParagraph &context) {
+  auto node = paragraph(context);
+  set(node, STYLE, "family", "table-cell");
+  auto p = document_.createElementNS(STYLE, "style:table-cell-properties");
+  node.insertBefore(p, node.firstChild());
+  set(p, FO, "background-color",
+      !value.background || value.background->alpha == 0
+          ? Text("transparent")
+          : rgb(*value.background));
+  set(p, STYLE, "vertical-align",
+      value.vertical == TextCellStyle::Top      ? "top"
+      : value.vertical == TextCellStyle::Middle ? "middle"
+                                                : "bottom");
+  const TextList sides{"top", "right", "bottom", "left"};
+  const TextList styles{"none",   "solid", "double", "dashed", "dotted",
+                        "groove", "ridge", "inset",  "outset"};
+  for (size_t i = 0; i < 4; ++i) {
+    set(p, FO, ("padding-" + sides[i]).toUtf8().c_str(), pt(value.padding[i]));
+    const auto &b = value.borders[i];
+    if (b.style < TextTableBorder::None || b.style > TextTableBorder::Outset)
+      fail("Invalid materialized cell border");
+    auto color = b.color.alpha == 0 ? Text("transparent") : rgb(b.color);
+    set(p, FO, ("border-" + sides[i]).toUtf8().c_str(),
+        pt(b.width) + " " + styles.at(size_t(b.style)) + " " + color);
+    if (b.style == TextTableBorder::Double && b.width > 0) {
+      auto widths = b.double_widths.value_or(
+          std::array<double, 3>{b.width / 3, b.width / 3, b.width / 3});
+      if (std::any_of(widths.begin(), widths.end(), [](double value) {
+            return !std::isfinite(value) || value <= 0;
+          }))
+        fail("A portable double border needs three positive components");
+      set(p, STYLE, ("border-line-width-" + sides[i]).toUtf8().c_str(),
+          pt(widths[0]) + " " + pt(widths[1]) + " " + pt(widths[2]));
+    }
+  }
+  return node;
+}
+XmlElement NativeStageContextStyles::table(const TextTable &value, double width,
+                                           double available) {
+  if (!std::isfinite(width) || width <= 0 || !std::isfinite(available) ||
+      available <= 0)
+    fail("Materialized table has no positive width");
+  auto node = style("table");
+  auto p = add(node, "table-properties");
+  set(p, STYLE, "width", pt(width));
+  set(p, STYLE, "rel-width",
+      number(value.relative_width.value_or(width / available) * 100) + "%");
+  for (auto [key, v] : std::initializer_list<std::pair<const char *, double>>{
+           {"margin-left", value.left},
+           {"margin-right", value.right},
+           {"margin-top", value.before},
+           {"margin-bottom", value.after}})
+    set(p, FO, key, pt(v));
+  const TextList align{"margins", "left", "center", "right", "margins"};
+  set(p, TABLE, "align", align.at(size_t(value.alignment)));
+  set(p, TABLE, "border-model", value.collapsing ? "collapsing" : "separating");
+  set(p, TABLE, "display", value.visible ? "true" : "false");
+  set(p, STYLE, "writing-mode", value.rtl ? "rl-tb" : "lr-tb");
+  set(p, FO, "background-color",
+      !value.background || value.background->alpha == 0
+          ? Text("transparent")
+          : rgb(*value.background));
+  set(p, FO, "break-before", value.break_before ? "page" : "auto");
+  set(p, FO, "break-after", value.break_after ? "page" : "auto");
+  set(p, FO, "keep-with-next", value.keep_next ? "always" : "auto");
+  set(p, STYLE, "may-break-between-rows",
+      value.may_break_rows ? "true" : "false");
+  set(p, STYLE, "page-number",
+      value.page_number ? Text::number(*value.page_number) : Text("auto"));
+  return node;
+}
+XmlElement NativeStageContextStyles::row(const TextTableRow &value) {
+  auto node = style("table-row");
+  auto p = add(node, "table-row-properties");
+  set(p, STYLE, "min-row-height", pt(value.minimum));
+  set(p, STYLE, "use-optimal-row-height", value.height ? "false" : "true");
+  if (value.height)
+    set(p, STYLE, "row-height", pt(*value.height));
+  set(p, FO, "keep-together", value.keep_together ? "always" : "auto");
+  set(p, FO, "background-color",
+      !value.background || value.background->alpha == 0
+          ? Text("transparent")
+          : rgb(*value.background));
+  return node;
+}
+XmlElement NativeStageContextStyles::column(const TextTableColumn &value,
+                                            double width) {
+  auto node = style("table-column");
+  auto p = add(node, "table-column-properties");
+  set(p, STYLE, "column-width", pt(width));
+  set(p, STYLE, "rel-column-width",
+      number(value.relative > 0 ? value.relative
+             : !value.width     ? 1
+                                : 0) +
+          "*");
+  set(p, STYLE, "use-optimal-column-width", value.optimal ? "true" : "false");
   return node;
 }
 } // namespace DomeOffice
