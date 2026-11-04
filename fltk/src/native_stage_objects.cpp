@@ -126,7 +126,9 @@ void external_references(XmlElement root, XmlElement removed,
               (a.uri == DRAW && (name == "start-shape" || name == "end-shape" ||
                                  name == "caption-id")) ||
               (a.uri == SMIL && name == "targetElement") ||
-              (a.uri == TEXT && name == "ref-name");
+              (a.uri == TEXT && (name == "ref-name" ||
+                                 (name == "section-name" &&
+                                  native_stage_local_section_source(node))));
           bool named =
               a.uri == DRAW && (name == "copy-of" || name == "chain-next-name");
           if ((idref && (ids.contains(a.value) || names.contains(a.value))) ||
@@ -335,10 +337,17 @@ check_stage_removed_objects_references(const OdfPackage &package,
   for (auto object : removed)
     walk(object, [&](XmlElement node) {
       for (const auto &uri : {XML, DRAW})
-        if (node.hasAttributeNS(uri, "id"))
+        if ((uri == XML || native_stage_object_identity(node)) &&
+            node.hasAttributeNS(uri, "id"))
           ids.insert(node.attributeNS(uri, "id"));
-      if (node.hasAttributeNS(DRAW, "name"))
+      if (native_stage_object_identity(node) &&
+          node.hasAttributeNS(DRAW, "name"))
         names.insert(node.attributeNS(DRAW, "name"));
+      if (node.namespaceURI() == TABLE && node.localName() == "table" &&
+          node.hasAttributeNS(TABLE, "name"))
+        names.insert(node.attributeNS(TABLE, "name"));
+      if (native_stage_section_target(node))
+        names.insert(node.attributeNS(TEXT, "name"));
       if (node.namespaceURI() == TEXT &&
           TextList{"bookmark", "bookmark-start", "reference-mark",
                    "reference-mark-start"}
@@ -447,10 +456,16 @@ PresentationPosition Presentation::remove_shape(int slide_index,
   std::set<Text> ids, names;
   walk(shape.source, [&](XmlElement e) {
     for (const auto &uri : {XML, DRAW})
-      if (e.hasAttributeNS(uri, "id"))
+      if ((uri == XML || native_stage_object_identity(e)) &&
+          e.hasAttributeNS(uri, "id"))
         ids.insert(e.attributeNS(uri, "id"));
-    if (e.hasAttributeNS(DRAW, "name"))
+    if (native_stage_object_identity(e) && e.hasAttributeNS(DRAW, "name"))
       names.insert(e.attributeNS(DRAW, "name"));
+    if (e.namespaceURI() == TABLE && e.localName() == "table" &&
+        e.hasAttributeNS(TABLE, "name"))
+      names.insert(e.attributeNS(TABLE, "name"));
+    if (native_stage_section_target(e))
+      names.insert(e.attributeNS(TEXT, "name"));
     if (e.namespaceURI() == TEXT &&
         (e.localName() == "bookmark" || e.localName() == "bookmark-start" ||
          e.localName() == "reference-mark" ||

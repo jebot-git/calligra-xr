@@ -16,7 +16,7 @@ rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. Runtime build `353c016`,
 including layer authoring, separate frame/image opacity and stroke caps/joins,
 is installed and independently verified. Test-only followup `7b5a47f` has the same
-installed payload. Clipboard transport, fragment and cut-draft work below is not integrated into Stage
+installed payload. Clipboard transport, fragment, cut-draft and import-source work below is not integrated into Stage
 or installed. Subsequent source/build/stage/installation claims require their
 own evidence. Historical sections retain their earlier priorities and baseline.
 
@@ -1733,3 +1733,49 @@ remain unfinished. These source APIs have no native clipboard/menu/keyboard
 integration yet. The verified installed runtime remains353c016; preparing cut
 transactions does not establish a usable clipboard workflow or full ODF1.2
 functionality.
+
+
+## Isolated Stage import sources — 2026-11-04
+
+The native import-source preparer now decodes a selected-object envelope and
+renames its style/font/layer/object identities against the complete destination
+name inventory. Content/styles automatic definitions and font declarations retain
+their source scopes; graphic and paragraph definitions with the same source
+name remain distinct. A shared typed resolver now serves extraction and import.
+Common tab-leader references resolve common styles, rather than same-named
+automatic definitions. Parent/next, inline, font, drawing resource and layer
+edges are rewritten by their semantic keys, without replacing arbitrary strings.
+
+Generated names reserve unresolved destination references too, including percent
+escapes, nested XML resources and opaque package parts. Assets move together
+under a fresh package prefix. Main styles/content URIs are encoded once, retain
+resource fragments and external references, while owned embedded subpackages
+keep their bytes and internal relative links. The independent HTTP peer receives
+no fetch. Destination XML and archive-part identities stay unchanged throughout;
+this preparer returns another isolated ODP, not a modified receiving document.
+
+Object identities are distinct from local grammars. Enhanced equation names,
+formula/path references, numbered glue points and runtime parameter names are
+retained. A native custom-shape regression failed before separating these fields
+from global object names/IDs; its contours, handles, image and source properties
+now match through screen/print and standalone save/reopen. Bookmark pairs,
+selected object endpoints, named tables, same-document section sources,
+navigation and supported timing identifier references have separate tests.
+Variable/field names and formulas retain their original data; their global
+namespace/dependency isolation is still required before an actual merge.
+
+The shared timing-reference recognizer retains surrounding event/clock/offset
+and whitespace syntax. Dotted, escaped and Unicode IDs use selected targets;
+fractional offsets cannot bind to similarly named objects. Aggregate prefix-work
+and term limits apply across the fragment. This does not implement animation
+playback or complete timing-language conformance. Named table anchors now count
+as selected targets; ordinary single/batch deletion and prepared cut reject
+incoming links to a table whose frame would be removed.
+
+Default/property/context isolation in the receiving document, correct layer and
+stacking merge, asynchronous paste/history and actual native clipboard controls
+remain unfinished. Formula-bearing text tables reject until structural formula
+reference rewriting is available. General field/settings/base-URI, inline nested
+ODF/SVG scope and broader reference semantics remain open. No receiving defaults
+are replaced and no clipboard feature is claimed installed. Runtime353c016 stays
+installed until the workflow is usable; full ODF1.2 functionality remains open.

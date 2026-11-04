@@ -3133,3 +3133,55 @@ Stage clipboard menu/keyboard behavior, a globally installed increment or full
 ODF1.2 functionality. Optimized staging and sanitizer/build results have separate
 receipts. The installed runtime remains353c016 until the clipboard workflow is
 usable and independently verified.
+
+
+## Isolated Stage import-source checks — 2026-11-04
+
+`native-stage-import` covers source family/part/common/font scope, colliding
+names, unresolved target name reservation (including percent-encoded and nested
+XML references), source/selection preservation and unchanged destination archive
+identities. Source and remapped screen/print scenes retain paints, fonts, spans,
+tabs, transforms, contours, handles, images, protection and diagnostics.
+A common tab leader binds the common Emphasis color while a body span binds the
+content-automatic Emphasis; a styles-automatic red decoy stays outside closure.
+Same-named content/styles font declarations resolve their distinct families.
+The common-style leader rule follows
+[ODF1.2 Part1 section19.487](https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html).
+
+A custom shape uses equation edge=$0 and an enhanced path referencing ?edge;
+its numeric glue point4 remains numeric. The earlier generic draw:name remapper
+failed this regression. A required draw:escape-direction=auto was added to the
+glue-point specimen after independent schema validation rejected both the source
+and output without it. Plugin-parameter/variable preservation and foreign probe
+reference placement are separate compatibility-only cases, outside the strict
+schema/printing corpus. Same-document named section references, bookmark pairs,
+encoded anchors, supported connector/frame links and navigation are checked.
+Duplicate global IDs and ambiguous named targets reject before any publication.
+
+The shared timing recognizer checks literal clocks, positive/negative fractional
+offsets, longest selected dotted/escaped/Unicode identifiers and unknown targets.
+A selected ID ending in end-0 must not steal the .5s fraction from another
+object's end-0.5s event. Aggregate term/prefix-character budgets prevent repeated
+dotted prefixes from causing unbounded quadratic work. This is identifier
+closure/remapping, not an animation evaluator.
+
+`stage_import_reference.py --test-bin BUILD/fltk/calligra-native-stage-import-test
+--artifacts OUTPUT` independently produces ZIP/envelope input and inspects
+outgoing ZIP/XML/URI data. Five accepted cases cover percent-encoded Unicode/
+space/percent/hash/question-mark file names, asset fragments, owned embedded ODF
+with relative links and opaque parts, named table hyperlinks and an external
+HTTP reference whose independent server receives zero requests. Five cases reject
+missing/traversing/encoded-traversing/directory image resources and formula-bearing
+tables requiring a structural formula rewrite. Target files remain byte-identical.
+The table-anchor case failed before adding named tables to extraction targets;
+cut and single/batch delete now separately protect incoming table links.
+
+`stage_import_producer.py --bin-dir BUILD/fltk --test-bin
+BUILD/fltk/calligra-native-stage-import-test --artifacts OUTPUT` independently
+checks parent/next/leader/font/family/layer edges and URI/image closure. Basic and
+equation/glue-point source/remapped pairs print identically and reopen identically.
+Independent affine/opacity/visibility pixels and equation-edge interior/exterior
+probes complement the model tests. Its private CUPS corpus has seven jobs and
+13 pages, including the nine three-application baseline pages. Strict schema,
+package, visual review, sanitizer, staging and installed results remain separate
+evidence receipts. No selected corpus closes full ODF1.2 or actual-paste scope.

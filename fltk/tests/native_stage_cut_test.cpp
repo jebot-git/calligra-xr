@@ -243,6 +243,43 @@ void guards(const Text &input) {
   stable = Snapshot(p);
   rejects([&] { p.prepare_cut_objects(0, {ref(p, "A")}); });
   stable.same(p);
+  // A named table is also a hyperlink target. Deleting its frame must not
+  // leave an incoming link in another shape dangling.
+  package = fixture();
+  page = children(package.body(), DRAW, "page")[0];
+  auto frame = package.xml.createElementNS(DRAW, "draw:frame");
+  frame.setAttributeNS(DRAW, "draw:name", "TableFrame");
+  frame.setAttributeNS(SVG, "svg:width", "120pt");
+  frame.setAttributeNS(SVG, "svg:height", "80pt");
+  auto box = package.xml.createElementNS(DRAW, "draw:text-box");
+  auto table = package.xml.createElementNS(TABLE, "table:table");
+  table.setAttributeNS(TABLE, "table:name", "NamedTable");
+  auto row = package.xml.createElementNS(TABLE, "table:table-row");
+  auto cell = package.xml.createElementNS(TABLE, "table:table-cell");
+  auto text = package.xml.createElementNS(TEXT, "text:p");
+  set_plain_text(text, "Cell");
+  cell.appendChild(text);
+  row.appendChild(cell);
+  table.appendChild(row);
+  box.appendChild(table);
+  frame.appendChild(box);
+  page.appendChild(frame);
+  auto outer = package.xml.elementsByTagNameNS(DRAW, "rect")[1];
+  link = package.xml.createElementNS(TEXT, "text:a");
+  link.setAttributeNS(XLINK, "xlink:href", "#NamedTable");
+  set_plain_text(link, "Table link");
+  children(outer, TEXT, "p")[0].appendChild(link);
+  package.save(input);
+  p.load(input);
+  stable = Snapshot(p);
+  assert(!p.copy_objects(0, {ref(p, "TableFrame")}).archive.empty());
+  rejects([&] { p.prepare_cut_objects(0, {ref(p, "TableFrame")}); });
+  rejects([&] { p.remove_objects(0, {ref(p, "TableFrame")}); });
+  // Ordinary delete ends typing/gestures, but a rejected command still retains
+  // exact source, revision, history and modified state.
+  stable.same(p);
+  rejects([&] { p.remove_shape(0, find(p, "TableFrame")); });
+  stable.same(p);
   // Signed/read-only source can be copied, but never prepared for deletion.
   package = fixture();
   package.set_entry("META-INF/documentsignatures.xml", "signature", "text/xml");

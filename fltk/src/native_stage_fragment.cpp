@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_stage_fragment.h"
+#include "native_stage_styles.h"
+#include "native_stage_identity.h"
+#include "native_stage_timing.h"
 #include "native_image.h"
 #include "text_documents.h"
 #include <array>
@@ -43,23 +46,11 @@ struct Budget {
     descend(descend, root, 0);
   }
 };
-using Key = std::tuple<Text, Text, Text>; // kind, style family, source name
-struct Definition {
-  XmlElement node;
-  Key key;
-  int source;
-  Text group;
-};
-struct Fragment {
+struct Fragment : NativeStageStyleCatalog {
   const OdfPackage &original;
   const SlideScene &scene;
   OdfPackage output{Kind::Stage};
   XmlDocument styles;
-  std::array<XmlDocument, 2> documents;
-  std::array<std::map<Key, size_t>, 2> automatic, fonts;
-  std::map<Key, size_t> common;
-  std::map<Text, size_t> defaults;
-  std::vector<Definition> definitions;
   std::set<size_t> included;
   std::deque<size_t> pending;
   std::map<Text, XmlElement> layers;
@@ -68,19 +59,17 @@ struct Fragment {
   std::set<Text> directories;
   XmlElement page, layer_set;
   Budget budget;
+  NativeStageTimingBudget timing_budget;
   std::unordered_set<const void *> wanted, ancestors;
   std::map<const void *, XmlElement> copied_selection;
 
   Fragment(const OdfPackage &package, const SlideScene &model)
-      : original(package), scene(model),
+      : NativeStageStyleCatalog(package), original(package), scene(model),
         styles(read_document_xml(output.entry("styles.xml"))) {
     if (package.kind() != Kind::Stage ||
         model.source.ownerDocument().documentElement() !=
             package.xml.documentElement())
       fail("Clipboard selection does not belong to this presentation");
-    documents[0] = package.xml;
-    if (!package.entry("styles.xml").empty())
-      documents[1] = read_document_xml(package.entry("styles.xml"));
     std::pair<int, int> version_number{1, 2};
     for (const auto &doc : documents) {
       auto source_version =
@@ -101,9 +90,6 @@ struct Fragment {
     output.xml.documentElement().setAttributeNS(OFFICE, "office:version",
                                                 version);
     styles.documentElement().setAttributeNS(OFFICE, "office:version", version);
-    // Match the native common/default cascade: content follows styles.xml.
-    index(1);
-    index(0);
     auto manifest = read_document_xml(original.entry("META-INF/manifest.xml"));
     for (auto e : children(manifest.documentElement(), MANIFEST, "file-entry"))
       media[e.attributeNS(MANIFEST, "full-path")] =
@@ -123,52 +109,6 @@ struct Fragment {
                                 "master-styles"))
         read_layers(root);
     read_layers(scene.source);
-  }
-  static std::optional<Key> key(XmlElement node) {
-    auto uri = node.namespaceURI(), name = node.localName();
-    if (uri == STYLE && (name == "style" || name == "default-style"))
-      return Key{name, node.attributeNS(STYLE, "family"),
-                 node.attributeNS(STYLE, "name")};
-    if (uri == STYLE && name == "font-face")
-      return Key{"font", {}, node.attributeNS(STYLE, "name")};
-    if (uri == TEXT && name == "list-style")
-      return Key{"list", {}, node.attributeNS(STYLE, "name")};
-    if (uri == NUMBER && name.endsWith("-style"))
-      return Key{"data", {}, node.attributeNS(STYLE, "name")};
-    if (uri == TABLE && name == "table-template")
-      return Key{"table-template", {}, node.attributeNS(TABLE, "name")};
-    if (uri == DRAW && TextList{"gradient", "hatch", "fill-image", "opacity",
-                                "stroke-dash", "marker"}
-                           .contains(name))
-      return Key{name, {}, node.attributeNS(DRAW, "name")};
-    return {};
-  }
-  void index(int source) {
-    for (auto group : children(documents[source].documentElement(), OFFICE)) {
-      auto name = group.localName();
-      if (name != "styles" && name != "automatic-styles" &&
-          name != "font-face-decls")
-        continue;
-      for (auto node = group.firstChild(); !node.isNull();
-           node = node.nextSibling())
-        if (node.isElement()) {
-          auto k = key(node);
-          if (!k)
-            continue;
-          if (definitions.size() >= 100000)
-            fail("Clipboard source style inventory exceeds the limit");
-          auto id = definitions.size();
-          definitions.push_back({node, *k, source, name});
-          if (std::get<0>(*k) == "default-style")
-            defaults[std::get<1>(*k)] = id;
-          else if (name == "font-face-decls")
-            fonts[source][*k] = id;
-          else if (name == "automatic-styles")
-            automatic[source][*k] = id;
-          else
-            common[*k] = id;
-        }
-    }
   }
   void read_layers(XmlElement root) {
     auto sets = children(root, DRAW, "layer-set");
@@ -198,57 +138,12 @@ struct Fragment {
     pending.push_back(id);
   }
   void reference(const Key &k, int source, bool common_only = false) {
-    if (std::get<2>(k).empty())
-      return;
-    if (std::get<0>(k) == "font") {
-      if (auto at = fonts[source].find(k); at != fonts[source].end()) {
-        include(at->second);
-        return;
-      }
-      if (source == 0)
-        if (auto at = fonts[1].find(k); at != fonts[1].end()) {
-          include(at->second);
-          return;
-        }
-    } else {
-      if (!common_only)
-        if (auto at = automatic[source].find(k);
-            at != automatic[source].end()) {
-          include(at->second);
-          return;
-        }
-      if (auto at = common.find(k); at != common.end()) {
-        include(at->second);
-        return;
-      }
-    }
-    fail("A selected object has a missing style, font or drawing dependency");
+    if (!std::get<2>(k).empty())
+      include(resolve(k, source, common_only));
   }
   void family(const Text &family) {
     if (auto at = defaults.find(family); at != defaults.end())
       include(at->second);
-  }
-  Text text_family(XmlElement node) {
-    auto name = node.localName();
-    if (name == "p" || name == "h")
-      return "paragraph";
-    if (name == "section" ||
-        TextList{"table-of-content", "user-index", "alphabetical-index",
-                 "table-index", "object-index", "illustration-index",
-                 "bibliography"}
-            .contains(name))
-      return "section";
-    return name == "ruby" ? Text("ruby") : Text("text");
-  }
-  Text table_family(XmlElement node) {
-    auto name = node.localName();
-    if (name == "table")
-      return "table";
-    if (name == "table-row")
-      return "table-row";
-    if (name == "table-column")
-      return "table-column";
-    return "table-cell";
   }
   void asset(Text path, bool allow_directory = false) {
     if (TextList{"mimetype", "content.xml", "styles.xml", "meta.xml",
@@ -353,9 +248,9 @@ struct Fragment {
     asset(*path, allow_directory);
   }
   void scan(XmlElement root, int source, const Text &context_family = {},
-            const Text &context_kind = {}) {
+            const Text &context_kind = {}, bool common_context = false) {
     budget.walk(root, [&](XmlElement node) {
-      auto uri = node.namespaceURI(), name = node.localName();
+      const auto uri = node.namespaceURI(), name = node.localName();
       if (node.hasAttributeNS(XML, "base"))
         fail("Clipboard object xml:base resolution is not implemented yet");
       if (uri == DRAW)
@@ -366,63 +261,17 @@ struct Fragment {
         family("text");
       }
       if (uri == TABLE)
-        family(table_family(node));
+        family(native_stage_table_family(node));
+      for (const auto &ref : native_stage_style_references(
+               node, context_family, context_kind, common_context))
+        for (const auto &key : ref.keys) {
+          if (!std::get<1>(key).empty())
+            family(std::get<1>(key));
+          reference(key, source, ref.common_only);
+        }
       for (const auto &a : node.attributes()) {
-        auto attr = local(a);
-        if (a.uri == DRAW && (attr == "style-name" || attr == "class-names")) {
-          auto f = name == "page" ? Text("drawing-page") : Text("graphic");
-          family(f);
-          for (auto n : tokens(a.value))
-            reference({"style", f, n}, source, attr == "class-names");
-        } else if (a.uri == DRAW && attr == "text-style-name") {
-          family("paragraph");
-          reference({"style", "paragraph", a.value}, source);
-        } else if (a.uri == PRESENTATION &&
-                   (attr == "style-name" || attr == "class-names")) {
-          family("presentation");
-          for (auto n : tokens(a.value))
-            reference({"style", "presentation", n}, source,
-                      attr == "class-names");
-        } else if (a.uri == TEXT &&
-                   (attr == "style-name" || attr == "class-names")) {
-          if (name == "list" || name == "numbered-paragraph")
-            reference({"list", {}, a.value}, source);
-          else {
-            auto f = text_family(node);
-            family(f);
-            for (auto n : tokens(a.value))
-              reference({"style", f, n}, source, attr == "class-names");
-          }
-        } else if (a.uri == TABLE &&
-                   (attr == "style-name" || attr == "default-cell-style-name" ||
-                    attr == "paragraph-style-name")) {
-          auto f = attr == "default-cell-style-name" ? Text("table-cell")
-                   : attr == "paragraph-style-name"  ? Text("paragraph")
-                                                     : table_family(node);
-          family(f);
-          reference({"style", f, a.value}, source);
-        } else if (a.uri == TABLE && attr == "template-name")
-          reference({"table-template", {}, a.value}, source);
-        else if (a.uri == STYLE &&
-                 (attr == "parent-style-name" || attr == "next-style-name") &&
-                 !context_family.empty())
-          reference({"style", context_family, a.value}, source, true);
-        else if (a.uri == STYLE && (attr == "data-style-name" ||
-                                    attr == "percentage-data-style-name"))
-          reference({"data", {}, a.value}, source);
-        else if (a.uri == STYLE && attr == "list-style-name")
-          reference({"list", {}, a.value}, source);
-        else if (a.uri == STYLE && attr == "leader-text-style")
-          reference({"style", "text", a.value}, source);
-        else if (a.uri == STYLE && attr == "apply-style-name")
-          reference({context_kind == "data" ? Text("data") : Text("style"),
-                     context_family, a.value},
-                    source);
-        else if (a.uri == STYLE &&
-                 (attr == "font-name" || attr == "font-name-asian" ||
-                  attr == "font-name-complex"))
-          reference({"font", {}, a.value}, source);
-        else if (a.uri == DRAW && attr == "layer") {
+        const auto attr = local(a);
+        if (a.uri == DRAW && attr == "layer") {
           if (layer_set.isNull()) {
             layer_set = output.xml.createElementNS(DRAW, "draw:layer-set");
             page.insertBefore(layer_set, page.firstChild());
@@ -438,22 +287,6 @@ struct Fragment {
             l.setAttributeNS(DRAW, "draw:name", a.value);
             layer_set.appendChild(l);
           }
-        } else if (a.uri == DRAW) {
-          Text kind;
-          if (attr == "fill-gradient-name")
-            kind = "gradient";
-          else if (attr == "fill-hatch-name")
-            kind = "hatch";
-          else if (attr == "fill-image-name")
-            kind = "fill-image";
-          else if (attr == "opacity-name")
-            kind = "opacity";
-          else if (attr == "stroke-dash")
-            kind = "stroke-dash";
-          else if (attr == "marker-start" || attr == "marker-end")
-            kind = "marker";
-          if (!kind.empty())
-            reference({kind, {}, a.value}, source);
         }
         if (a.uri == XLINK && attr == "href" && !(uri == TEXT && name == "a"))
           resource(a.value, {}, uri == DRAW && name == "object");
@@ -516,7 +349,7 @@ struct Fragment {
       auto [kind, f, name] = d.key;
       if (!f.empty())
         family(f);
-      scan(d.node, d.source, f, kind);
+      scan(d.node, d.source, f, kind, d.group == "styles");
     }
     output.set_entry("styles.xml", styles.toByteArray(), "text/xml");
     // Keep only the source's selected navigation targets, never references to
@@ -525,9 +358,15 @@ struct Fragment {
     auto collect_targets = [&](XmlElement n) {
       for (const auto &a : n.attributes()) {
         auto attr = local(a);
-        if ((a.uri == XML || a.uri == DRAW) && attr == "id")
+        if ((a.uri == XML ||
+             (a.uri == DRAW && native_stage_object_identity(n))) &&
+            attr == "id")
           ids.insert(a.value);
-        if ((a.uri == DRAW || a.uri == TEXT) && attr == "name")
+        if (attr == "name" &&
+            ((a.uri == DRAW && native_stage_object_identity(n)) ||
+             (a.uri == TEXT && (native_stage_text_anchor(n) ||
+                                native_stage_section_target(n))) ||
+             (a.uri == TABLE && n.localName() == "table")))
           names.insert(a.value);
       }
     };
@@ -553,22 +392,18 @@ struct Fragment {
              (attr == "ref-name" || attr == "continue-list")) ||
             (a.uri == SMIL && attr == "targetElement"))
           target = a.value;
+        if (a.uri == TEXT && attr == "section-name" &&
+            native_stage_local_section_source(n))
+          target = a.value;
         if (a.uri == XLINK && attr == "href" && a.value.startsWith('#'))
           target = Url::fromPercentEncoding(a.value.mid(1).toUtf8());
         if (!target.empty() && !ids.contains(target) && !names.contains(target))
           fail(
               "A copied object references an unselected object or text target");
         if (a.uri == SMIL && (attr == "begin" || attr == "end"))
-          for (auto term : a.value.split(';')) {
-            term = term.trimmed();
-            auto dot = term.indexOf('.');
-            if (dot > 0 &&
-                ((term[0] >= U'a' && term[0] <= U'z') ||
-                 (term[0] >= U'A' && term[0] <= U'Z') || term[0] == U'_'))
-              if (!ids.contains(term.left(dot)))
-                fail("A copied timing expression references an unselected "
-                     "object");
-          }
+          (void)native_stage_timing_references(
+              a.value, [&](const Text &id) { return ids.contains(id); },
+              &timing_budget);
       }
     });
     TextList paragraphs;

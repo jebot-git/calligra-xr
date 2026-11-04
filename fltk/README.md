@@ -322,6 +322,13 @@ CUPS test queues.
   copied, moved-from and stale drafts are rejected. Destination isolation and
   actual menu/keyboard integration remain unfinished; these APIs are uninstalled.
   See protocols/README.md for the wire format and PORT_STATUS.md for evidence.
+- The source-only Stage import preparer reserves names against destination
+  definitions and unresolved references, remaps typed style/font/layer/object
+  references and relocates assets under a fresh package prefix. Shape-local
+  equations, numeric glue-point IDs, runtime parameter names and field formulas
+  retain their data. It returns an isolated ODP and leaves the destination
+  untouched. Receiving default/context isolation, actual merge/history and
+  native paste controls remain unfinished and uninstalled.
 - Stage honors ODF1.2 document/page/master layer display and protection.
   A local layer set replaces the document set; an empty local set is meaningful.
   Screen-only and print-only objects use separate scenes, so printing retains the
