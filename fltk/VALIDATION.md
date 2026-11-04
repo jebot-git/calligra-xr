@@ -1,5 +1,38 @@
 # Native engine validation — 2026-10-28
 
+## Embedded document scope regression corpus — 2026-11-04
+
+`native-document-scope` uses hand-authored colliding outer and inline ODF
+declarations in Words and Stage, including objects in content and master
+headers. Its separate font/default/page/header/text/resource modes compare
+surrounding semantics and exact live source retention. The large-list case has
+more than 4096 nested image declarations; these must not consume the outer reader's
+4096 declaration limit. Source archives and standalone renderers still have
+their own existing limits. A separate Stage case places an embedded document inside a paragraph and
+checks that its plain text agrees with its rendered flow, retaining Unicode,
+repeated spaces, tabs and soft breaks. This exposed another path through the
+old unrestricted plain-text helper. The pre-fix reproduction links the new test directly
+against the previously verified a31025e native core, without relinking its apps.
+The separate inline case also fails against a31025e after constructing its
+paragraph from scratch, including ODF whitespace nodes. Initial fixture schema errors (a duplicate
+automatic-style container and missing list-image data) were corrected before
+the final scope/print/schema runs.
+
+`document_scope_producer.py` independently parses retained nested XML and ZIP
+parts and compares surrounding raster output after save/reopen. It uses actual
+private CUPS queues for the six scope fixtures and the three-application suite
+baseline. This is evidence for surrounding reader isolation, not rendering of
+embedded documents or a working clipboard. Relevant ODF1.2 Part1 sections are
+3.14/3.15 (declaration containers), 10.4.6.2 (`draw:object` with its own
+`office:document`) and 16.21 (font declarations). The normative source is
+https://docs.oasis-open.org/office/v1.2/os/OpenDocument-v1.2-os-part1.html.
+
+Further Words editing catalogues still need a separate nested-scope audit.
+Inline embedded import identity/style/resource scopes, full default/context
+isolation, destination merge/history and clipboard UI remain open. Verified
+build, schema, package, CUPS and stage counts belong to the current artifact
+receipt; this source-only increment does not change installed runtime `353c016`.
+
 This is a chronological milestone log. Later sections supersede earlier function
 limits; README.md and PORT_STATUS.md describe the current implementation.
 

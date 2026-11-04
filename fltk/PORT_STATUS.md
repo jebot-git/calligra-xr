@@ -1779,3 +1779,30 @@ reference rewriting is available. General field/settings/base-URI, inline nested
 ODF/SVG scope and broader reference semantics remain open. No receiving defaults
 are replaced and no clipboard feature is claimed installed. Runtime353c016 stays
 installed until the workflow is usable; full ODF1.2 functionality remains open.
+
+## Embedded document reader scopes — 2026-11-04
+
+The shared text and Stage readers now collect fonts, default styles, page
+layouts and masters from their own document's declaration containers. Inline
+embedded ODF declarations no longer replace surrounding font names, paragraph
+defaults, page sizes or header/footer box settings. The text reader only loads
+image-list declarations from the outer style containers; nested declarations
+do not consume the outer resource limit. Existing content/styles font lookup
+and common/automatic style precedence remain in place.
+
+Embedded ODF/OLE object content stays in its original XML/package scope. Native
+text traversal diagnoses these objects rather than flattening their body,
+headers or declaration text into the surrounding editable flow. This does not
+add an embedded-document renderer, object editor or clipboard integration.
+
+The scope corpus covers declarations in content and styles/header sources for
+Words and Stage, surrounding fonts/paragraphs/pages/header boxes, opaque nested
+text and large nested image-list declarations. Stage tests cover both a
+standalone object frame and an object inside a paragraph; its plain text and
+rendered flow agree while retaining outer whitespace controls and Unicode.
+Standalone save/reopen and print
+checks compare the surrounding output and retained nested XML separately.
+These reader fixes remain source-only. General nested import identity/style/
+resource namespaces, source default/context isolation, target layer/stacking
+merge and actual paste/history/controls remain unfinished. Words remains paused
+for further layout work; runtime `353c016` stays installed.

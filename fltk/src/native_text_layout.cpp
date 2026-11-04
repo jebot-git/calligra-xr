@@ -8,6 +8,7 @@
 #include "native_text_keep.h"
 #include "native_text_shaper.h"
 #include "native_page_stories.h"
+#include "native_document_scope.h"
 #include <charconv>
 #include <cmath>
 #include <limits>
@@ -145,42 +146,41 @@ struct Reader {
     std::vector<Text> warnings;
   };
   std::vector<LabelImage> label_images;
+  std::vector<XmlElement> label_image_declarations;
   void load_images(const OdfPackage &package) {
     std::set<uint64_t> used;
     size_t total = 0;
-    for (const auto &document : documents)
-      for (auto node :
-           document.elementsByTagNameNS(TEXT, "list-level-style-image")) {
-        if (label_images.size() >= 4096)
-          fail("Too many list image declarations");
-        LabelImage image;
-        image.node = node;
-        auto href = node.attributeNS(XLINK, "href");
-        if (!href.empty())
-          image.asset = package.image_asset(href);
-        if (!image.asset) {
-          auto binary = child(node, OFFICE, "binary-data");
-          if (!binary.isNull()) {
-            auto data = inline_image_data(binary.text());
-            if (data)
-              image.asset =
-                  make_image_asset("inline list image", std::move(*data));
-          }
+    for (auto node : label_image_declarations) {
+      if (label_images.size() >= 4096)
+        fail("Too many list image declarations");
+      LabelImage image;
+      image.node = node;
+      auto href = node.attributeNS(XLINK, "href");
+      if (!href.empty())
+        image.asset = package.image_asset(href);
+      if (!image.asset) {
+        auto binary = child(node, OFFICE, "binary-data");
+        if (!binary.isNull()) {
+          auto data = inline_image_data(binary.text());
+          if (data)
+            image.asset =
+                make_image_asset("inline list image", std::move(*data));
         }
-        if (image.asset && !used.contains(image.asset->id)) {
-          if (image.asset->data->size() > 128 * 1024 * 1024 - total) {
-            image.asset.reset();
-            image.warnings.push_back("List image data exceeds native limit");
-          } else {
-            used.insert(image.asset->id);
-            total += image.asset->data->size();
-          }
-        }
-        if (!image.asset)
-          image.warnings.push_back(
-              "Unavailable or unsupported list image source");
-        label_images.push_back(std::move(image));
       }
+      if (image.asset && !used.contains(image.asset->id)) {
+        if (image.asset->data->size() > 128 * 1024 * 1024 - total) {
+          image.asset.reset();
+          image.warnings.push_back("List image data exceeds native limit");
+        } else {
+          used.insert(image.asset->id);
+          total += image.asset->data->size();
+        }
+      }
+      if (!image.asset)
+        image.warnings.push_back(
+            "Unavailable or unsupported list image source");
+      label_images.push_back(std::move(image));
+    }
   }
   size_t label_size = 0;
   struct ListItem {
@@ -241,19 +241,23 @@ struct Reader {
     if (master)
       styles_root = document.documentElement();
     documents.push_back(document);
-    for (auto e : document.elementsByTagNameNS(STYLE, "font-face"))
+    for (auto e :
+         children(child(document.documentElement(), OFFICE, "font-face-decls"),
+                  STYLE, "font-face"))
       (master ? master_fonts : fonts)[e.attributeNS(STYLE, "name")] =
           e.attributeNS(SVG, "font-family");
-    for (auto e : document.elementsByTagNameNS(STYLE, "default-style")) {
-      if (e.attributeNS(STYLE, "family") == "paragraph")
-        paragraph_default = e;
-      if (e.attributeNS(STYLE, "family") == "text")
-        text_default = e;
-    }
     for (auto group : children(document.documentElement(), OFFICE)) {
       bool automatic = group.localName() == "automatic-styles";
       if (!automatic && group.localName() != "styles")
         continue;
+      for (auto e : children(group, STYLE, "default-style")) {
+        if (e.attributeNS(STYLE, "family") == "paragraph")
+          paragraph_default = e;
+        if (e.attributeNS(STYLE, "family") == "text")
+          text_default = e;
+      }
+      for (auto e : children(group, STYLE, "page-layout"))
+        layouts[e.attributeNS(STYLE, "name")] = e;
       for (auto e : children(group, STYLE, "style")) {
         auto family = e.attributeNS(STYLE, "family"),
              name = e.attributeNS(STYLE, "name");
@@ -264,12 +268,16 @@ struct Reader {
           (automatic ? (master ? master_text_styles : text_styles)
                      : common_text_styles)[name] = e;
       }
-      for (auto e : children(group, TEXT, "list-style"))
+      for (auto e : children(group, TEXT, "list-style")) {
         (automatic ? (master ? master_list_styles : list_styles)
                    : common_list_styles)[e.attributeNS(STYLE, "name")] = e;
+        for (auto image : children(e, TEXT, "list-level-style-image")) {
+          if (label_image_declarations.size() >= 4096)
+            fail("Too many list image declarations");
+          label_image_declarations.push_back(image);
+        }
+      }
     }
-    for (auto e : document.elementsByTagNameNS(STYLE, "page-layout"))
-      layouts[e.attributeNS(STYLE, "name")] = e;
   }
   void font(TextFont &font, const XmlElement &style) {
     auto p = child(style, STYLE, "text-properties");
@@ -620,7 +628,7 @@ struct Reader {
     const auto &common = text ? common_text_styles : common_paragraph_styles;
     const auto &styles =
         common_only ? common
-        : text      ? (from_styles ? master_text_styles : text_styles)
+        : text ? (from_styles ? master_text_styles : text_styles)
                : (from_styles ? master_paragraph_styles : paragraph_styles);
     std::vector<XmlElement> stack;
     XmlElement current;
@@ -677,9 +685,11 @@ struct Reader {
         append(n.nodeValue());
       else if (n.isElement()) {
         auto e = n.toElement();
-        if (e.namespaceURI() == TEXT &&
-            (e.localName() == "span" || e.localName() == "a" ||
-             e.localName() == "meta")) {
+        if (native_embedded_document_boundary(e)) {
+          note(flow.unsupported, "Embedded document objects");
+        } else if (e.namespaceURI() == TEXT &&
+                   (e.localName() == "span" || e.localName() == "a" ||
+                    e.localName() == "meta")) {
           auto next = current;
           auto next_color = color;
           auto next_background = background;
@@ -1356,8 +1366,10 @@ struct Reader {
       if (!node.isElement())
         continue;
       auto e = node.toElement();
-      if (e.namespaceURI() == TEXT &&
-          (e.localName() == "p" || e.localName() == "h")) {
+      if (native_embedded_document_boundary(e))
+        note(flow.unsupported, "Embedded document objects");
+      else if (e.namespaceURI() == TEXT &&
+               (e.localName() == "p" || e.localName() == "h")) {
         paragraph(e, item);
       } else if (e.namespaceURI() == TABLE && e.localName() == "table")
         table(e, depth + 1);
@@ -1386,7 +1398,9 @@ struct Reader {
   }
   void pages() {
     for (const auto &doc : documents)
-      for (auto master : doc.elementsByTagNameNS(STYLE, "master-page")) {
+      for (auto master :
+           children(child(doc.documentElement(), OFFICE, "master-styles"),
+                    STYLE, "master-page")) {
         TextPageStyle p;
         p.name = master.attributeNS(STYLE, "name");
         p.next = master.attributeNS(STYLE, "next-style-name", p.name);

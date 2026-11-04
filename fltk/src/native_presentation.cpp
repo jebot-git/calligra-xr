@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_presentation.h"
+#include "native_document_scope.h"
 #include "native_enhanced_geometry.h"
 #include "native_path.h"
 #include "native_stage_order.h"
@@ -132,15 +133,53 @@ void valid(const SceneTransform &m) {
     if (!std::isfinite(v) || std::abs(v) > 1e9)
       fail("Presentation transform exceeds the limit");
 }
+Text surrounding_text(const XmlElement &paragraph) {
+  Text result;
+  size_t nodes = 0;
+  auto append = [&](const Text &text) {
+    if (text.size() > 4000000 - result.size())
+      fail("Presentation text exceeds the limit");
+    result += text;
+  };
+  auto walk = [&](auto &&self, XmlElement parent, int depth) -> void {
+    if (++nodes > 1000000 || depth > 256)
+      fail("Presentation text traversal exceeds the limit");
+    for (auto node = parent.firstChild(); !node.isNull();
+         node = node.nextSibling())
+      if (node.isText() || node.isCDATASection())
+        append(node.nodeValue());
+      else if (node.isElement()) {
+        auto e = node.toElement();
+        if (native_embedded_document_boundary(e))
+          continue;
+        if (e.namespaceURI() == TEXT && e.localName() == "s") {
+          bool ok = false;
+          int count = e.attributeNS(TEXT, "c", "1").toInt(&ok);
+          if (!ok || count < 1 || count > 65536)
+            fail("Invalid repeated spaces in document");
+          append(Text(size_t(count), U' '));
+        } else if (e.namespaceURI() == TEXT && e.localName() == "tab")
+          append("\t");
+        else if (e.namespaceURI() == TEXT && e.localName() == "line-break")
+          append("\n");
+        else
+          self(self, e, depth + 1);
+      }
+  };
+  walk(walk, paragraph, 0);
+  return result;
+}
 Text joined(const XmlElement &parent) {
   TextList parts;
   auto walk = [&](auto &&self, const XmlElement &e) -> void {
     for (auto n = e.firstChild(); !n.isNull(); n = n.nextSibling())
       if (n.isElement()) {
         auto p = n.toElement();
+        if (native_embedded_document_boundary(p))
+          continue;
         if (p.namespaceURI() == TEXT &&
             (p.localName() == "p" || p.localName() == "h"))
-          parts << plain_text(p);
+          parts << surrounding_text(p);
         else
           self(self, p);
       }
@@ -180,7 +219,8 @@ struct Catalog {
   void scan(const XmlDocument &doc, Source &source) {
     source.root = doc.documentElement();
     documents.push_back(doc);
-    for (auto e : doc.elementsByTagNameNS(STYLE, "font-face"))
+    for (auto e : children(child(source.root, OFFICE, "font-face-decls"), STYLE,
+                           "font-face"))
       source.fonts[e.attributeNS(STYLE, "name")] =
           e.attributeNS(SVG, "font-family");
     for (auto group : children(doc.documentElement(), OFFICE)) {
@@ -539,6 +579,9 @@ struct Catalog {
       if (shape.width < 0 || shape.height < 0)
         fail("Negative presentation shape extent");
       shape.text = joined(node);
+      if (!child(node, DRAW, "object").isNull() ||
+          !child(node, DRAW, "object-ole").isNull())
+        note(slide.unsupported, "Embedded document objects");
       shape.paragraph_style = node.attributeNS(DRAW, "text-style-name");
       if (!shape.text.empty()) {
         TextParagraph base;

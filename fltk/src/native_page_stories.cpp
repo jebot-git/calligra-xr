@@ -170,14 +170,19 @@ void read_page_stories(const OdfPackage &package, TextFlow &flow) {
   std::map<Text, XmlElement> layouts;
   XmlElement defaults;
   for (const auto &document : {styles, package.xml}) {
-    for (auto layout : document.elementsByTagNameNS(STYLE, "page-layout"))
-      layouts[layout.attributeNS(STYLE, "name")] = layout;
-    for (auto layout :
-         document.elementsByTagNameNS(STYLE, "default-page-layout"))
-      defaults = layout;
+    for (auto group : children(document.documentElement(), OFFICE))
+      if (group.localName() == "styles" ||
+          group.localName() == "automatic-styles") {
+        for (auto layout : children(group, STYLE, "page-layout"))
+          layouts[layout.attributeNS(STYLE, "name")] = layout;
+        for (auto layout : children(group, STYLE, "default-page-layout"))
+          defaults = layout;
+      }
   }
   std::shared_ptr<OdfTextReader> reader;
-  for (auto master : styles.elementsByTagNameNS(STYLE, "master-page")) {
+  for (auto master :
+       children(child(styles.documentElement(), OFFICE, "master-styles"), STYLE,
+                "master-page")) {
     auto found = flow.masters.find(master.attributeNS(STYLE, "name"));
     if (found == flow.masters.end())
       continue;

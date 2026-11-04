@@ -53,7 +53,7 @@
         "Stage"
       ],
       "status": "partial",
-      "evidence": "Native paragraphs/runs/styles, shaping/bidi, lists, tabs and editing/history; Stage scoped character/paragraph formatting, transient typing and exact replacement ranges.",
+      "evidence": "Native paragraphs/runs/styles, shaping/bidi, lists, tabs and editing/history; Stage scoped character/paragraph formatting, transient typing and exact replacement ranges. Source-only shared reader scope regressions isolate surrounding fonts/defaults/pages/header geometry and image-list budgets from inline embedded ODF declarations; opaque object text is retained and diagnosed rather than flattened. This does not implement embedded rendering or destination paste.",
       "remaining": "Complete text/frame/anchor layout, section/column flow, vertical/ruby/embedded/color fonts and broader editing behavior remain."
     },
     {

@@ -95,6 +95,13 @@ CUPS test queues.
 
 ## Document support
 
+Source-only shared reader work isolates inline embedded ODF declarations from
+surrounding fonts, defaults, page layouts/masters and image-list resource
+budgets. Embedded document text is retained and diagnosed rather than flattened
+into the outer editor. Rendering/editing those objects, importing their separate
+namespaces and actual Stage paste integration remain unfinished; this reader
+increment is not installed.
+
 - Words loads ODT and imports DOCX body text, paragraphs and basic tables. It
   preserves existing ODT character-style spans and links while editing runs,
   splits/joins paragraphs in the body, sections and individual table cells,
