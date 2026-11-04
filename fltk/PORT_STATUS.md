@@ -13,10 +13,12 @@ output need feature-appropriate independent checks.
 
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
-uninstalled. Further Sheets catalogue/settings work waits. Build e7a4966,
-including layer authoring and separate frame/image opacity, is installed and
-independently verified; subsequent
-source/build/stage/installation claims require their own evidence. Historical sections retain their earlier priorities and baseline.
+uninstalled. Further Sheets catalogue/settings work waits. Runtime build `353c016`,
+including layer authoring, separate frame/image opacity and stroke caps/joins,
+is installed and independently verified. Test-only followup `7b5a47f` has the same
+installed payload. Clipboard transport work below is not integrated into Stage
+or installed. Subsequent source/build/stage/installation claims require their
+own evidence. Historical sections retain their earlier priorities and baseline.
 
 The first Words editing increment adds immediate native document transactions,
 styled paragraph splits/joins in the body, sections and individual table cells,
@@ -267,8 +269,9 @@ page-column worktree is uninstalled and preserved.
    formatting, direct resize/rotation, stacking and group/selection tools are installed.
    Layer visibility/protection and separate screen/print scenes are installed.
    Transactional layer editing and separate image/fill opacity are installed.
-   The current increment adds native stroke caps and joins;
-   broader drawing/clipboard tools follow.
+   Native stroke caps and joins are installed. A native multi-MIME clipboard
+   helper is under development; object fragment serialization and actual
+   copy/cut/paste integration remain unfinished.
 2. Sheets context build 930f2cc is committed, pushed, installed and independently
    verified, including native Wayland editing and five CUPS jobs/21 reviewed pages.
 3. Keep Words paused and preserve the remaining Sheets catalogue/settings backlog.
@@ -1603,3 +1606,32 @@ The independent source includes a near-miter-limit affine case. Actual controls,
 protected selections, unchanged style peers, save/reopen and printed output
 require the separate per-build receipts. This increment leaves the broader
 ODF 1.2 functionality target incomplete.
+
+## Native rich clipboard transport — 2026-11-04
+
+The new `calligra-wayland-clipboard` helper offers several MIME representations
+through `ext-data-control-v1`, without Qt, GTK, FLTK backend changes or an X
+server. DomeD exposes this protocol. The helper keeps ownership independently
+of the launching process, retires on replacement, and transfers data through
+nonblocking descriptors with payload, concurrency and deadline limits. Missing
+formats have a separate exit status. An unavailable protocol or ambiguous seat
+is an explicit error. It never changes the primary selection.
+
+The process bundle is binary framing for multiple representations, not an ODF
+fragment format. Independent codec fixtures exercise NUL/non-UTF-8 bytes, empty
+representations, truncation, duplicate types and declared quota overflows. The
+private native Wayland acceptance harness passes 16 checks in both optimized
+Release and ASan/UBSan builds with leak detection enabled. It covers external
+`wl-copy`/`wl-paste` interoperability, exact Unicode/binary/empty/8 MiB data,
+eight concurrent transfers, stalled/closed targets, stalled/oversized sources,
+replacement, survival after launcher exit and compositor disconnect. Tests use
+only isolated compositor clipboards and do not access the desktop clipboard.
+
+Stage object copy/cut/paste is still unfinished. Required work includes isolated
+ODF object fragments with style/default/font/media dependency closure; inherited
+group placement and layer behavior; collision-safe IDs, names and references;
+protected/read-only behavior; atomic source/archive/selection history; and real
+menu/keyboard, save/reopen, schema/package and CUPS checks. Publishing the entire
+original package would expose unselected document content and is not an
+acceptable clipboard implementation. The helper is not integrated into Stage
+or installed yet; the verified runtime remains `353c016`.

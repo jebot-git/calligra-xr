@@ -20,6 +20,7 @@ target_link_libraries(calligra-fltk-ui PUBLIC calligra-fltk-print calligra-fltk-
 include(src/suite/desktop-menu.cmake)
 de_xr_desktop_menu(calligra-fltk-ui)
 target_compile_options(calligra-fltk-ui PRIVATE -Wall -Wextra -Wpedantic)
+include(cmake/NativeClipboard.cmake)
 foreach(app words sheets stage)
     add_executable(calligra-${app}-fltk src/${app}_main.cpp)
     target_link_libraries(calligra-${app}-fltk PRIVATE calligra-fltk-ui)
