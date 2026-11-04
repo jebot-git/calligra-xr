@@ -37,6 +37,7 @@ struct State {
     glDisable(GL_TEXTURE_2D);
     glDisable(GL_TEXTURE_RECTANGLE_ARB);
     glEnable(GL_BLEND);
+    glEnable(GL_MULTISAMPLE);
     // The page is opaque. Preserve its alpha while compositing translucent
     // shape ink, so the Wayland compositor cannot add the desktop behind it.
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
@@ -173,6 +174,7 @@ struct SlideCanvas::Impl {
   Fl_Gl_Window *window = nullptr;
   std::string error;
   size_t rendered = 0;
+  GLint samples = 0;
   size_t geometry_points = 0;
   double geometry_x = NAN, geometry_y = NAN;
   SceneTextStats text_stats;
@@ -322,6 +324,7 @@ struct SlideCanvas::Impl {
     scene_color(model.background);
     quad(screen, model.width, model.height);
     rendered = 0;
+    glGetIntegerv(GL_SAMPLES, &samples);
     std::vector<bool> selected_flags(model.shapes.size());
     if (canvas.selection_visible)
       for (auto index : native_object_leaves(model, canvas.selected_objects))
@@ -512,6 +515,7 @@ const GpuImageCache &SlideCanvas::images() const { return impl_->pictures; }
 const std::string &SlideCanvas::render_error() const { return impl_->error; }
 size_t SlideCanvas::rendered_shapes() const { return impl_->rendered; }
 size_t SlideCanvas::geometry_points() const { return impl_->geometry_points; }
+int SlideCanvas::multisample_samples() const { return impl_->samples; }
 const SceneTextStats &SlideCanvas::text_stats() const {
   return impl_->text_stats;
 }

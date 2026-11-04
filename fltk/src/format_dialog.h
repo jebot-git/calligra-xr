@@ -2,6 +2,7 @@
 #pragma once
 #include "native_words_format.h"
 #include "native_stage_geometry.h"
+#include "native_stage_connector.h"
 #include "native_stage_layers.h"
 #include "native_stage_paint.h"
 #include "native_words_page.h"
@@ -11,8 +12,14 @@
 #include <FL/Fl_Window.H>
 #include <functional>
 namespace DomeOffice {
-bool object_paint_dialog(Fl_Window &, const NativePaintInfo &, const std::function<void(const NativePaintFormat &)> &);
-std::optional<NativeStageLayerEdit> stage_layers_dialog(Fl_Window &, NativeStageLayerEdit);
+bool connector_dialog(
+    Fl_Window &, const NativeConnectorEdit &,
+    const std::function<void(const NativeConnectorValues &)> &);
+bool object_paint_dialog(
+    Fl_Window &, const NativePaintInfo &,
+    const std::function<void(const NativePaintFormat &)> &);
+std::optional<NativeStageLayerEdit> stage_layers_dialog(Fl_Window &,
+                                                        NativeStageLayerEdit);
 bool shape_geometry_dialog(
     Fl_Window &, const NativeShapeGeometry &,
     const std::function<void(const NativeShapeGeometryEdit &)> &apply);

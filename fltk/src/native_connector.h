@@ -26,7 +26,7 @@ struct SceneConnectorEnd {
   std::optional<double> x, y; // Preserve independently omitted attached axes.
 };
 struct SceneConnectorSpec {
-  enum Type { Standard, Line, Lines, Curve } type = Standard;
+  enum Type : unsigned { Standard, Line, Lines, Curve } type = Standard;
   SceneConnectorEnd start, end;
   SceneRect viewbox;
   bool enabled = true;
@@ -80,4 +80,16 @@ void write_scene_connector_geometry(XmlElement, const SceneConnectorEnds &,
 // the caller; use an isolated candidate, never a live/shared document DOM.
 void refresh_presentation_connector_paths(OdfPackage &candidate,
                                           const std::vector<XmlElement> &roots);
+// Content-document attachment targets, with the current slide first. Hidden
+// and group objects participate; geometry errors and inventory bounds are
+// explicit.
+struct SceneConnectorTarget {
+  XmlElement source;
+  Text identity, error;
+  bool can_assign_identity = true;
+  std::optional<SceneConnectorObject> geometry;
+};
+std::vector<SceneConnectorTarget>
+read_presentation_connector_targets(const OdfPackage &, int slide,
+                                    XmlElement excluded = {});
 } // namespace DomeOffice

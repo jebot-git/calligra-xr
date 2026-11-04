@@ -819,6 +819,252 @@ void connector_edits(const Text &directory = {}) {
          "rollback\n";
 }
 
+void authoring(const Text &output_directory = {}) {
+  TempDir directory;
+  auto package = fixture();
+  auto page = package.xml.elementsByTagNameNS(DRAW, "page").front();
+  page.removeAttributeNS(DRAW, "nav-order");
+  auto a = package.xml.elementsByTagNameNS(DRAW, "rect").front();
+  a.removeAttributeNS("http://www.w3.org/XML/1998/namespace", "id");
+  auto path = directory.path() + "/input.odp";
+  package.set_entry(
+      "opaque/refs.xml",
+      R"(<refs xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="#NativePaste%32">NativePaste1</refs>)",
+      "application/xml");
+  package.save(path);
+  Presentation doc;
+  doc.load(path);
+  auto original = content(doc);
+  auto dump = [&](const Text &name) {
+    if (output_directory.empty())
+      return;
+    std::filesystem::create_directories(output_directory.toStdString());
+    auto out = package;
+    out.xml = read_document_xml(content(doc));
+    out.save(output_directory + "/" + name + ".odp");
+  };
+  dump("original");
+  auto index = [](const NativeConnectorEdit &draft, const Text &name) {
+    for (size_t i = 0; i < draft.targets().size(); ++i)
+      if (draft.targets()[i].label == name)
+        return i;
+    std::abort();
+  };
+  PresentationPosition previous{
+      0,
+      doc.scene(0).shapes.at(find(doc, "A")).editor_index,
+      find(doc, "A"),
+      {},
+      {ref(doc, "A")}};
+  auto create = doc.edit_connector(0, -1, previous);
+  assert(create.creating() && content(doc) == original && !doc.can_undo());
+  create.values.type = SceneConnectorSpec::Curve;
+  create.values.start.target = index(create, "A");
+  create.values.start.glue = 1;
+  create.values.end.target = index(create, "C");
+  create.values.end.glue = 3;
+  auto points = create.endpoints(create.values);
+  near(points.start.slide_point, {110, 50});
+  near(points.end.slide_point, {250, 170});
+  auto added = doc.commit_connector(create);
+  assert(added && added->shape >= 0 && added->box >= 0 && doc.modified());
+  auto name = doc.scene(0).shapes.at(added->shape).name;
+  auto node = doc.scene(0).shapes.at(find(doc, name)).source;
+  assert(node.localName() == "connector" && !child(node, TEXT, "p").isNull());
+  auto id =
+      doc.scene(0)
+          .shapes.at(find(doc, "A"))
+          .source.attributeNS("http://www.w3.org/XML/1998/namespace", "id");
+  assert(!id.empty() && id != "NativePaste1" && id != "NativePaste2" &&
+         node.attributeNS(DRAW, "start-shape") == id);
+  assert(doc.scene(0).shapes.at(added->shape).paint.vertical_alignment ==
+         ScenePaint::Middle);
+  assert(doc.scene(0)
+             .shapes.at(added->shape)
+             .text_flow.paragraphs.at(0)
+             .alignment == TextParagraph::Center);
+  auto inserted = content(doc);
+  dump("attached");
+  auto undo = doc.undo();
+  assert(undo && undo->objects == previous.objects &&
+         content(doc) == original && !doc.modified());
+  doc.redo();
+  assert(content(doc) == inserted);
+  rejects([&] { doc.commit_connector(create); });
+  auto properties = doc.edit_connector(0, find(doc, name));
+  auto revision = doc.revision();
+  assert(!doc.commit_connector(properties) && doc.revision() == revision);
+  properties.values.start.target.reset();
+  properties.values.start.glue.reset();
+  properties.values.start.point = {20, 30};
+  properties.values.end.target.reset();
+  properties.values.end.glue.reset();
+  properties.values.end.point = {220, 130};
+  properties.values.type = SceneConnectorSpec::Line;
+  auto changed = doc.commit_connector(properties);
+  assert(changed);
+  auto source = doc.scene(0).shapes.at(find(doc, name)).source;
+  assert(!source.hasAttributeNS(DRAW, "start-shape") &&
+         !source.hasAttributeNS(DRAW, "end-shape"));
+  auto spec = read_scene_connector(source);
+  near(ScenePoint{*spec.start.x, *spec.start.y}, {20, 30});
+  near(ScenePoint{*spec.end.x, *spec.end.y}, {220, 130});
+  auto detached = content(doc);
+  dump("free");
+  doc.undo();
+  assert(content(doc) == inserted);
+  doc.redo();
+  assert(content(doc) == detached);
+  auto invalid = doc.edit_connector(0, find(doc, name));
+  invalid.values.start.target = invalid.targets().size();
+  rejects([&] { doc.commit_connector(invalid); });
+  assert(content(doc) == detached);
+  invalid = doc.edit_connector(0, find(doc, name));
+  invalid.values.end.target = index(invalid, "B");
+  invalid.values.end.glue = 999;
+  rejects([&] { doc.commit_connector(invalid); });
+  assert(content(doc) == detached);
+  invalid = doc.edit_connector(0, find(doc, name));
+  invalid.values.type = SceneConnectorSpec::Type(99);
+  rejects([&] { doc.commit_connector(invalid); });
+  auto other = doc.edit_connector(0);
+  Presentation unrelated;
+  unrelated.load(path);
+  rejects([&] { unrelated.commit_connector(other); });
+  for (auto type : {SceneConnectorSpec::Standard, SceneConnectorSpec::Line,
+                    SceneConnectorSpec::Lines, SceneConnectorSpec::Curve}) {
+    auto next = doc.edit_connector(0);
+    next.values.type = type;
+    next.values.start.point = {30, 40};
+    next.values.end.point = {200, 120};
+    auto result = doc.commit_connector(next);
+    assert(result);
+    assert(read_scene_connector(doc.scene(0).shapes.at(result->shape).source)
+               .type == type);
+    dump("free-mode-" + Text::number(int(type)));
+    doc.undo();
+    assert(content(doc) == detached);
+  }
+  auto dependent = doc.edit_connector(0);
+  dependent.values.type = SceneConnectorSpec::Line;
+  dependent.values.start.target = index(dependent, name);
+  dependent.values.start.glue = 0;
+  dependent.values.end.point = {380, 200};
+  auto second = doc.commit_connector(dependent);
+  assert(second);
+  auto second_name = doc.scene(0).shapes.at(second->shape).name;
+  auto cyclic = doc.edit_connector(0, find(doc, name));
+  cyclic.values.start.target = index(cyclic, second_name);
+  cyclic.values.start.glue = 0;
+  auto before_cycle = content(doc);
+  auto before_revision = doc.revision();
+  rejects([&] { doc.commit_connector(cyclic); });
+  assert(content(doc) == before_cycle && doc.revision() == before_revision);
+  doc.undo();
+  assert(content(doc) == detached);
+  auto text = doc.scene(0).shapes.at(find(doc, name)).editor_index;
+  doc.replace_box_text(0, text, 0, 0, "Connector label");
+  assert(doc.scene(0).shapes.at(find(doc, name)).text == "Connector label");
+  dump("label");
+  doc.undo();
+  assert(content(doc) == detached);
+  auto output = directory.path() + "/saved.odp";
+  doc.save(output);
+  Presentation reopened;
+  reopened.load(output);
+  assert(content(reopened) == detached);
+  std::cout << "PASS connector creation/reconnection/free endpoints, all "
+               "modes, ID assignment, "
+               "label editing, stale/invalid drafts, no-op and exact "
+               "source/selection history\n";
+}
+
+void authoring_targets() {
+  TempDir temporary;
+  auto p = fixture();
+  const Text XML = "http://www.w3.org/XML/1998/namespace";
+  auto page = p.xml.elementsByTagNameNS(DRAW, "page").front();
+  page.removeAttributeNS(DRAW, "nav-order");
+  auto rects = p.xml.elementsByTagNameNS(DRAW, "rect");
+  rects[0].removeAttributeNS(XML, "id");
+  rects[0].setAttributeNS(DRAW, "draw:name", "A/B & C");
+  rects[1].setAttributeNS(DRAW, "draw:name", "A/B & C");
+  rects[4].setAttributeNS(DRAW, "draw:name", "A/B & C (2)");
+  auto layers = p.xml.createElementNS(DRAW, "draw:layer-set");
+  for (auto [name, visible, locked] :
+       {std::tuple{"Locked", "always", "true"}, {"Hidden", "none", "false"}}) {
+    auto layer = p.xml.createElementNS(DRAW, "draw:layer");
+    layer.setAttributeNS(DRAW, "draw:name", name);
+    layer.setAttributeNS(DRAW, "draw:display", visible);
+    layer.setAttributeNS(DRAW, "draw:protected", locked);
+    layers.appendChild(layer);
+  }
+  page.insertBefore(layers, page.firstChild());
+  rects[0].setAttributeNS(DRAW, "draw:layer", "Locked");
+  rects[1].setAttributeNS(DRAW, "draw:layer", "Locked");
+  rects[2].setAttributeNS(DRAW, "draw:layer", "Hidden");
+  auto path = temporary.path() + "/input.odp";
+  p.save(path);
+  Presentation doc;
+  doc.load(path);
+  auto draft = doc.edit_connector(0);
+  std::set<Text> labels;
+  size_t locked_no_id = SIZE_MAX, locked_id = SIZE_MAX, hidden = SIZE_MAX;
+  for (size_t i = 0; i < draft.targets().size(); ++i) {
+    const auto &target = draft.targets()[i];
+    assert(labels.insert(target.label).second);
+    if (target.identity.empty() && target.label == "A/B & C")
+      locked_no_id = i;
+    if (target.identity == "b")
+      locked_id = i;
+    if (target.identity == "x")
+      hidden = i;
+  }
+  assert(locked_no_id != SIZE_MAX && locked_id != SIZE_MAX &&
+         hidden != SIZE_MAX);
+  assert(!draft.targets()[locked_no_id].error.empty());
+  assert(draft.targets()[locked_id].error.empty() &&
+         draft.targets()[hidden].geometry);
+  auto before =
+      doc.scene(0).shapes.front().source.ownerDocument().toByteArray();
+  draft.values.start.target = locked_no_id;
+  rejects([&] { doc.commit_connector(draft); });
+  assert(doc.scene(0).shapes.front().source.ownerDocument().toByteArray() ==
+         before);
+  draft.values.type = SceneConnectorSpec::Line;
+  draft.values.start.target = hidden;
+  draft.values.start.glue = 1;
+  draft.values.end.target = locked_id;
+  draft.values.end.glue = 3;
+  auto result = doc.commit_connector(draft);
+  assert(result);
+  doc.undo();
+  assert(doc.scene(0).shapes.front().source.ownerDocument().toByteArray() ==
+         before);
+  auto cross_page = doc.edit_connector(0);
+  size_t other_page = SIZE_MAX;
+  for (size_t i = 0; i < cross_page.targets().size(); ++i)
+    if (cross_page.targets()[i].label.startsWith("Unchanged / "))
+      other_page = i;
+  assert(other_page != SIZE_MAX);
+  cross_page.values.type = SceneConnectorSpec::Line;
+  cross_page.values.start.target = other_page;
+  cross_page.values.start.glue = 0;
+  cross_page.values.end.target = locked_id;
+  cross_page.values.end.glue = 3;
+  auto cross = doc.commit_connector(cross_page);
+  assert(cross &&
+         !doc.scene(1).shapes.front().source.attributeNS(XML, "id").empty());
+  auto unchanged_cross = doc.edit_connector(0, cross->shape);
+  auto revision = doc.revision();
+  assert(unchanged_cross.values.start.target &&
+         !doc.commit_connector(unchanged_cross) && doc.revision() == revision);
+  doc.undo();
+  assert(doc.scene(0).shapes.front().source.ownerDocument().toByteArray() ==
+         before);
+  std::cout << "PASS unique literal target labels, hidden objects and "
+               "protected target identity policy\n";
+}
 void documents(const Text &directory) {
   if (directory.empty())
     return;
@@ -886,6 +1132,10 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
+  authoring(argc == 3 && std::string(argv[1]) == "--authoring-documents"
+                ? Text(argv[2])
+                : Text());
+  authoring_targets();
   serialization();
   attachments();
   enhanced_sites();

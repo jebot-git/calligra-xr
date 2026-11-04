@@ -7,6 +7,7 @@
 #include "suite/fltk_appearance.h"
 #include <charconv>
 #include <numeric>
+#include <sstream>
 #include <FL/Fl_Box.H>
 #include <FL/Fl_Button.H>
 #include <FL/Fl_Choice.H>
@@ -2566,6 +2567,271 @@ bool object_paint_dialog(
                            *initial.values.even_odd != (rule.value() == 2)))
         result.even_odd = rule.value() == 2;
       apply(result);
+      return true;
+    } catch (const std::exception &e) {
+      background.hint.copy_label(e.what());
+      background.hint.labelcolor(FL_RED);
+      window.redraw();
+    }
+  }
+  return false;
+}
+
+bool connector_dialog(
+    Fl_Window &window, const NativeConnectorEdit &draft,
+    const std::function<void(const NativeConnectorValues &)> &apply) {
+  constexpr double mm = 72 / 25.4;
+  const int width = 740, height = 520,
+            x = std::max(0, (window.w() - width) / 2),
+            y = std::max(0, (window.h() - height) / 2);
+  auto previous = Fl_Group::current();
+  window.begin();
+  Panel panel(window, previous);
+  Fl_Group::current(&panel);
+  Background background(window, x, y, width, height,
+                        draft.creating() ? "New connector" : "Connector");
+  background.hint.resize(x + 18, y + 410, width - 36, 45);
+  background.hint.align(FL_ALIGN_LEFT | FL_ALIGN_INSIDE | FL_ALIGN_WRAP);
+  background.hint.copy_label(
+      "Endpoint and route changes regenerate the connector path.");
+  Fl_Choice route(x + 150, y + 55, 180, 30, "Route:");
+  route.add("Orthogonal|Straight|Three segments|Curve");
+  route.value(int(draft.values.type));
+  Fl_Choice start_object(x + 150, y + 105, 560, 30, "Start object:"),
+      start_glue(x + 150, y + 145, 180, 30, "Connection point:");
+  Fl_Input start_x(x + 430, y + 145, 105, 30, "X (mm):"),
+      start_y(x + 605, y + 145, 105, 30, "Y (mm):");
+  Fl_Choice end_object(x + 150, y + 215, 560, 30, "End object:"),
+      end_glue(x + 150, y + 255, 180, 30, "Connection point:");
+  Fl_Input end_x(x + 430, y + 255, 105, 30, "X (mm):"),
+      end_y(x + 605, y + 255, 105, 30, "Y (mm):");
+  Fl_Input skew(x + 150, y + 325, 560, 30, "Skew (mm):");
+  skew.tooltip("Up to three signed offsets separated by spaces; positive is "
+               "toward the right of each segment.");
+  Fl_Check_Button recompute(x + 150, y + 370, 400, 30, "Recompute route");
+  recompute.tooltip(
+      "Regenerate this route even when no endpoint or setting changes.");
+  TextList original_offsets;
+  for (auto value : draft.values.skew)
+    original_offsets << Text::number(value / mm, 'g', 12);
+  const auto original_skew = original_offsets.join(' ');
+  skew.value(original_skew.toUtf8().c_str());
+  struct EndControls {
+    Fl_Choice *object, *glue;
+    Fl_Input *x, *y;
+    StyleChoice object_menu, glue_menu;
+    NativeConnectorEndpoint initial;
+    std::optional<size_t> last_target;
+    Text initial_x, initial_y;
+  };
+  std::array<EndControls, 2> ends{{{&start_object,
+                                    &start_glue,
+                                    &start_x,
+                                    &start_y,
+                                    {},
+                                    {},
+                                    draft.values.start,
+                                    draft.values.start.target,
+                                    {},
+                                    {}},
+                                   {&end_object,
+                                    &end_glue,
+                                    &end_x,
+                                    &end_y,
+                                    {},
+                                    {},
+                                    draft.values.end,
+                                    draft.values.end.target,
+                                    {},
+                                    {}}}};
+  for (auto &controls : ends) {
+    controls.object_menu.add("free", "Free endpoint");
+    for (size_t i = 0; i < draft.targets().size(); ++i)
+      controls.object_menu.add(Text::number(i),
+                               draft.targets()[i].label +
+                                   (draft.targets()[i].error.empty()
+                                        ? Text()
+                                        : Text(" (unavailable)")));
+    if (!controls.initial.unresolved.empty())
+      controls.object_menu.add("missing",
+                               "Missing: " + controls.initial.unresolved);
+    controls.object_menu.attach(
+        *controls.object,
+        controls.initial.target ? Text::number(*controls.initial.target)
+        : controls.initial.unresolved.empty() ? Text("free")
+                                              : Text("missing"));
+    for (size_t i = 0; i < draft.targets().size(); ++i)
+      if (!draft.targets()[i].error.empty())
+        controls.object_menu.menu[i + 1].flags = FL_MENU_INACTIVE;
+    controls.initial_x = Text::number(controls.initial.point.x / mm, 'g', 12);
+    controls.initial_y = Text::number(controls.initial.point.y / mm, 'g', 12);
+    controls.x->value(controls.initial_x.toUtf8().c_str());
+    controls.y->value(controls.initial_y.toUtf8().c_str());
+  }
+  auto integer = [](const Text &text) {
+    auto raw = text.toStdString();
+    uint64_t result;
+    auto read = std::from_chars(raw.data(), raw.data() + raw.size(), result);
+    if (read.ec != std::errc() || read.ptr != raw.data() + raw.size())
+      throw std::runtime_error("Invalid connection point");
+    return result;
+  };
+  auto target = [&](const EndControls &controls) -> std::optional<size_t> {
+    auto value = controls.object_menu.selected(*controls.object);
+    if (value == "free" || value == "missing")
+      return {};
+    return size_t(integer(value));
+  };
+  auto read_end = [&](const EndControls &controls) {
+    auto result = controls.initial;
+    result.target = target(controls);
+    result.unresolved =
+        controls.object_menu.selected(*controls.object) == "missing"
+            ? controls.initial.unresolved
+            : Text();
+    result.glue.reset();
+    if (result.target) {
+      auto value = controls.glue_menu.selected(*controls.glue);
+      if (!value.empty())
+        result.glue = integer(value);
+    } else if (result.unresolved.empty()) {
+      const Fl_Input *fields[]{controls.x, controls.y};
+      const Text original[]{controls.initial_x, controls.initial_y};
+      double *values[]{&result.point.x, &result.point.y};
+      for (size_t i = 0; i < 2; ++i) {
+        auto text = Text(fields[i]->value()).trimmed();
+        if (text == original[i])
+          continue;
+        bool ok = false;
+        auto value = text.toDouble(&ok);
+        if (!ok || !std::isfinite(value))
+          throw std::runtime_error("Enter finite free-endpoint coordinates");
+        *values[i] = value * mm;
+      }
+    }
+    if (!result.unresolved.empty())
+      result.glue = controls.initial.glue;
+    return result;
+  };
+  auto rebuild_glue = [&](EndControls &controls, bool initial) {
+    auto selected = initial ? controls.initial.glue
+                    : controls.glue_menu.values.empty() ||
+                            controls.glue_menu.selected(*controls.glue).empty()
+                        ? std::optional<uint64_t>()
+                        : std::optional<uint64_t>(integer(
+                              controls.glue_menu.selected(*controls.glue)));
+    auto selected_target = target(controls);
+    controls.glue_menu = {};
+    controls.glue_menu.add("", "Automatic");
+    if (selected_target) {
+      const auto &info = draft.targets().at(*selected_target);
+      if (info.geometry)
+        for (const auto &point : info.geometry->points) {
+          const Text standard[]{"Top", "Right", "Bottom", "Left"};
+          controls.glue_menu.add(Text::number(point.id),
+                                 point.standard && point.id < 4
+                                     ? standard[point.id]
+                                     : "Point " + Text::number(point.id));
+        }
+      if (selected && controls.glue_menu.find(Text::number(*selected)) < 0) {
+        if (selected_target == controls.last_target)
+          controls.glue_menu.add(Text::number(*selected),
+                                 "Missing point " + Text::number(*selected));
+        else
+          selected.reset();
+      }
+      controls.glue->activate();
+      controls.x->deactivate();
+      controls.y->deactivate();
+    } else {
+      controls.glue->deactivate();
+      if (controls.object_menu.selected(*controls.object) == "free") {
+        controls.x->activate();
+        controls.y->activate();
+      } else {
+        controls.x->deactivate();
+        controls.y->deactivate();
+      }
+    }
+    controls.glue_menu.attach(*controls.glue,
+                              selected ? Text::number(*selected) : Text());
+    controls.last_target = selected_target;
+  };
+  auto show_points = [&] {
+    try {
+      auto values = draft.values;
+      values.start = read_end(ends[0]);
+      values.end = read_end(ends[1]);
+      auto points = draft.endpoints(values);
+      const ScenePoint resolved[]{points.start.slide_point,
+                                  points.end.slide_point};
+      for (size_t i = 0; i < 2; ++i)
+        if (values.start.target || values.end.target) {
+          auto &controls = ends[i];
+          if (target(controls)) {
+            controls.x->value(
+                Text::number(resolved[i].x / mm, 'g', 12).toUtf8().c_str());
+            controls.y->value(
+                Text::number(resolved[i].y / mm, 'g', 12).toUtf8().c_str());
+          }
+        }
+    } catch (const std::exception
+                 &) { /* Invalid partial input is checked on Apply. */
+    }
+  };
+  std::array<std::function<void()>, 4> callbacks;
+  for (size_t i = 0; i < 2; ++i) {
+    rebuild_glue(ends[i], true);
+    callbacks[i * 2] = [&, i] {
+      rebuild_glue(ends[i], false);
+      show_points();
+    };
+    callbacks[i * 2 + 1] = [&] { show_points(); };
+    ends[i].object->callback(
+        [](Fl_Widget *, void *p) {
+          (*static_cast<std::function<void()> *>(p))();
+        },
+        &callbacks[i * 2]);
+    ends[i].glue->callback(
+        [](Fl_Widget *, void *p) {
+          (*static_cast<std::function<void()> *>(p))();
+        },
+        &callbacks[i * 2 + 1]);
+  }
+  show_points();
+  std::function<void()> route_changed = [&] {
+    if (route.value() == 0)
+      skew.activate();
+    else
+      skew.deactivate();
+  };
+  route.callback([](Fl_Widget *,
+                    void *p) { (*static_cast<std::function<void()> *>(p))(); },
+                 &route_changed);
+  route_changed();
+  Buttons buttons(panel, x + width - 225, y + height - 50);
+  Fl_Group::current(previous);
+  while (panel.run(route)) {
+    try {
+      auto values = draft.values;
+      values.type = SceneConnectorSpec::Type(route.value());
+      values.start = read_end(ends[0]);
+      values.end = read_end(ends[1]);
+      values.recompute = recompute.value();
+      auto raw = Text(skew.value()).trimmed();
+      if (raw != original_skew) {
+        std::istringstream input(raw.toStdString());
+        std::string part;
+        values.skew.clear();
+        while (input >> part) {
+          bool ok = false;
+          auto value = Text(part).toDouble(&ok);
+          if (!ok || !std::isfinite(value) || values.skew.size() >= 3)
+            throw std::runtime_error("Enter up to three finite skew offsets");
+          values.skew.push_back(value * mm);
+        }
+      }
+      apply(values);
       return true;
     } catch (const std::exception &e) {
       background.hint.copy_label(e.what());

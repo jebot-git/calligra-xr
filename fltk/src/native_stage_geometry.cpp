@@ -230,7 +230,7 @@ bool apply_native_shape_geometry(const SceneShape &shape, XmlElement source,
                                  const NativeShapeGeometryEdit &edit,
                                  std::optional<SceneTransform> action) {
   if (source.localName() == "connector")
-    fail("Connector geometry controls are not available yet");
+    fail("Use connector endpoint and route controls");
   for (const auto &v : {edit.x, edit.y, edit.width, edit.height, edit.rotation})
     if (v)
       finite(*v, 1e9);

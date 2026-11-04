@@ -2,6 +2,7 @@
 #include "text_documents.h"
 #include "native_stage_source.h"
 #include "native_stage_identity.h"
+#include "native_stage_names.h"
 #include "native_image_input.h"
 #include "native_image.h"
 #include <cmath>
@@ -381,6 +382,38 @@ void remove_stage_navigation_ids(XmlDocument &document,
     else
       node.setAttributeNS(DRAW, "draw:nav-order", kept.join(' '));
   });
+}
+XmlElement append_stage_connector(OdfPackage &candidate, int slide) {
+  auto name = append_shape(candidate, slide, NativeShapeKind::Line,
+                           {0, 0, 100, 50}, {});
+  auto page = children(candidate.body(), DRAW, "page").at(slide);
+  for (auto node : children(page, DRAW))
+    if (node.attributeNS(DRAW, "name") == name) {
+      node.renameLocal("connector");
+      node.setAttributeNS(SVG, "svg:viewBox", "0 0 1000 1000");
+      auto automatic =
+          child(candidate.xml.documentElement(), OFFICE, "automatic-styles");
+      auto graphic_name = node.attributeNS(DRAW, "style-name");
+      for (auto style : children(automatic, STYLE, "style"))
+        if (style.attributeNS(STYLE, "name") == graphic_name)
+          child(style, STYLE, "graphic-properties")
+              .setAttributeNS(DRAW, "draw:textarea-vertical-align", "middle");
+      NativeStageNames names(candidate);
+      auto label_name = names.take();
+      auto label_style = candidate.xml.createElementNS(STYLE, "style:style");
+      label_style.setAttributeNS(STYLE, "style:name", label_name);
+      label_style.setAttributeNS(STYLE, "style:family", "paragraph");
+      auto paragraph =
+          candidate.xml.createElementNS(STYLE, "style:paragraph-properties");
+      paragraph.setAttributeNS(FO, "fo:text-align", "center");
+      label_style.appendChild(paragraph);
+      automatic.appendChild(label_style);
+      auto label = candidate.xml.createElementNS(TEXT, "text:p");
+      label.setAttributeNS(TEXT, "text:style-name", label_name);
+      node.appendChild(label);
+      return node;
+    }
+  fail("Inserted connector source is unavailable");
 }
 PresentationPosition
 Presentation::commit_insert(OdfPackage candidate, const Text &name,

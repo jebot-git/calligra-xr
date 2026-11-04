@@ -82,7 +82,7 @@ enum Command {
     InsertTextBox,
     InsertImage,
     DeleteObject,
-    ObjectGeometry, StageLayers, ObjectPaint,
+    ObjectGeometry, StageLayers, ObjectPaint, InsertConnector, ConnectorProperties,
     ObjectBack, ObjectBackward, ObjectForward, ObjectFront,
     GroupBack, GroupBackward, GroupForward, GroupFront,
     GroupObjects, UngroupObjects, SelectParentGroup, SelectLeafObject,
@@ -407,6 +407,8 @@ public:
         , options(std::move(opts))
     {
         window.stage_app = kind == Kind::Stage;
+        if (kind == Kind::Stage && Fl_Gl_Window::can_do(FL_RGB | FL_ALPHA | FL_DOUBLE | FL_MULTISAMPLE))
+            window.mode(FL_RGB | FL_ALPHA | FL_DOUBLE | FL_MULTISAMPLE);
         window.command = [this](int c) { command(c); };
         window.callback([](Fl_Widget*, void* p) { static_cast<Office*>(p)->command(Quit); }, this);
         menu.user_data(this);
@@ -479,10 +481,12 @@ public:
             add("&Insert/&Rectangle", 0, InsertRectangle);
             add("&Insert/&Ellipse", 0, InsertEllipse);
             add("&Insert/&Line", 0, InsertLine);
+            add("&Insert/&Connector…", 0, InsertConnector);
             add("&Insert/&Text box", 0, InsertTextBox);
             add("&Insert/&Image…", 0, InsertImage);
             add("&Edit/Delete &object", 0, DeleteObject);
             add("&Format/&Position and size…", 0, ObjectGeometry);
+            add("&Format/&Connector…", 0, ConnectorProperties);
             add("&Format/Fill and &stroke…", 0, ObjectPaint);
             add("&Arrange/Send to &back", 0, ObjectBack);
             add("&Arrange/Move &backward", 0, ObjectBackward);
@@ -1226,6 +1230,36 @@ public:
         modified = stage->modified();
         title();
     }
+    void stage_connector(bool create)
+    {
+        if (kind != Kind::Stage) return;
+        if (presenting) throw std::runtime_error("Exit presentation mode to edit connectors");
+        if (readonly()) throw std::runtime_error("This presentation is read-only");
+        if (!create && (canvas->selected_shape < 0 || canvas->aggregate_selection() ||
+            stage->scene(slide).shapes.at(canvas->selected_shape).source.localName() != "connector")) {
+            message("Select one connector");
+            return;
+        }
+        commit_text();
+        PresentationPosition previous{slide, box, canvas->selected_shape,
+                                      word_selection(false), canvas->selected_objects};
+        auto draft = stage->edit_connector(slide, create ? -1 : canvas->selected_shape, previous);
+        std::optional<PresentationPosition> result;
+        formatting_dialog = true;
+        try {
+            connector_dialog(window, draft, [&](const NativeConnectorValues& values) {
+                auto changed = draft;
+                changed.values = values;
+                result = stage->commit_connector(changed);
+            });
+        } catch (...) { formatting_dialog = false; throw; }
+        formatting_dialog = false;
+        if (result) {
+            refresh_stage(result->shape < 0 ? -2 : result->shape, result->objects);
+            modified = stage->modified(); title();
+        }
+        canvas->take_focus();
+    }
     void stage_geometry()
     {
         if (kind != Kind::Stage) return;
@@ -1234,6 +1268,10 @@ public:
         if (canvas->selected_shape < 0) return;
         if (canvas->aggregate_selection())
             throw std::runtime_error("Use selection handles to resize or rotate groups; select an individual shape for numeric geometry");
+        if (stage->scene(slide).shapes.at(canvas->selected_shape).source.localName() == "connector") {
+            stage_connector(false);
+            return;
+        }
         commit_text();
         int index = canvas->selected_shape;
         auto initial = stage->shape_geometry(slide, index);
@@ -1263,6 +1301,8 @@ public:
             office->guard([&] {
                 if (action == InsertImage)
                     office->stage_image();
+                else if (action == InsertConnector || action == ConnectorProperties)
+                    office->stage_connector(action == InsertConnector);
                 else if (action == ObjectPaint)
                     office->stage_paint();
                 else if (action == StageLayers)
@@ -2307,7 +2347,7 @@ public:
             } else if (c == Quit) {
                 if (discard())
                     window.hide();
-            } else if (c == InsertImage || c == ObjectGeometry || c == StageLayers || c == ObjectPaint || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
+            } else if (c == InsertImage || c == InsertConnector || c == ConnectorProperties || c == ObjectGeometry || c == StageLayers || c == ObjectPaint || c == CharacterFormat || c == ParagraphFormat || c == ParagraphStyles || c == CharacterStyles || c == PageSetup || c == PageStories || c == TabStops || c == InsertTable || c == DeleteTable || c == RowBefore || c == RowAfter || c == DeleteRow || c == ColumnBefore || c == ColumnAfter || c == DeleteColumn || c == MergeCells || c == SplitCell || c == SubdivideCell || c == CellFormat || c == TableSizing) {
                 // Return the D-Bus menu reply before entering the modal loop.
                 queued_format = c;
                 Fl::add_timeout(0, format_timeout, this);
@@ -2829,6 +2869,7 @@ public:
                 { "revision", stage->revision() },
                 { "slides", stage->count() },
                 { "rendered_shapes", canvas->rendered_shapes() },
+                { "multisample_samples", canvas->multisample_samples() },
                 { "geometry_points", canvas->geometry_points() },
                 { "render_error", canvas->render_error() },
                 { "unsupported", unsupported },

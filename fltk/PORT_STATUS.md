@@ -13,15 +13,12 @@ output need feature-appropriate independent checks.
 
 Stage remains the active implementation priority. Words is paused at its prior
 rudimentary milestone; its experimental column worktree stays preserved and
-uninstalled. Further Sheets catalogue/settings work waits. The preceding runtime build `353c016`,
-including layer authoring, separate frame/image opacity and stroke caps/joins,
-was installed and independently verified. Test-only followup `7b5a47f` has the same
-installed payload. Current source connects object copy/cut/paste to the native Wayland helper,
-keyboard commands and universal Edit menu, including native/private ODP and
-Unicode text representations. Its source, release, sanitizer, schema, print,
-staging and installed evidence remain separate gates; the matching installation
-receipt determines whether this increment is installed. Subsequent source/build/stage/installation claims require their
-own evidence. Historical sections retain their earlier priorities and baseline.
+uninstalled. Further Sheets catalogue/settings work waits. The currently verified installation is dash build `b787849`, including
+object clipboard, layer/paint authoring and stroke caps/joins. Markers, connector
+geometry and connector controls have separate source/build/stage evidence;
+their installed functionality is determined by the matching installation receipt.
+Historical sections retain their earlier priorities, installation states and
+baseline. New validation does not by itself establish a completed installation.
 
 The first Words editing increment adds immediate native document transactions,
 styled paragraph splits/joins in the body, sections and individual table cells,
@@ -2205,3 +2202,50 @@ full producer normalization, custom-path behavior after target changes, arbitrar
 external consumers, broader clipboard/reference rewriting and complete ODF1.2
 fidelity remain separate work. Pending older immutable installers and new source
 stages retain separate installed receipts.
+
+
+## Connector creation and reconnection — 2026-11-04
+
+Insert → Connector and Format → Connector expose native FLTK controls for all
+four route modes, independent target/glue choices, free endpoint coordinates,
+up to three signed orthogonal skew offsets and explicit recomputation. Position
+and size redirects selected connectors to this panel. New connectors receive
+scoped graphic/centered paragraph styles and an editable label. Shared styles,
+labels, media and unrelated source/archive parts remain unchanged.
+
+The model uses an immutable revision/document-bound draft. Cancel and unchanged
+Apply preserve exact source/history, including unresolved imported references.
+Changed drafts validate routes, finite coordinates and available ports before
+committing a detached candidate. IDs are assigned only to selected IDless targets
+through the existing collision/reserved-reference-aware name allocator. Duplicate
+or invalid identities, protected IDless targets, the connector itself and ancestor
+groups are unavailable. Existing IDs on protected targets may be referenced;
+protected dependent connectors still reject a whole geometry transaction.
+Transitive cycles and unresolved affected dependencies reject the candidate
+without leaking new IDs, styles, selection, history or modified state.
+
+Targets include hidden/group/enhanced objects in content.xml across slides, with
+current-slide entries first. Foreign slide labels are literal strings prefixed
+by their slide name; geometry uses each target's local physical page coordinates.
+This is a declared native policy. Master/style-part targets are not offered.
+The route/cache transaction reuses the dependent geometry resolver and portable
+mm/100 SVG serializer. Explicit endpoint/route edits regenerate supplied paths;
+unchanged imports keep their exact spelling unless Recompute route is requested.
+
+Minimum-window authoring exposed one-point horizontal strokes disappearing
+between single-sample raster rows. Stage now requests GL multisampling where
+supported and enables it during scene drawing. The tested backend supplies four
+samples; there is no universal coverage guarantee on backends without MSAA.
+Source stroke width and PDF/CUPS geometry remain unchanged. Words/Sheets window
+modes are unchanged. Marker/dash minimum-window GUI regressions pass.
+
+Source validation covers 101 selected Release and 101 ASan/UBSan suites of104
+configured, with three existing outline-font suites excluded. Selected source
+schema/Part3, native Wayland normal/minimum/sanitizer controls, independent
+source/cache/style/ID/history oracles and actual CUPS/reopen checks pass.
+See VALIDATION.md and the increment's receipts for exact gates. This establishes
+the selected authoring corpus, not complete connector/ODF coverage. Untouched
+route normalization, arbitrary consumers, clipboard/reference breadth, imported
+custom paths, full Stage presentation/text/table features, Words/Sheets and
+shared package functionality remain open. The separate system-FLTK early-dismiss
+alert surface leak remains unresolved and unsuppressed.

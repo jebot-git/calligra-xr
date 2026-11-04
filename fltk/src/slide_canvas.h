@@ -50,6 +50,7 @@ public:
   const std::string &render_error() const;
   size_t rendered_shapes() const;
   size_t geometry_points() const;
+  int multisample_samples() const;
   const SceneTextStats &text_stats() const;
   int handle(int) override;
   struct TransformHandle {

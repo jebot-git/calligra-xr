@@ -1396,6 +1396,63 @@ read_presentation_scenes(const OdfPackage &package,
     result.push_back(catalog.slide(pages[i], i));
   return result;
 }
+std::vector<SceneConnectorTarget>
+read_presentation_connector_targets(const OdfPackage &package, int index,
+                                    XmlElement excluded) {
+  if (package.kind() != Kind::Stage)
+    fail("Connector targets require a presentation");
+  auto page = children(package.body(), DRAW, "page").at(index);
+  Catalog catalog(package, {}, SceneTarget::Screen);
+  catalog.strict_connector_updates = true;
+  std::vector<SceneConnectorTarget> result, other_pages;
+  size_t points = 0;
+  const Text XML = "http://www.w3.org/XML/1998/namespace";
+  for (size_t i = 0; i < catalog.targets.size(); ++i) {
+    auto &record = catalog.targets[i];
+    if (record.master)
+      continue;
+    auto parent = record.node;
+    while (!parent.isNull() &&
+           !(parent.namespaceURI() == DRAW && parent.localName() == "page"))
+      parent = parent.parentNode().toElement();
+    if (parent.isNull())
+      continue;
+    SlideScene context;
+    context.source = parent;
+    context.layers = catalog.document_layers.scoped(parent);
+    SceneConnectorTarget target;
+    target.source = record.node;
+    target.identity = record.node.hasAttributeNS(XML, "id")
+                          ? record.node.attributeNS(XML, "id")
+                          : record.node.attributeNS(DRAW, "id");
+    target.can_assign_identity = context.editable(record.node, false);
+    for (auto n = excluded; !n.isNull(); n = n.parentNode().toElement())
+      if (n == record.node)
+        target.error = "This attachment would depend on its own connector";
+    if (target.error.empty())
+      try {
+        if (!target.identity.empty()) {
+          auto at = catalog.target_ids.find({false, target.identity});
+          if (at == catalog.target_ids.end() || at->second != i)
+            fail("Ambiguous drawing identity");
+        }
+        target.geometry = *catalog.target_object(i);
+        if (target.geometry->points.size() > 1000000 - points)
+          fail("Connector target point inventory exceeds the limit");
+        points += target.geometry->points.size();
+      } catch (const std::exception &e) {
+        target.geometry.reset();
+        target.error = Text(e.what());
+      }
+    if (parent == page)
+      result.push_back(std::move(target));
+    else
+      other_pages.push_back(std::move(target));
+  }
+  result.insert(result.end(), std::make_move_iterator(other_pages.begin()),
+                std::make_move_iterator(other_pages.end()));
+  return result;
+}
 void refresh_presentation_connector_paths(
     OdfPackage &candidate, const std::vector<XmlElement> &roots) {
   if (roots.empty())

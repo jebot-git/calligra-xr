@@ -3593,3 +3593,50 @@ four-page reopen rasters. `connector_cache_svg_oracle.py --ui-artifacts UI
 their cached SVG data and unit scale. Native attachment resolution is not used.
 Three-app CUPS export/reopen and unchanged baseline rasters remain separate
 regression gates. Full source/publication/stage/installed receipts remain distinct.
+
+
+## Connector authoring and thin-stroke rendering — 2026-11-04
+
+`native-connectors` adds all four creation modes, scoped ID/style assignment,
+reserved opaque-reference names, free/reconnected endpoints, labels, stale and
+cross-document drafts, invalid route/target/glue rejection and exact source,
+archive, selection and modified-state history. Duplicate/literal target labels,
+hidden/protected targets, cross-slide IDless targets and introduced transitive
+cycles have independent checks. `--authoring-documents DIR` writes eight model
+fixtures for official-schema and selected Part3 validation.
+
+`stage_connector_authoring_producer.py` independently extends the strict
+four-page connector corpus with two IDless targets. Its XML/archive oracle checks
+exact new styles/IDs/references, analytic curve controls, portable SVG/physical
+endpoint caches, free endpoints, signed skew and centered label source. It
+permits no unrelated source/archive change. Run-specific source images require
+using the exact corresponding UI original.odp for all comparisons.
+
+`native_stage_connector_authoring_ui.py --bin-dir BIN --test-bin-dir TEST_BIN
+--artifacts DIR [--minimum-window]` runs only its private Cage/DomeD host. Actual
+universal-menu and native FLTK input checks creation Cancel/Apply, target/glue
+choices, unchanged Apply, Position-and-size redirection, reconnect/free/route/skew
+editing, label typing, prior selection/source/history, save/reopen and mapped
+runtime linkage. Normal/minimum Release and minimum ASan/UBSan pass. The final
+minimum run asserts at least four GL samples and actual one-point stroke ink.
+The preserved earlier single-sample failure explains the Stage MSAA fix; source
+width and independent PDF pixel checks remain unchanged. Minimum marker/dash
+GUI regressions also pass. Only the three existing system-cache GUI suppression
+stacks are used; native allocations and the known separate alert surface leak
+remain unsuppressed.
+
+`stage_connector_authoring_print.py DIR --bin-dir BIN --source UI/original.odp
+--ui-artifacts UI` submits five actual private CUPS jobs/twenty pages, checking
+exact captured PDF bytes, independent curve/free/skew/centered-label pixels,
+source/style/ID/cache/archive isolation and exact four-page reopened rasters.
+The three-app regression adds three CUPS jobs/nine pages. Its eighteen original
+and reopened PNGs match the preceding connector-edit baseline exactly.
+
+The selected Release and ASan/UBSan runs pass101 suites each of104 configured;
+`native-text-shaping`, `native-text-hit`, `native-text-editing` retain their existing
+outline-font exclusions. Eighteen initial authoring packages pass official Jing
+ODF schemas and selected plain-package/manifest checks. Final minimum UI/printed
+packages have a separate retained validation receipt. Build/staged section hashes,
+33 artifacts, clipboard helper, system FLTK/no Qt/GTK ELF, staged controls and
+actual installed checks remain separate release gates. These checks do not prove
+physical printing or exhaustive external-office/ODF1.2 conformance.

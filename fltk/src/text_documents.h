@@ -4,6 +4,7 @@
 #include "odf_package.h"
 #include "native_presentation.h"
 #include "native_stage_geometry.h"
+#include "native_stage_connector.h"
 #include "native_shape_drag.h"
 #include "native_stage_order.h"
 #include "native_stage_selection.h"
@@ -207,6 +208,9 @@ public:
     PresentationPosition remove_objects(int slide, const std::vector<NativeObjectRef> &);
     PresentationPosition reorder_shape(int slide, int shape, NativeShapeOrder,
         NativeOrderScope = NativeOrderScope::Object);
+    NativeConnectorEdit edit_connector(int slide, int shape = -1,
+                                       PresentationPosition previous = {}) const;
+    std::optional<PresentationPosition> commit_connector(const NativeConnectorEdit &);
     NativeShapeGeometry shape_geometry(int slide, int shape) const;
     void set_shape_geometry(int slide, int shape,
                             const NativeShapeGeometryEdit &);

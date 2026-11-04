@@ -10,7 +10,7 @@ target_include_directories(calligra-fltk-document PUBLIC src PRIVATE ${NATIVE_BO
 target_link_libraries(calligra-fltk-document PUBLIC PkgConfig::NATIVE)
 target_compile_definitions(calligra-fltk-document PRIVATE CALLIGRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_sources(calligra-fltk-document PRIVATE src/native_stage_paint.cpp src/native_layers.cpp src/native_stage_layers.cpp src/native_stage_edit.cpp src/native_stage_objects.cpp src/native_stage_geometry.cpp src/native_stage_text_format.cpp src/native_shape_drag.cpp src/native_stage_transform.cpp src/native_stage_order.cpp src/native_stage_selection.cpp src/native_stage_groups.cpp src/native_object_gesture.cpp src/native_stage_multi.cpp)
-target_sources(calligra-fltk-document PRIVATE src/native_stroke.cpp src/native_dash.cpp src/native_dash_pattern.cpp src/native_marker.cpp src/native_connector.cpp src/native_connector_route.cpp)
+target_sources(calligra-fltk-document PRIVATE src/native_stroke.cpp src/native_dash.cpp src/native_dash_pattern.cpp src/native_marker.cpp src/native_connector.cpp src/native_connector_route.cpp src/native_stage_connector.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_archive.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_stage_fragment.cpp src/native_stage_styles.cpp)
 target_sources(calligra-fltk-document PRIVATE src/native_stage_fragment_codec.cpp src/native_stage_import.cpp src/native_stage_timing.cpp)

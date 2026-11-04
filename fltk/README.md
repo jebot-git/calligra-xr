@@ -1315,14 +1315,12 @@ explicit user, group and evaluated enhanced-geometry glue points participate in
 attachment resolution. Screen and PDF use the same paths, strokes and markers.
 Free connectors can be selected and moved with exact source/archive undo/redo.
 
-This remains a source checkpoint. Dedicated connector creation, endpoint/route
-controls, dependent export-cache updates and broader clipboard/reference
-transactions are unfinished. The generic path position/size panel is disabled
-for connectors because its width/height writes would be invalid connector XML.
-A transformed connector with two attached endpoints remains constrained by its
-targets. Saving currently preserves connector source; it does not materialize a
-new portable SVG route/cache. See PORT_STATUS.md for routing and glue policies.
-Do not count this checkpoint as an installed or complete ODF1.2 implementation.
+Affected geometry edits and connector controls now materialize portable SVG paths
+and endpoint caches. The connector-specific panel replaces generic width/height
+writes, which would be invalid connector XML. A connector with two attached
+endpoints follows its targets. Untouched imports retain their source. See
+PORT_STATUS.md for routing/glue policies and the build's separate installation
+receipt for deployed functionality.
 
 
 ## Stage connector target edits
@@ -1338,7 +1336,33 @@ entire candidate edit. Unrelated broken source remains preserved and diagnosed.
 The saved paths use conventional hundredth-millimetre coordinates with physical
 endpoint lengths. Their selected curves/positions also render in an independent
 SVG consumer without native attachment resolution. This normalizes affected
-connectors during geometry edits; untouched imports retain their source. Dedicated
-connector creation, endpoint/glue/routing tools, broader clipboard dependency
-semantics and complete export/interoperability coverage remain unfinished.
+connectors during geometry edits; untouched imports retain their source. Broader clipboard dependency semantics and complete export/interoperability
+coverage remain unfinished.
 Installation remains separate from source/build/stage evidence.
+
+
+## Stage connector controls
+
+Choose Insert → Connector to create a connector, or select one and choose
+Format → Connector (also available through Position and size). Choose an
+orthogonal, straight, three-segment or curved route. Each endpoint can attach to
+an object and an automatic/explicit connection point, or use free coordinates
+in millimetres. Orthogonal routes accept up to three signed skew offsets.
+Recompute route explicitly regenerates an unchanged imported path.
+
+The object list includes hidden targets and objects on other slides, prefixed
+with their slide name. Their page-local physical coordinates are the native
+cross-slide policy. Protected objects with existing IDs may be referenced;
+assigning an ID to a protected object is unavailable. Invalid and self-dependent
+targets are unavailable. Invalid/cyclic dependent edits reject the whole change.
+
+Apply commits endpoints, route, portable path/cache, any required scoped IDs and
+styles in one undo transaction. Unchanged Apply and Cancel preserve source and
+history. New connectors have an editable centered label; type in the existing
+text editor. Fill and stroke controls also apply to connectors. Stage requests
+multisampling when the GL backend supports it, improving thin-stroke visibility
+at small slide scales; tested minimum-window rendering uses four samples.
+
+Broader clipboard references, custom-path editing, untouched import normalization
+and full ODF1.2 interoperability remain open. Words remains paused with its
+experimental columns preserved and uninstalled; further Sheets work waits.
