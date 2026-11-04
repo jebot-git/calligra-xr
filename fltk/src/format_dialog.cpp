@@ -2707,7 +2707,10 @@ bool object_paint_dialog(
         result.gradient_definition.reset();
       } else if (fill.value() == 3 && !result.gradient_name &&
                  !result.gradient_definition &&
-                 !initial.values.gradient_definition) {
+                 !initial.values.gradient_definition &&
+                 initial.values.fill != "gradient") {
+        // A missing definition can represent mixed or unresolved gradients.
+        // Only a change into gradient mode requests an automatic default.
         result.gradient_definition = SceneGradientDefinition{};
       }
       changed_mode(stroke, initial.values.stroke, result.stroke);

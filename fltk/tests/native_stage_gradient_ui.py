@@ -563,6 +563,28 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
         wait(lambda: data()["scene"]["page"] == 1)
         click_world(100, 100)
         wait(lambda: selection() == [("Linear 0_0", 0)])
+        modified_click(300, 90, ("Shift_L",))
+        wait(lambda: len(selection()) == 2)
+        open_paint()
+        apply()
+        if data()["modified"] or data()["scene"]["can_undo"]:
+            shot("mixed-unchanged-apply-failure.png")
+            raise AssertionError(
+                "Unchanged paint Apply replaced different selected gradients"
+            )
+        revision = data()["scene"]["revision"]
+        open_paint()
+        panel_click(240, 380)
+        time.sleep(0.15)
+        width, height = data()["window_size"]
+        click((width - 660) / 2 + 585, max(0, (height - 520) / 2) + 485)
+        time.sleep(0.15)
+        apply()
+        assert not data()["modified"] and not data()["scene"]["can_undo"]
+        assert data()["scene"]["revision"] == revision
+        click_world(190, 190)
+        click_world(100, 100)
+        wait(lambda: selection() == [("Linear 0_0", 0)])
         open_paint()
         shot("existing-paint-controls.png")
         cancel()
@@ -684,6 +706,7 @@ with tempfile.TemporaryDirectory(prefix="calligra-native-ui-") as temp:
                     "affine_holes_ellipse_discrete_intensities": True,
                     "existing_paint_cancel_noop": True,
                     "drawing_gradient_authoring_controls": True,
+                    "mixed_gradient_unchanged_and_nested_apply": True,
                     "nested_cancel_noop_scoped_history": True,
                     "authored_svg_consumer_probe": authored_check,
                     "full_gradient_format_complete": False,

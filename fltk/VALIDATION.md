@@ -3691,3 +3691,16 @@ CUPS must each pass independently before an installation is marked verified.
 These selected checks do not establish physical printing, every ODF gradient
 interpretation or full ODF1.2 functionality. SVG/opacity gradients and custom-path
 concentric behavior remain incomplete.
+
+
+The final installed-build review reproduced a mixed-gradient regression in
+be40761: selecting two different gradients and applying the unchanged paint panel
+created a default black/white resource. The retained `ui-gradient-mixed-before`
+trace/screenshot proves the document became modified with undo available. The
+followup limits automatic defaults to an explicit change into gradient mode.
+The native GUI regression now checks both outer unchanged Apply and a nested
+unchecked-gradient Apply on that mixed selection, preserving revision/history.
+The same guard also preserves unresolved existing references until an explicit
+replacement is requested. This followup changes the modal UI; prior document-core
+suites remain supplemented by fresh normal/minimum/sanitizer/staged/installed
+native controls and source/print gates.
