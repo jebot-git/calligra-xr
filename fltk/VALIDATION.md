@@ -3218,3 +3218,36 @@ probes complement the model tests. Its private CUPS corpus has seven jobs and
 13 pages, including the nine three-application baseline pages. Strict schema,
 package, visual review, sanitizer, staging and installed results remain separate
 evidence receipts. No selected corpus closes full ODF1.2 or actual-paste scope.
+
+
+## Detached Stage formatting-context validation — 2026-11-04
+
+The context increment passes93 selected Release and93 ASan/UBSan suites, with
+core leak detection enabled and no sanitizer suppressions. The same three
+outline-font tests remain excluded under the bitmap-only runtime. All639 frozen
+compiled inputs match the tested source. Independent before/after builds
+reproduce Stage dropping the country from fr-CA and verify the corrected result.
+
+Native goldens cover pre-explicit frame/paragraph percentage overlap, nested and
+repeated cells with different column defaults, empty cells, source identity and
+reader reuse. The detached encoder preserves known native paint, paragraph,
+character, tab and leader properties. The portable grid corpus checks2304 tab
+advances across origins, directions, margins and intervals. A source30pt versus
+receiving17pt grid moves the second tab from165pt to168pt without conversion;
+explicit stops restore165pt. Quota, precision and unsupported list cases reject.
+
+The independent context producer checks existing receiving defaults, definitions,
+unrelated body XML/archive parts and selected-only output. Four source/materialized
+raster pairs match exactly, including an unspecified native font and an existing
+ODF1.4 receiving tab-origin case. Eight new print pages were visually reviewed;
+nine suite baseline pages equal the previously reviewed output. Eleven actual
+private CUPS jobs cover17 pages; every export reopens with equal rasters. System
+queues and the desktop session are unchanged.
+
+All33 current fixture/export packages pass version-matched content/styles schemas
+with independent Jing and libxml2. Thirty generated/exported packages pass the
+ODF1.2 manifest schema and selected plain-package checks. Three original legacy
+print inputs lack manifest versions and remain separate; their repaired exports
+pass. The optional1.4 content/styles specimens are not a claim of complete1.4
+package conformance. Known-property materialization is not complete default/style
+isolation or a usable paste workflow. Staging and installed evidence stay separate.

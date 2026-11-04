@@ -232,6 +232,11 @@ struct TextTable {
 };
 struct TextFlow {
   std::vector<TextParagraph> paragraphs;
+  // Same indices as paragraphs when read from ODF. Repeated table instances
+  // retain one source paragraph; their TextBlock::formatted values carry the
+  // instance's cell context. An invented empty-body paragraph has a null
+  // source.
+  std::vector<XmlElement> paragraph_sources;
   // Virtual, zero-length cell paragraphs follow real source indices. Their
   // positions do not add separators or alter the package's source text.
   struct EmptyCell {
@@ -332,6 +337,15 @@ public:
                  bool styles_source = false) const;
   TextFlow story(const XmlElement &, bool styles_source = true,
                  bool resolved_page_fields = false) const;
+  // Resolve the context before this paragraph's explicit style and inline
+  // runs. Cell style names are ordered outermost first, including empty names
+  // (which still apply the table-cell default). The frame/explicit-style
+  // overlap rule is identical to frame(); percentages are not applied twice.
+  TextParagraph paragraph_context(const XmlElement &paragraph,
+                                  const TextParagraph &frame,
+                                  const Text &frame_paragraph_style = {},
+                                  const std::vector<Text> &cell_styles = {},
+                                  bool styles_source = false) const;
 
 private:
   struct Impl;

@@ -435,6 +435,8 @@ struct Reader {
           fail("Invalid default tab distance");
         paragraph.default_tab = distance > 0 ? distance : 72 * 1.25 / 2.54;
       }
+      // ODF1.4 adds this document-default origin flag. Older input may contain
+      // it as a legacy extension; an ODF1.2 producer must not write it here.
       if (props.hasAttributeNS(TEXT, "relative-tab-stop-position"))
         paragraph.relative_tabs =
             boolean(props, TEXT, "relative-tab-stop-position", true);
@@ -1033,12 +1035,12 @@ struct Reader {
     p.list = std::move(label);
     item.first = false;
   }
-  TextParagraph make_paragraph(const XmlElement &e, ListItem *item,
-                               bool in_table) {
+  TextParagraph paragraph_context(const XmlElement &e,
+                                  std::vector<XmlElement> &applied,
+                                  std::vector<XmlElement> &explicit_styles) {
     TextParagraph p;
     p.color = TextColor{};
     character(p.font, p.color, p.background, p.decorations, text_default);
-    std::vector<XmlElement> applied;
     auto apply = [&](const XmlElement &s) {
       properties(p, s);
       applied.push_back(s);
@@ -1052,8 +1054,8 @@ struct Reader {
     }
     for (const auto &style : cell_context)
       apply(style);
-    auto explicit_styles = chain(false, e.attributeNS(TEXT, "style-name"),
-                                 [](const XmlElement &) {});
+    explicit_styles = chain(false, e.attributeNS(TEXT, "style-name"),
+                            [](const XmlElement &) {});
     auto frame_styles =
         chain(false, frame_paragraph_style, [](const XmlElement &) {});
     if (frame_styles.empty() ||
@@ -1061,8 +1063,17 @@ struct Reader {
                   frame_styles.front()) == explicit_styles.end())
       for (auto it = frame_styles.rbegin(); it != frame_styles.rend(); ++it)
         apply(*it);
-    for (auto it = explicit_styles.rbegin(); it != explicit_styles.rend(); ++it)
-      apply(*it);
+    return p;
+  }
+  TextParagraph make_paragraph(const XmlElement &e, ListItem *item,
+                               bool in_table) {
+    std::vector<XmlElement> applied, explicit_styles;
+    auto p = paragraph_context(e, applied, explicit_styles);
+    for (auto it = explicit_styles.rbegin(); it != explicit_styles.rend();
+         ++it) {
+      properties(p, *it);
+      applied.push_back(*it);
+    }
     inlines(p, e, p.font, p.color, p.background, p.decorations);
     if (item)
       decorate_list(p, *item, applied);
@@ -1083,6 +1094,7 @@ struct Reader {
     auto p = make_paragraph(e, item, table_depth > 0);
     auto index = flow.paragraphs.size();
     flow.paragraphs.push_back(std::move(p));
+    flow.paragraph_sources.push_back(e);
     paragraph_sources.push_back(std::move(source));
     (block_target ? *block_target : flow.blocks)
         .push_back({TextBlock::Paragraph, index});
@@ -2356,6 +2368,34 @@ TextFlow OdfTextReader::story(const XmlElement &container, bool styles_source,
                     resolved_page_fields);
 }
 
+TextParagraph OdfTextReader::paragraph_context(
+    const XmlElement &paragraph, const TextParagraph &frame,
+    const Text &frame_paragraph_style, const std::vector<Text> &cell_styles,
+    bool styles_source) const {
+  if ((!paragraph.isNull() &&
+       (paragraph.namespaceURI() != TEXT ||
+        (paragraph.localName() != "p" && paragraph.localName() != "h"))) ||
+      cell_styles.size() > 16)
+    fail("Invalid paragraph context request");
+  auto &reader = impl_->reader;
+  reader.flow = {};
+  reader.text_size = reader.tab_records = 0;
+  reader.frame_base = frame;
+  reader.frame_paragraph_style = frame_paragraph_style;
+  reader.styles_source = styles_source;
+  reader.cell_context.clear();
+  if (!cell_styles.empty() && !reader.table_reader)
+    reader.table_reader =
+        std::make_shared<OdfTableModelReader>(reader.documents);
+  for (const auto &name : cell_styles) {
+    auto styles = reader.table_reader->cell_styles(name, styles_source);
+    reader.cell_context.insert(reader.cell_context.end(), styles.begin(),
+                               styles.end());
+  }
+  std::vector<XmlElement> applied, explicit_styles;
+  return reader.paragraph_context(paragraph, applied, explicit_styles);
+}
+
 Text read_source_list_style(const OdfPackage &package, const XmlElement &item) {
   if (package.kind() != Kind::Words || item.namespaceURI() != TEXT ||
       (item.localName() != "list-item" && item.localName() != "list-header" &&
@@ -2412,8 +2452,10 @@ TextFlow read_text_flow(const OdfPackage &package) {
   reader.load_images(package);
   reader.pages();
   reader.blocks(package.body());
-  if (reader.flow.paragraphs.empty())
+  if (reader.flow.paragraphs.empty()) {
     reader.flow.paragraphs.push_back(reader.make_paragraph({}, nullptr, false));
+    reader.flow.paragraph_sources.push_back({});
+  }
   reader.finish_tables(package.body());
   size_t total = 0;
   for (const auto &p : reader.flow.paragraphs) {

@@ -1806,3 +1806,35 @@ These reader fixes remain source-only. General nested import identity/style/
 resource namespaces, source default/context isolation, target layer/stacking
 merge and actual paste/history/controls remain unfinished. Words remains paused
 for further layout work; runtime `353c016` stays installed.
+
+
+## Detached Stage formatting contexts — 2026-11-04
+
+Source-only context materialization now captures the native paragraph state
+before an explicit paragraph style, including frame and outer-to-inner table
+cell inheritance. TextFlow retains source paragraph identities; repeated cells
+share XML identities while their formatted blocks retain instance properties.
+This prevents percentage font sizes from being applied twice when a cloned
+paragraph style chain is prefixed with its source context.
+
+The detached encoder writes known graphic/presentation and paragraph properties,
+resolved character defaults, explicit tabs and leader formatting. Unspecified
+native font families retain the runtime default policy through an unconstrained
+standard font declaration. Stage now resolves a co-occurring language and country
+as the text reader does; the encoder writes separate ODF language/country values.
+Script/RFC tags and broader language inheritance still need work.
+
+A bounded converter expresses the source default tab grid as explicit stops
+through the supplied frame extent, preserving the receiving document's defaults.
+The primary corpus uses ODF1.2. A separate existing1.4 receiving document checks
+its optional paragraph-default tab-origin flag; the encoder does not put that
+flag or the default interval onto named paragraph styles. Beyond the materialized
+extent, subsequent editing/resizing follows the receiving grid. Visible
+alignment-mode list labels followed by a tab need separate geometry isolation.
+
+These are context primitives and controlled materialization specimens, not a
+receiving-package importer. Complete unknown-property/style graph isolation,
+context-specific repeated-cell XML, next/list behavior, destination layer and
+stacking merge, paste/history and native clipboard controls remain unfinished.
+The increment is not installed; runtime353c016 remains unchanged. Full ODF1.2
+functionality remains incomplete; Words is paused and further Sheets work waits.

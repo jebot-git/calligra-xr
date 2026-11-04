@@ -1214,3 +1214,15 @@ SVG; a moveto-only path has no ink. The SVG initial miter limit is 4.
 Deprecated ODF `middle` joins and the Calligra miter-limit extension remain
 diagnosed and preserved, with incomplete rendering support. Dashes, markers,
 gradients, other advanced paint and complete ODF1.2 fidelity remain unfinished.
+
+
+Stage clipboard preparation also has a detached known-property context encoder
+(`native_stage_context.h`) and an OdfTextReader pre-explicit paragraph-context API.
+The encoder retains native paint/font/paragraph values without replacing receiving
+defaults; finite explicit stops preserve source default tabs within a supplied
+frame extent. The context tests include nested/repeated/empty table cells and
+percentage inheritance. The independent `stage_context_producer.py` checks
+receiving XML retention and source/materialized print pairs. This source-only
+work does not implement the receiving-package merge, paste/history or clipboard
+UI. Unknown style graphs, list/next-style behavior and per-instance cell XML still
+need integration; the installed build is unchanged.

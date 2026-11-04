@@ -408,8 +408,14 @@ struct Catalog {
     }
     if (text.hasAttributeNS(FO, "font-style"))
       paint.font.italic = text.attributeNS(FO, "font-style") != "normal";
-    if (text.hasAttributeNS(FO, "language"))
+    if (text.hasAttributeNS(FO, "language")) {
       paint.font.language = text.attributeNS(FO, "language");
+      if (paint.font.language == "none")
+        paint.font.language.clear();
+      auto country = text.attributeNS(FO, "country");
+      if (!paint.font.language.empty() && !country.empty() && country != "none")
+        paint.font.language += "-" + country;
+    }
     if (text.hasAttributeNS(FO, "font-size")) {
       auto value = text.attributeNS(FO, "font-size");
       if (value.endsWith('%')) {
