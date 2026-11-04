@@ -3067,3 +3067,69 @@ installed e7a4966 output exactly; the 15 focused pages and minimum-window panel
 have visual review. Eighty-two packages pass version-matched content/styles
 schemas; 79 selected packages pass the manifest schema and implemented Part 3
 checks. Build/stage and installed receipts remain separate evidence.
+
+
+## Stage selection envelope and prepared cut — 2026-11-04
+
+`native-stage-fragment-codec` tests version/length/count/path limits, truncated
+and trailing input, duplicate/ancestor paths, element-only path ranks, original
+primary-selection order and selected-group versus ancestor context. Encoder
+output is inspected directly to verify that canonicalization happens before
+publication, not only on receiving. Plain text is rederived rather than trusting
+a caller fallback. A reverse selection over10,000 siblings checks path traversal
+without rescanning each preceding sibling. Scene references use the batch resolver.
+
+`stage_fragment_codec_reference.py --test-bin BUILD/fltk/calligra-native-stage-fragment-codec-test
+--artifacts OUTPUT` uses independently framed incoming data and Python ZIP/XML
+inspection of outgoing data. Three valid cases cover a selected child, siblings
+in reverse primary order and an entire group. Twenty-six invalid cases include
+truncated/overflow fields, bad versions, paths/counts/depth, invalid selection
+roots, overlap, multiple pages, non-ZIP/truncated ZIP data and a stale member CRC.
+A second canonicalization must preserve the selected roots and all output parts.
+
+`native-stage-cut` tests draft preparation/destruction without live source,
+revision, modified-state or redo changes. Delayed commit checks the exact model
+instance as well as document identity and revision. A copied-model regression
+fails without the instance check; matching bytes after undo or reload cannot
+make a stale draft valid. Save As without a source edit keeps the live saved-state
+marker. Moved-from/reused, foreign, copied and active-gesture drafts reject.
+Protected print-only descendants, inbound links, signed/read-only source and a
+screen-valid/print-invalid candidate reject before source mutation. Normalized
+whole-group and entire-slide selections retain exact source/archive/selection
+history, image identity, slide count and unaffected slides across undo/redo.
+
+`native_clipboard_wayland.py --bin-dir BUILD/fltk --artifacts OUTPUT
+--odf-fragment PUBLIC.odp --stage-fragment PRIVATE.cstage` extends the existing
+16-check private Wayland transport corpus with simultaneous real public ODP and
+private Stage data. Both native and external receivers must return exact wire
+bytes; their private receipts are retained for independent model/print checks.
+No desktop clipboard, primary selection or system queue is changed.
+
+`stage_cut_producer.py --bin-dir BUILD/fltk --test-bin
+BUILD/fltk/calligra-native-stage-cut-test --clipboard-artifacts WAYLAND_OUTPUT
+--artifacts OUTPUT` independently removes exactly X/Y from the original XML and
+compares the complete expected tree, navigation order and every non-content
+archive part with the cut package. Selected image bytes and source subtrees are
+checked separately. Both real receiver envelopes reopen with primary selection
+Y/X and source-order fallback X. Reimporting XML may repeat inherited namespace
+declarations; expanded XML, attributes/text and every effective namespace binding
+must agree, while non-content parts stay byte-identical.
+
+The print corpus submits eight actual private CUPS jobs for16 pages, including
+nine suite baseline pages and seven source/cut/public/private-transfer pages.
+The selected image remains analytic red within the existing two-channel-level
+PDF raster rounding bound and becomes white after cut. Both private receivers
+render exactly like public selected ODP; the untouched second slide stays exact.
+Every page reopens identically. Nine baseline pages match the previously reviewed
+installed353c016 lineage. The seven new pages have a contact-sheet visual review.
+Twenty-three packages pass version-matched content/styles schemas;20 selected
+packages pass the manifest schema and implemented plain Part3 checks. Three
+original baseline inputs with missing manifest versions remain outside the
+Part3 claim; their serialized exports pass.
+
+These tests cover selected protocol/model/output cases. They do not establish
+destination default/style/font/layer or identity/reference isolation, actual
+Stage clipboard menu/keyboard behavior, a globally installed increment or full
+ODF1.2 functionality. Optimized staging and sanitizer/build results have separate
+receipts. The installed runtime remains353c016 until the clipboard workflow is
+usable and independently verified.

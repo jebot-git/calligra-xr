@@ -147,6 +147,7 @@ class NativeStageLayerEdit;
 struct NativePaintFormat;
 struct NativePaintInfo;
 struct NativeStageFragment;
+class NativeStageCut;
 class Presentation {
 public:
     Presentation();
@@ -160,6 +161,8 @@ public:
     std::optional<PresentationPosition> commit_layers(NativeStageLayerEdit, std::optional<TextSelection> = {});
     NativePaintInfo object_paint(int slide, const std::vector<NativeObjectRef> &) const;
     NativeStageFragment copy_objects(int slide, const std::vector<NativeObjectRef> &) const;
+    NativeStageCut prepare_cut_objects(int slide, const std::vector<NativeObjectRef> &) const;
+    PresentationPosition commit_cut_objects(NativeStageCut);
     std::optional<PresentationPosition> set_object_paint(int slide, const std::vector<NativeObjectRef> &, const NativePaintFormat &, std::optional<TextSelection> = {});
     uint64_t revision() const { return revision_; }
     void add_slide(const Text& title = "New slide", PresentationPosition previous = {});

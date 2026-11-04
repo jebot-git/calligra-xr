@@ -2,6 +2,7 @@
 #include "text_documents.h"
 #include "native_stage_identity.h"
 #include "native_stage_source.h"
+#include "native_stage_removal.h"
 #include <unordered_set>
 namespace DomeOffice {
 namespace {
@@ -140,14 +141,15 @@ PresentationPosition Presentation::reorder_objects(
     return before;
   return commit_object_structure(std::move(candidate), nodes, before);
 }
-PresentationPosition
-Presentation::remove_objects(int slide_index,
-                             const std::vector<NativeObjectRef> &selection) {
-  finish_handle_drag();
-  end_text_edit();
-  if (read_only())
-    throw std::runtime_error("This presentation is read-only");
-  const auto &model = scene(slide_index);
+NativeStageRemoval
+prepare_stage_removal(const OdfPackage &package, const SlideScene &model,
+                      int slide_index,
+                      const std::vector<NativeObjectRef> &selection) {
+  if (package.kind() != Kind::Stage ||
+      model.source.ownerDocument().documentElement() !=
+          package.xml.documentElement())
+    throw std::runtime_error(
+        "Cut selection does not belong to this presentation");
   auto refs = native_object_selection(model, selection);
   for (auto ref : refs)
     model.require_editable(native_object_source(model, ref));
@@ -155,9 +157,9 @@ Presentation::remove_objects(int slide_index,
   std::vector<XmlElement> originals;
   for (auto ref : refs)
     originals.push_back(native_object_source(model, ref));
-  auto ids = check_stage_removed_objects_references(package_, originals);
-  OdfPackage candidate = package_;
-  candidate.xml = read_document_xml(package_.xml.toByteArray());
+  auto ids = check_stage_removed_objects_references(package, originals);
+  OdfPackage candidate = package;
+  candidate.xml = read_document_xml(package.xml.toByteArray());
   std::vector<XmlElement> targets;
   for (auto source : originals)
     targets.push_back(stage_candidate_source(source, candidate.xml));
@@ -180,6 +182,19 @@ Presentation::remove_objects(int slide_index,
   for (auto node : targets)
     node.parentNode().removeChild(node);
   remove_stage_navigation_ids(candidate.xml, ids);
-  return commit_object_structure(std::move(candidate), next, before, true);
+  return {std::move(candidate), std::move(next), std::move(before)};
 }
+PresentationPosition
+Presentation::remove_objects(int slide_index,
+                             const std::vector<NativeObjectRef> &selection) {
+  finish_handle_drag();
+  end_text_edit();
+  if (read_only())
+    throw std::runtime_error("This presentation is read-only");
+  auto removal = prepare_stage_removal(package_, scene(slide_index),
+                                       slide_index, selection);
+  return commit_object_structure(std::move(removal.package), removal.selected,
+                                 removal.previous, true);
+}
+
 } // namespace DomeOffice

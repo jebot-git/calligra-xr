@@ -42,6 +42,11 @@ def main():
         type=Path,
         help="Also transfer an actual selected-object ODP payload verbatim",
     )
+    parser.add_argument(
+        "--stage-fragment",
+        type=Path,
+        help="Also transfer a real private Stage selection envelope verbatim",
+    )
     args = parser.parse_args()
     if os.environ.get("CALLIGRA_CLIPBOARD_TEST_BUS") != "1":
         os.execvpe(
@@ -265,11 +270,23 @@ def main():
                         args.odf_fragment.read_bytes(),
                     )
                 )
+            if args.stage_fragment:
+                formats.append(
+                    (
+                        "application/x-calligra-stage-objects",
+                        args.stage_fragment.read_bytes(),
+                    )
+                )
             owner = own(formats)
             assert types() == {mime for mime, _ in formats}
             for mime, value in formats:
-                assert paste(mime) == value
-                assert external_paste(mime) == value
+                native = paste(mime)
+                external = external_paste(mime)
+                assert native == value
+                assert external == value
+                if mime == "application/x-calligra-stage-objects":
+                    (art / "received-native.cstage").write_bytes(native)
+                    (art / "received-external.cstage").write_bytes(external)
             assert external_paste("text/plain;charset=utf-8", primary=True) == primary
             missing = run([executable, "--receive", "image/png"], expected=3)
             assert missing.stdout == b""
@@ -400,6 +417,11 @@ def main():
                     args.odf_fragment.read_bytes()
                 ).hexdigest()
                 result["odf_fragment_exact_in_native_and_external_receivers"] = True
+            if args.stage_fragment:
+                result["stage_fragment_sha256"] = hashlib.sha256(
+                    args.stage_fragment.read_bytes()
+                ).hexdigest()
+                result["stage_fragment_exact_in_native_and_external_receivers"] = True
             (art / "results.json").write_text(json.dumps(result, indent=2) + "\n")
             print(f"Native Wayland clipboard: {len(checks)} acceptance checks passed")
         finally:

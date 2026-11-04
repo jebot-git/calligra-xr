@@ -66,6 +66,7 @@ PresentationPosition Presentation::commit_object_structure(
   candidate.validate_archive_limits();
   auto reader = std::make_shared<OdfTextReader>(candidate);
   auto scenes = read_presentation_scenes(candidate, reader);
+  (void)read_presentation_scenes(candidate, reader, SceneTarget::Print);
   const auto &model = scenes.at(before_position.slide);
   auto refs = native_object_references(model, selected);
   refs = native_object_selection(model, refs);
@@ -75,11 +76,13 @@ PresentationPosition Presentation::commit_object_structure(
       refs.empty() ? PresentationPosition{before_position.slide, -1, -1}
                    : previous(model, before_position.slide, refs);
   auto before = package_.xml.toByteArray();
+  auto parts = candidate.part_changes_from(package_);
   package_ = std::move(candidate);
   scenes_ = std::move(scenes);
   text_reader_ = std::move(reader);
   ++revision_;
-  remember(before, std::move(before_position), after_position);
+  remember(before, std::move(before_position), after_position, false,
+           std::move(parts));
   return after_position;
 }
 PresentationPosition

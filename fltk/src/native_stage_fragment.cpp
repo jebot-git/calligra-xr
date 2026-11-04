@@ -69,6 +69,7 @@ struct Fragment {
   XmlElement page, layer_set;
   Budget budget;
   std::unordered_set<const void *> wanted, ancestors;
+  std::map<const void *, XmlElement> copied_selection;
 
   Fragment(const OdfPackage &package, const SlideScene &model)
       : original(package), scene(model),
@@ -465,8 +466,11 @@ struct Fragment {
     });
   }
   XmlElement prune(XmlElement node) {
-    if (wanted.contains(node.identity()))
-      return output.xml.importNode(node, true);
+    if (wanted.contains(node.identity())) {
+      auto clone = output.xml.importNode(node, true);
+      copied_selection.emplace(node.identity(), clone);
+      return clone;
+    }
     if (!ancestors.contains(node.identity()))
       return {};
     if (node.namespaceURI() != DRAW ||
@@ -573,8 +577,39 @@ struct Fragment {
           (n.localName() == "p" || n.localName() == "h"))
         paragraphs.push_back(plain_text(n));
     });
+    std::map<const void *, size_t> selected_nodes;
+    for (size_t i = 0; i < refs.size(); ++i)
+      selected_nodes[copied_selection
+                         .at(native_object_source(scene, refs[i]).identity())
+                         .identity()] = i;
+    std::vector<NativeStageObjectPath> selected(refs.size());
+    NativeStageObjectPath path;
+    size_t indices = 0, found = 0;
+    auto paths = [&](auto &&self, XmlElement parent) -> void {
+      uint32_t rank = 0;
+      for (auto node = parent.firstChild(); !node.isNull();
+           node = node.nextSibling())
+        if (node.isElement()) {
+          if (++budget.nodes > 1000000 || path.size() >= 256)
+            fail("Copied object path traversal exceeds the limit");
+          path.push_back(rank++);
+          if (auto at = selected_nodes.find(node.identity());
+              at != selected_nodes.end()) {
+            if (path.size() > 1000000 - indices)
+              fail("Copied object path data exceeds the limit");
+            indices += path.size();
+            selected[at->second] = path;
+            ++found;
+          } else
+            self(self, node);
+          path.pop_back();
+        }
+    };
+    paths(paths, page);
+    if (found != selected.size())
+      fail("A copied object has no selection path");
     output.validate_archive_limits();
-    return {output.archive_bytes(), paragraphs.join('\n')};
+    return {output.archive_bytes(), paragraphs.join('\n'), std::move(selected)};
   }
 };
 } // namespace

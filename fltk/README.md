@@ -313,6 +313,15 @@ CUPS test queues.
   numeric/Boolean values, shared and fixed array formulas, cross-sheet references, global named
   ranges, sparse cells, and common 1900/1904 date/time values. It supports cell
   editing, undo/redo, TSV paste and ODS saves. It does not export XLSX.
+- Source-only Stage clipboard APIs serialize selected objects with their
+  dependencies and explicit selection paths, including the distinction between
+  selected groups and ancestor context. A bounded private MIME envelope validates
+  and canonicalizes the subset independently of public ODP. A detached cut draft
+  leaves source/history untouched until a caller publishes the clipboard and
+  commits against the same model, document identity and revision. Foreign,
+  copied, moved-from and stale drafts are rejected. Destination isolation and
+  actual menu/keyboard integration remain unfinished; these APIs are uninstalled.
+  See protocols/README.md for the wire format and PORT_STATUS.md for evidence.
 - Stage honors ODF1.2 document/page/master layer display and protection.
   A local layer set replaces the document set; an empty local set is meaningful.
   Screen-only and print-only objects use separate scenes, so printing retains the

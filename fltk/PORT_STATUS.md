@@ -16,7 +16,7 @@ rudimentary milestone; its experimental column worktree stays preserved and
 uninstalled. Further Sheets catalogue/settings work waits. Runtime build `353c016`,
 including layer authoring, separate frame/image opacity and stroke caps/joins,
 is installed and independently verified. Test-only followup `7b5a47f` has the same
-installed payload. Clipboard transport and fragment work below is not integrated into Stage
+installed payload. Clipboard transport, fragment and cut-draft work below is not integrated into Stage
 or installed. Subsequent source/build/stage/installation claims require their
 own evidence. Historical sections retain their earlier priorities and baseline.
 
@@ -1691,3 +1691,45 @@ exact reopen output; all nine existing suite pages match the installed build.
 The actual selected-group ODP also transfers byte-for-byte through both the
 native helper and external Wayland receivers. These results cover selected
 fragment extraction cases, not complete clipboard or ODF1.2 functionality.
+
+
+## Stage selection metadata and prepared cut — 2026-11-04
+
+Selected-object fragments now carry element-child paths for the original
+normalized roots. Source paint order stays in the ODP; the path order retains
+the primary selection. Context-only ancestor groups remain distinct from
+selected groups. A private versioned MIME envelope carries these paths beside a
+standalone ODP without adding private attributes to standard document XML.
+Encoder and decoder independently resolve and canonicalize the selected subset,
+rederive plain text and exclude unrelated source metadata and assets. Length,
+count, depth, traversal, duplicate/overlap and trailing-data limits apply before
+or alongside ZIP/XML/dependency checks. Path and batch scene resolution avoid
+rescanning every sibling/shape for each selected object. Wire framing and limits
+are documented in protocols/README.md.
+
+A move-only native cut draft validates deletion references, editable selected
+subtrees and both screen/print candidates without changing live source, archive
+parts, selection history, saved state, redo or active gestures. Cancellation and
+failed publication therefore need no document rollback. After a caller obtains
+clipboard ownership, a separate commit checks the exact model instance,
+document identity and revision before using the shared structural transaction.
+A copied model sharing the same archive/document token cannot accept the draft;
+this regression failed before adding the instance guard. Save As without a
+source edit remains compatible with the current saved-state/history markers.
+Protected print-only descendants, inbound references and read-only documents
+prohibit cut; copying read-only/protected source remains supported.
+
+Ordinary Delete and delayed Cut share detached source removal. Structural
+commits now validate screen and print scenes and retain non-content archive
+part changes in the existing history journal. Tests cover normalized group
+selections, deleting every object from a slide while retaining the slide,
+move/cancel/stale/foreign/copied drafts, source/archive/selection undo/redo and
+save/reopen. The independent Python protocol producer has three valid cases and
+26 invalid cases, including CRC corruption. It parses outgoing envelopes and
+ZIP/XML independently and checks source-order text and unselected-data removal.
+
+Destination default/style/font/layer isolation and identity/reference rewriting
+remain unfinished. These source APIs have no native clipboard/menu/keyboard
+integration yet. The verified installed runtime remains353c016; preparing cut
+transactions does not establish a usable clipboard workflow or full ODF1.2
+functionality.
