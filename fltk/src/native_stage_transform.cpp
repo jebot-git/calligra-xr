@@ -42,12 +42,14 @@ void Presentation::transform_shape_to(int slide, int index, ScenePoint pointer,
   auto proposal = drag_->transform_gesture->update(pointer, constrain);
   auto candidate = read_document_xml(drag_->before);
   const auto &original = *drag_->original_shape;
+  std::vector<XmlElement> changed;
   if (proposal) {
     auto source = stage_candidate_source(original.source, candidate);
     apply_native_shape_geometry(original, source, proposal->geometry,
                                 proposal->action);
+    changed.push_back(source);
   }
-  const auto bytes = candidate.toByteArray();
+  const auto bytes = geometry_content(candidate, changed);
   if (bytes != package_.xml.toByteArray())
     restore_content(bytes);
   drag_->changed = bytes != drag_->before;

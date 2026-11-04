@@ -2158,3 +2158,50 @@ caches; dedicated connector creation/endpoint/routing tools, protection and broa
 clipboard/dependency cases remain required. No new installed-support claim follows
 from this checkpoint. Current installed runtime7b14ea0 contains the verified
 object clipboard; dash and marker installations retain separate pending receipts.
+
+
+## Connector dependent geometry transactions — 2026-11-04
+
+Geometry commands now prepare connector changes in the same isolated content
+candidate as target movement, numeric geometry, affine handles, group gestures
+and enhanced modifier changes. The dependency closure includes group bounds and
+connectors used as attachment targets, with forward/source-part identities and
+screen/print visibility kept separate. A one-million-step dependency budget
+bounds traversal. All affected routes resolve before cached data is written;
+source order cannot expose a partially updated dependency graph. Per-route and
+port-search limits still apply. Unaffected unresolved connectors retain their
+existing source/diagnostics. Changed dependencies, including cycles or invalid
+ports, fail the candidate instead of silently keeping stale geometry.
+
+Dependent connectors in protected layers reject the complete geometry edit,
+including target source/history/state changes. This is the native conservative
+editing policy; it preserves protected source rather than changing derived cache
+attributes behind the user's lock. Direct edits still use the existing layer and
+read-only guards. Master geometry editing remains unavailable.
+
+Changed attached targets recompute the declared connector mode and skew. Direct
+free-connector movement preserves supplied curve geometry. Updated connectors
+serialize SVG geometry in conventional mm/100 units, write matching physical
+endpoint pairs and a nonzero enclosing viewBox, and retain IDs, attachment/glue
+references, styles, labels and all unrelated XML/archive parts. Affine cubic and
+quadratic controls remain analytic. Ellipse covariance determines transformed
+arc axes and reflected sweep flags; rank-deficient projections retain line
+turning points rather than dropping their extrema/length. Serialization keeps
+one-megabyte/16384 segment/subpath limits and rejects unrepresentable coordinates.
+Zero-viewBox disabled connectors retain their disabled source.
+
+Handle drags now retain the offset from the initial click to the actual control
+point. A click within its hit radius no longer snaps the geometry to the rounded
+pixel position. Returning to that click restores the original modifiers/cache
+spelling and history, including redraws after several previews. Programmatic
+absolute handle coordinates remain supported through the existing three-argument
+begin call. The new pointer anchoring is covered by model and native Wayland
+regressions.
+
+This is a verified dependency/export editing increment, not complete connector
+support: creation, endpoint/reconnection and routing controls remain required.
+Unchanged connectors without svg:d are not globally materialized on save;
+full producer normalization, custom-path behavior after target changes, arbitrary
+external consumers, broader clipboard/reference rewriting and complete ODF1.2
+fidelity remain separate work. Pending older immutable installers and new source
+stages retain separate installed receipts.

@@ -225,6 +225,8 @@ struct Catalog {
   std::vector<TargetRecord> targets;
   std::map<std::pair<bool, Text>, size_t> target_ids;
   size_t target_depth = 0;
+  std::set<const void *> recompute_connectors;
+  bool strict_connector_updates = false;
 
   Catalog(const OdfPackage &package, std::shared_ptr<OdfTextReader> reader,
           SceneTarget target_)
@@ -973,6 +975,8 @@ struct Catalog {
               spec, shape.transform,
               [&](const Text &id) { return find_target(source, id, &slide); });
         } catch (const std::exception &e) {
+          if (strict_connector_updates)
+            throw;
           if (!spec.path || !spec.start.x || !spec.start.y || !spec.end.x ||
               !spec.end.y)
             throw;
@@ -981,7 +985,9 @@ struct Catalog {
           note(slide.unsupported,
                "Connector cached path used: " + Text(e.what()));
         }
-        auto routed = scene_connector_geometry(spec, ends);
+        auto routed = scene_connector_geometry(
+            spec, ends, 12, 100000,
+            recompute_connectors.contains(node.identity()));
         shape.path = std::move(routed.path);
         shape.path_map = routed.mapping;
         auto bounds = path_bounds(*shape.path, shape.path_map);
@@ -996,6 +1002,8 @@ struct Catalog {
                         bounds.y + (bounds.height - height) / 2, width, height};
         }
       } catch (const std::exception &e) {
+        if (strict_connector_updates)
+          throw;
         note(slide.unsupported,
              "Unresolved native connector: " + Text(e.what()));
         return {};
@@ -1387,5 +1395,117 @@ read_presentation_scenes(const OdfPackage &package,
   for (size_t i = 0; i < pages.size(); ++i)
     result.push_back(catalog.slide(pages[i], i));
   return result;
+}
+void refresh_presentation_connector_paths(
+    OdfPackage &candidate, const std::vector<XmlElement> &roots) {
+  if (roots.empty())
+    return;
+  if (candidate.kind() != Kind::Stage || candidate.read_only())
+    fail("Connector updates require an editable presentation candidate");
+  if (candidate.xml.elementsByTagNameNS(DRAW, "connector").empty())
+    return;
+  Catalog catalog(candidate, {}, SceneTarget::Screen);
+  catalog.strict_connector_updates = true;
+  using Key = std::pair<bool, Text>;
+  std::map<Key, std::vector<size_t>> dependents;
+  std::map<const void *, size_t> identities;
+  for (size_t i = 0; i < catalog.targets.size(); ++i) {
+    const auto &record = catalog.targets[i];
+    identities.emplace(record.node.identity(), i);
+    if (record.node.localName() != "connector")
+      continue;
+    for (auto end : {"start-shape", "end-shape"}) {
+      auto ref = record.node.attributeNS(DRAW, end).trimmed();
+      if (!ref.empty())
+        dependents[{record.source == &catalog.styles, ref}].push_back(i);
+    }
+  }
+  std::set<size_t> root_indices;
+  for (const auto &root : roots) {
+    if (!root.isElement() || root.ownerDocument().documentElement() !=
+                                 candidate.xml.documentElement())
+      fail("Connector geometry root belongs to another document");
+    auto at = identities.find(root.identity());
+    if (at == identities.end() || catalog.targets[at->second].master)
+      fail("Connector geometry root is not an editable drawing object");
+    root_indices.insert(at->second);
+  }
+  std::vector<bool> affected(catalog.targets.size());
+  std::vector<size_t> pending;
+  auto enqueue = [&](size_t i) {
+    if (!affected[i]) {
+      affected[i] = true;
+      pending.push_back(i);
+    }
+  };
+  size_t work = 0;
+  for (size_t i = 0; i < catalog.targets.size(); ++i)
+    for (auto at = std::optional<size_t>(i); at;
+         at = catalog.targets[*at].parent) {
+      if (++work > 1000000)
+        fail("Connector edit dependency traversal exceeds the limit");
+      if (root_indices.contains(*at)) {
+        enqueue(i);
+        break;
+      }
+    }
+  const Text XML = "http://www.w3.org/XML/1998/namespace";
+  for (size_t n = 0; n < pending.size(); ++n) {
+    const auto &record = catalog.targets[pending[n]];
+    if (record.parent)
+      enqueue(*record.parent);
+    auto id = (record.node.hasAttributeNS(XML, "id")
+                   ? record.node.attributeNS(XML, "id")
+                   : record.node.attributeNS(DRAW, "id"))
+                  .trimmed();
+    auto at = dependents.find({record.source == &catalog.styles, id});
+    if (id.empty() || at == dependents.end())
+      continue;
+    for (auto dependent : at->second) {
+      if (++work > 1000000)
+        fail("Connector edit dependency traversal exceeds the limit");
+      enqueue(dependent);
+      catalog.recompute_connectors.insert(
+          catalog.targets[dependent].node.identity());
+    }
+  }
+  struct Update {
+    XmlElement node;
+    SceneConnectorEnds ends;
+    SceneConnectorGeometry geometry;
+  };
+  std::vector<Update> updates;
+  for (auto i : pending) {
+    auto &record = catalog.targets[i];
+    if (record.node.localName() != "connector")
+      continue;
+    auto page = record.node.parentNode().toElement();
+    while (!page.isNull() &&
+           !(page.namespaceURI() == DRAW && page.localName() == "page"))
+      page = page.parentNode().toElement();
+    if (page.isNull() || record.master)
+      fail("Dependent connector has no editable slide");
+    SlideScene context;
+    context.source = page;
+    context.layers = catalog.document_layers.scoped(page);
+    context.require_editable(record.node, false);
+    auto spec = read_scene_connector(record.node);
+    if (!spec.enabled)
+      continue;
+    auto parent = catalog.target_parent(record);
+    auto matrix = parent * parse_scene_transform(
+                               record.node.attributeNS(DRAW, "transform"));
+    auto ends = resolve_scene_connector_ends(spec, matrix, [&](const Text &id) {
+      return catalog.find_target(*record.source, id);
+    });
+    auto geometry = scene_connector_geometry(
+        spec, ends, 12, 100000,
+        catalog.recompute_connectors.contains(record.node.identity()));
+    updates.push_back({record.node, std::move(ends), std::move(geometry)});
+  }
+  // Resolve the graph before writing caches, so dependent routes do not vary
+  // with XML order. Each caller owns an isolated, unpublished candidate.
+  for (const auto &update : updates)
+    write_scene_connector_geometry(update.node, update.ends, update.geometry);
 }
 } // namespace DomeOffice

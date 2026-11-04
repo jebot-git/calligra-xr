@@ -4,6 +4,7 @@
 #include "native_words_edit.h"
 #include "ooxml_text_import.h"
 #include "native_enhanced_geometry.h"
+#include "native_connector.h"
 #include <algorithm>
 #include <functional>
 #include <stdexcept>
@@ -990,6 +991,13 @@ void Presentation::restore_content(const Bytes& bytes)
     candidate.xml = read_document_xml(bytes);
     restore_package(std::move(candidate));
 }
+Bytes Presentation::geometry_content(XmlDocument document, const std::vector<XmlElement>& roots)
+{
+    OdfPackage candidate = package_;
+    candidate.xml = std::move(document);
+    refresh_presentation_connector_paths(candidate, roots);
+    return candidate.xml.toByteArray();
+}
 void Presentation::restore_package(OdfPackage candidate)
 {
     if (children(candidate.body(), DRAW, "page").isEmpty()) fail("Undo would remove every slide");
@@ -1198,8 +1206,11 @@ void Presentation::replace_box_text(int slideIndex, int boxIndex, size_t begin,
     remember(before, previous, next, merge);
     typing_format_ = std::move(typing);
 }
-void Presentation::begin_handle_drag(int slideIndex, int shapeIndex, int handleIndex)
+void Presentation::begin_handle_drag(int slideIndex, int shapeIndex, int handleIndex, std::optional<ScenePoint> pointer)
 {
+    if (pointer && (!std::isfinite(pointer->x) || !std::isfinite(pointer->y) ||
+        std::abs(pointer->x) > 1e9 || std::abs(pointer->y) > 1e9))
+        fail("Invalid adjustment pointer");
     finish_handle_drag();
     end_text_edit();
     if (read_only()) fail("This presentation is read-only");
@@ -1209,6 +1220,10 @@ void Presentation::begin_handle_drag(int slideIndex, int shapeIndex, int handleI
         fail("This adjustment handle is not editable");
     drag_ = HandleDrag { package_.xml.toByteArray(),
         { slideIndex, shape.editor_index, shapeIndex }, handleIndex, state_ };
+    if (pointer) {
+        drag_->pointer = *pointer;
+        drag_->adjustment_origin = shape.transform.map(shape.handles.at(handleIndex).position);
+    }
 }
 void Presentation::finish_handle_drag(bool cancel)
 {
@@ -1228,6 +1243,16 @@ void Presentation::move_handle(int slideIndex, int shapeIndex, int handleIndex, 
     if (read_only()) fail("This presentation is read-only");
     if (drag_ && (drag_->position.slide != slideIndex || drag_->position.shape != shapeIndex || drag_->handle != handleIndex))
         fail("Another adjustment handle is being dragged");
+    if (drag_ && drag_->adjustment_origin) {
+        if (target.x == drag_->pointer.x && target.y == drag_->pointer.y) {
+            if (drag_->changed) restore_content(drag_->before);
+            drag_->changed = false;
+            state_ = drag_->state;
+            return;
+        }
+        target = {drag_->adjustment_origin->x + target.x - drag_->pointer.x,
+                  drag_->adjustment_origin->y + target.y - drag_->pointer.y};
+    }
     const auto& shape = scene(slideIndex).shapes.at(shapeIndex);
     scene(slideIndex).require_editable(shape.source);
     if (shape.master || shape.source.isNull() || shape.kind != SceneShape::Custom)
@@ -1260,7 +1285,22 @@ void Presentation::move_handle(int slideIndex, int shapeIndex, int handleIndex, 
     }
     node.setAttributeNS(DRAW, "draw:modifiers", modifiers);
     PresentationPosition position { slideIndex, shape.editor_index, shapeIndex };
-    restore_content(candidate.toByteArray());
+    // Rebuild each handle preview from its original source snapshot. Returning
+    // to the original modifiers must also restore the original connector caches.
+    if (drag_) {
+        candidate = read_document_xml(drag_->before);
+        auto original_node = candidate.documentElement();
+        for (auto it = path.rbegin(); it != path.rend(); ++it) {
+            original_node = original_node.firstChild();
+            for (size_t i = 0; i < *it; ++i) original_node = original_node.nextSibling();
+            if (original_node.isNull()) fail("Invalid adjustment source path");
+        }
+        original_node.setAttributeNS(DRAW, "draw:modifiers", modifiers);
+        node = original_node;
+    }
+    auto source_bytes = candidate.toByteArray();
+    restore_content(drag_ && source_bytes == drag_->before ? source_bytes :
+        geometry_content(candidate, {node.parentNode().toElement()}));
     if (drag_) {
         drag_->changed = package_.xml.toByteArray() != drag_->before;
         state_ = drag_->changed ? next_state_++ : drag_->state;

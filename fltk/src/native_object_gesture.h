@@ -12,7 +12,8 @@ public:
   NativeObjectGesture(const SlideScene &, const std::vector<NativeObjectRef> &,
                       ScenePoint, std::optional<NativeShapeHandle> = {});
   std::optional<SceneTransform> update(ScenePoint, bool constrain) const;
-  void apply(const SceneTransform &, const XmlDocument &) const;
+  std::vector<XmlElement> apply(const SceneTransform &,
+                                const XmlDocument &) const;
 
 private:
   struct Source {

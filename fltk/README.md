@@ -1323,3 +1323,22 @@ A transformed connector with two attached endpoints remains constrained by its
 targets. Saving currently preserves connector source; it does not materialize a
 new portable SVG route/cache. See PORT_STATUS.md for routing and glue policies.
 Do not count this checkpoint as an installed or complete ODF1.2 implementation.
+
+
+## Stage connector target edits
+
+Moving/resizing/rotating target objects or groups and adjusting enhanced glue
+modifiers now updates affected connectors and their dependent connectors in the
+same source transaction. Generated SVG path data and complete cached endpoint
+pairs are saved with the attachment references. Undo/redo, drag cancellation and
+returning a handle to its initial click restore the exact original source.
+Protected dependent connectors or unresolved affected attachments reject the
+entire candidate edit. Unrelated broken source remains preserved and diagnosed.
+
+The saved paths use conventional hundredth-millimetre coordinates with physical
+endpoint lengths. Their selected curves/positions also render in an independent
+SVG consumer without native attachment resolution. This normalizes affected
+connectors during geometry edits; untouched imports retain their source. Dedicated
+connector creation, endpoint/glue/routing tools, broader clipboard dependency
+semantics and complete export/interoperability coverage remain unfinished.
+Installation remains separate from source/build/stage evidence.

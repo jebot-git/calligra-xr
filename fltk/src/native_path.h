@@ -23,6 +23,9 @@ struct ScenePath {
   std::optional<bool> even_odd;
 };
 ScenePath parse_svg_path(const Text &);
+// Geometry-only SVG data in the requested affine coordinates. Curves stay
+// analytic; singular ellipse projections retain their turning points.
+Text format_svg_path(const ScenePath &, const SceneTransform & = {});
 // Coordinates map path units to local shape units; device is used only for
 // the flatness test. Returned contours retain local coordinates and closure.
 std::vector<SceneContour> flatten_path(const ScenePath &,

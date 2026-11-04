@@ -215,6 +215,23 @@ def verify_saved(source, saved, case=None):
                     n for n in expected.iter() if n.get(D + "name") == "FreeLine"
                 )
                 selected.set(D + "transform", "matrix(1 0 0 1 0 0) translate(10pt 0pt)")
+                actual = next(
+                    n
+                    for n in ET.fromstring(after[name]).iter()
+                    if n.get(D + "name") == "FreeLine"
+                )
+                tokens = actual.get(V + "d", "").split()
+                assert len(tokens) == 6 and tokens[0] == "M" and tokens[3] == "L", (
+                    tokens
+                )
+                coordinates = [float(tokens[i]) * 72 / 2540 for i in [1, 2, 4, 5]]
+                assert all(
+                    abs(a - b) < 1e-8 for a, b in zip(coordinates, [25, 45, 175, 95])
+                )
+                box = [float(v) for v in actual.get(V + "viewBox", "").split()]
+                assert len(box) == 4 and box[2] > 0 and box[3] > 0
+                selected.set(V + "d", actual.get(V + "d"))
+                selected.set(V + "viewBox", actual.get(V + "viewBox"))
             assert normalized(expected) == normalized(ET.fromstring(after[name]))
         else:
             assert before[name] == after[name], name

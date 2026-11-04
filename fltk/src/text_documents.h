@@ -184,7 +184,7 @@ public:
         merge_text_ = false;
         clear_typing_format();
     }
-    void begin_handle_drag(int slide, int shape, int handle);
+    void begin_handle_drag(int slide, int shape, int handle, std::optional<ScenePoint> pointer = {});
     void move_handle(int slide, int shape, int handle, ScenePoint target);
     void begin_shape_move(int slide, int shape, ScenePoint pointer);
     void begin_shape_transform(int slide, int shape, NativeShapeHandle, ScenePoint pointer);
@@ -266,6 +266,7 @@ private:
         std::optional<NativeShapeDrag> transform_gesture;
         std::optional<SceneShape> original_shape;
         std::optional<NativeObjectGesture> object_gesture;
+        std::optional<ScenePoint> adjustment_origin;
     };
     std::optional<HandleDrag> drag_;
     void clear_history();
@@ -279,6 +280,7 @@ private:
         PresentationPosition previous);
     std::optional<PresentationPosition> travel(bool redo);
     void restore_content(const Bytes&);
+    Bytes geometry_content(XmlDocument, const std::vector<XmlElement>&);
     void restore_package(OdfPackage);
 };
 }

@@ -329,4 +329,32 @@ SceneConnectorEnds resolve_scene_connector_ends(
     fail("No connector attachment pair is available");
   return {std::move(from.values[start]), std::move(to.values[end]), same};
 }
+void write_scene_connector_geometry(XmlElement node,
+                                    const SceneConnectorEnds &ends,
+                                    const SceneConnectorGeometry &geometry) {
+  if (node.namespaceURI() != DRAW || node.localName() != "connector" ||
+      !geometry.path)
+    fail("Invalid connector output geometry");
+  auto number = [](double v) {
+    bounded(v);
+    return Text::number(v == 0 ? 0 : v, 'g', 17);
+  };
+  constexpr double scale = 2540. / 72;
+  SceneTransform units{scale, 0, 0, scale, 0, 0};
+  auto mapping = units * geometry.mapping;
+  auto data = format_svg_path(*geometry.path, mapping);
+  auto b = path_bounds(*geometry.path, mapping);
+  double x = std::floor(b.x), y = std::floor(b.y),
+         w = std::max(1., std::ceil(b.x + b.width) - x),
+         h = std::max(1., std::ceil(b.y + b.height) - y);
+  auto box = number(x) + " " + number(y) + " " + number(w) + " " + number(h);
+  const Text coordinates[] = {
+      number(ends.start.point.x) + "pt", number(ends.start.point.y) + "pt",
+      number(ends.end.point.x) + "pt", number(ends.end.point.y) + "pt"};
+  node.setAttributeNS(SVG, "svg:d", data);
+  node.setAttributeNS(SVG, "svg:viewBox", box);
+  size_t i = 0;
+  for (auto key : {"x1", "y1", "x2", "y2"})
+    node.setAttributeNS(SVG, Text("svg:") + key, coordinates[i++]);
+}
 } // namespace DomeOffice

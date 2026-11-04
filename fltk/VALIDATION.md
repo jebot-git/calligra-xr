@@ -3550,3 +3550,46 @@ are used. Connector authoring and live attachment/export completion are explicit
 false in the UI receipt. Full suite export/reopen/CUPS regressions remain required
 alongside connector-specific checks. None of these results proves physical printer
 output, exhaustive interoperability, staging or installation.
+
+
+## Connector target-edit/export transactions — 2026-11-04
+
+`native-connectors` now tests target movement/resizing, group and transitive
+connector targets, source-order independence, cached endpoint/SVG coordinates,
+exact source/archive undo/redo/reopen, several previews, cancellation, protected
+and invalid-dependent rollback. `--edit-documents DIR` writes four model fixtures
+accepted by the official schema and selected Part3 gate. `native-handles` adds
+initial-click offset and exact pointer-return history coverage.
+
+`connector_path_oracle.py --test-bin CONNECTOR_TEST --artifacts DIR` sends SVG
+paths through the geometry-only serializer and compares 84 affine/reflected/
+rank-deficient cases against independent CairoSVG/cairo filled geometry. It
+retains all source/result/difference rasters and per-case errors. This checks
+geometry, not complete stroke/marker or application interoperability semantics.
+The selected corpus's maximum mean pixel difference was0.000623/255 and at most
+five pixels per1024x1024 page differed by more than four levels.
+
+`stage_connector_edit_producer.py` constructs a four-page strict ODF1.2 fixture,
+including an independent visible target, a connector attached to another
+connector, a group and an adjustable enhanced glue point. Its source/archive
+oracle permits only each requested target edit and the independently calculated
+endpoint/cubic caches. Modifier drags have a declared three-unit screen-pixel
+quantization allowance around the intended50; cached geometry is checked against
+the actual source modifier. It does not accept arbitrary unrelated source edits.
+
+`native_stage_connector_edit_ui.py --bin-dir BIN --test-bin-dir TEST_BIN
+--artifacts DIR [--minimum-window]` exercises actual native Wayland keyboard,
+universal-menu numeric resize, group selection/movement and custom handle input.
+Normal/minimum Release and minimum ASan/UBSan windows retain screenshots and
+source packages. The first UI run preserved a real pointer-return failure;
+subsequent anchored-drag runs pass without a new suppression. The original
+connector scene/free-movement GUI remains a separate regression.
+
+`stage_connector_edit_print.py DIR --bin-dir BIN --source INPUT --ui-artifacts UI`
+prints original/move/resize/group/enhanced packages through real private CUPS,
+checks exact captured PDF bytes, independent pixels/source caches and exact
+four-page reopen rasters. `connector_cache_svg_oracle.py --ui-artifacts UI
+--artifacts DIR` renders the selected exported paths with CairoSVG using only
+their cached SVG data and unit scale. Native attachment resolution is not used.
+Three-app CUPS export/reopen and unchanged baseline rasters remain separate
+regression gates. Full source/publication/stage/installed receipts remain distinct.

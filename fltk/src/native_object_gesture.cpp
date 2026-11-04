@@ -128,14 +128,16 @@ NativeObjectGesture::update(ScenePoint pointer, bool constrain) const {
   return proposal->action.value_or(SceneTransform{}) * frame_.transform *
          scale * *frame_.transform.inverse();
 }
-void NativeObjectGesture::apply(const SceneTransform &action,
-                                const XmlDocument &candidate) const {
+std::vector<XmlElement>
+NativeObjectGesture::apply(const SceneTransform &action,
+                           const XmlDocument &candidate) const {
   const Text PRESENTATION =
       "urn:oasis:names:tc:opendocument:xmlns:presentation:1.0";
   for (double value :
        {action.a, action.b, action.c, action.d, action.e, action.f})
     if (!std::isfinite(value))
       throw std::runtime_error("Invalid object-selection transform");
+  std::vector<XmlElement> changed;
   for (const auto &source : sources_) {
     auto node = stage_candidate_source(source.node, candidate);
     node.setAttributeNS(DRAW, "draw:transform",
@@ -144,6 +146,8 @@ void NativeObjectGesture::apply(const SceneTransform &action,
     if (node.localName() == "frame")
       node.setAttributeNS(PRESENTATION, "presentation:user-transformed",
                           "true");
+    changed.push_back(node);
   }
+  return changed;
 }
 } // namespace DomeOffice

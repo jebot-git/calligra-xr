@@ -356,6 +356,13 @@ int main(int argc, char **argv) {
   doc.load(source);
   const auto initial = content(doc);
   point(handle(doc), 128, 48);
+  const ScenePoint clicked{127.8, 48.15};
+  doc.begin_handle_drag(0, 0, 0, clicked);
+  doc.move_handle(0, 0, 0, {140, 55});
+  assert(doc.modified());
+  doc.move_handle(0, 0, 0, clicked);
+  doc.finish_handle_drag();
+  assert(content(doc) == initial && !doc.modified() && !doc.can_undo());
   doc.begin_handle_drag(0, 0, 0);
   doc.move_handle(0, 0, 0, {140, 55});
   doc.move_handle(0, 0, 0, {160, 60});

@@ -51,9 +51,10 @@ void Presentation::update_objects_drag(int slide_index, ScenePoint pointer,
     throw std::runtime_error("No object selection gesture is active");
   auto action = drag_->object_gesture->update(pointer, constrain);
   auto candidate = read_document_xml(drag_->before);
+  std::vector<XmlElement> changed;
   if (action)
-    drag_->object_gesture->apply(*action, candidate);
-  auto bytes = candidate.toByteArray();
+    changed = drag_->object_gesture->apply(*action, candidate);
+  auto bytes = geometry_content(candidate, changed);
   if (bytes == package_.xml.toByteArray())
     return;
   restore_content(bytes);

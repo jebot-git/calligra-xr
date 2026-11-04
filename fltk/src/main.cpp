@@ -635,7 +635,7 @@ public:
                             else if (handle < -1) stage->begin_objects_transform(slide, canvas->selected_objects, NativeShapeHandle(-handle - 2), point);
                         } else if (handle == -1) stage->begin_shape_move(slide, shape, point);
                         else if (handle < -1) stage->begin_shape_transform(slide, shape, NativeShapeHandle(-handle - 2), point);
-                        else stage->begin_handle_drag(slide, shape, handle);
+                        else stage->begin_handle_drag(slide, shape, handle, point);
                     } else if (event == SlideCanvas::Move) {
                         if (stage->objects_dragging()) stage->update_objects_drag(slide, point, Fl::event_state(FL_SHIFT));
                         else if (handle == -1) stage->move_shape_to(slide, shape, point);

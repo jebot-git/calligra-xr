@@ -332,6 +332,111 @@ ScenePath parse_svg_path(const Text &text) {
   }
   return path;
 }
+Text format_svg_path(const ScenePath &path, const SceneTransform &mapping) {
+  matrix(mapping);
+  TextList data;
+  size_t segments = 0, bytes = 0;
+  auto number = [&](double value) {
+    if (!std::isfinite(value) || std::abs(value) > 1e9)
+      fail("Serialized path coordinates exceed the limit");
+    return Text::number(value == 0 ? 0 : value, 'g', 17);
+  };
+  auto point = [&](ScenePoint p) {
+    p = mapping.map(p);
+    return number(p.x) + " " + number(p.y);
+  };
+  auto emit = [&](const Text &value) {
+    bytes += value.size() + 1;
+    if (bytes > 1048576)
+      fail("Serialized path data exceeds the limit");
+    data << value;
+  };
+  auto line = [&](ScenePoint p) {
+    if (++segments > 16384)
+      fail("Serialized path exceeds the segment limit");
+    emit("L " + point(p));
+  };
+  if (path.subpaths.size() > 16384)
+    fail("Serialized path exceeds the subpath limit");
+  for (const auto &subpath : path.subpaths) {
+    emit("M " + point(subpath.start));
+    auto current = subpath.start;
+    for (const auto &s : subpath.segments) {
+      if (s.kind == PathSegment::Line)
+        line(s.end);
+      else if (s.kind == PathSegment::Cubic ||
+               s.kind == PathSegment::Quadratic) {
+        if (++segments > 16384)
+          fail("Serialized path exceeds the segment limit");
+        emit(s.kind == PathSegment::Cubic
+                 ? "C " + point(s.control1) + " " + point(s.control2) + " " +
+                       point(s.end)
+                 : "Q " + point(s.control1) + " " + point(s.end));
+      } else if (s.kind == PathSegment::Arc) {
+        auto curve = arc(current, s);
+        if (!curve) {
+          line(s.end);
+          current = s.end;
+          continue;
+        }
+        auto u = vector_map(mapping, curve->u),
+             v = vector_map(mapping, curve->v);
+        const long double xx = static_cast<long double>(u.x) * u.x +
+                               static_cast<long double>(v.x) * v.x,
+                          yy = static_cast<long double>(u.y) * u.y +
+                               static_cast<long double>(v.y) * v.y,
+                          xy = static_cast<long double>(u.x) * u.y +
+                               static_cast<long double>(v.x) * v.y,
+                          determinant =
+                              static_cast<long double>(mapping.a) * mapping.d -
+                              static_cast<long double>(mapping.b) * mapping.c;
+        if (determinant == 0) {
+          // A collapsed arc can reverse along the projected line. Keeping only
+          // its endpoint loses extrema, length, dash phase and marker tangents.
+          const bool x = std::hypot(u.x, v.x) >= std::hypot(u.y, v.y);
+          const double critical = std::atan2(x ? v.x : v.y, x ? u.x : u.y);
+          std::vector<std::pair<double, double>> turns;
+          for (double t : {critical, critical + pi}) {
+            double distance = std::fmod(
+                curve->delta >= 0 ? t - curve->start : curve->start - t, tau);
+            if (distance < 0)
+              distance += tau;
+            if (distance > 1e-12 && distance < std::abs(curve->delta) - 1e-12)
+              turns.push_back({distance, t});
+          }
+          std::sort(turns.begin(), turns.end());
+          for (auto [distance, t] : turns)
+            line(curve->point(t));
+          line(s.end);
+        } else {
+          // Eigenvectors of the mapped ellipse covariance give its SVG axes.
+          // The determinant gives the minor radius without cancellation.
+          const long double large = std::sqrt(std::max(
+                                0.L,
+                                (xx + yy + std::hypot(xx - yy, 2 * xy)) / 2)),
+                            area = determinant *
+                                   (static_cast<long double>(curve->u.x) *
+                                        curve->v.y -
+                                    static_cast<long double>(curve->u.y) *
+                                        curve->v.x),
+                            small = large == 0 ? 0 : std::abs(area) / large;
+          if (++segments > 16384)
+            fail("Serialized path exceeds the segment limit");
+          emit("A " + number(double(large)) + " " + number(double(small)) +
+               " " + number(double(std::atan2(2 * xy, xx - yy) * 90 / pi)) +
+               " " + (s.large_arc ? "1" : "0") + " " +
+               ((s.sweep != (determinant < 0)) ? "1" : "0") + " " +
+               point(s.end));
+        }
+      } else
+        fail("Unknown path segment during serialization");
+      current = s.end;
+    }
+    if (subpath.closed)
+      emit("Z");
+  }
+  return data.join(' ');
+}
 std::vector<SceneContour> flatten_path(const ScenePath &path,
                                        const SceneTransform &coordinates,
                                        const SceneTransform &device,

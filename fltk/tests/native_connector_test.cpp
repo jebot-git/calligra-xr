@@ -4,6 +4,7 @@
 #include "native_enhanced_geometry.h"
 #include <limits>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 namespace {
 void near(double a, double b) { assert(std::abs(a - b) < 1e-9); }
 void near(ScenePoint a, ScenePoint b) {
@@ -626,6 +627,198 @@ void scene_integration() {
                "labels, per-file IDs, legacy precedence, screen/print parity "
                "and source retention\n";
 }
+
+void serialization() {
+  const SceneTransform transforms[] = {{},
+                                       {2, 0, 0, 3, 7, 11},
+                                       {-2, 0, 0, 3, 7, 11},
+                                       {1.2, .7, -.3, 2.1, -10, 20},
+                                       {0, 1, -1, 0, 0, 0},
+                                       {1, 2, 3, 6, 4, -5},
+                                       {0, 0, 0, 0, 10, -20}};
+  for (auto m : transforms)
+    for (int large = 0; large <= 1; ++large)
+      for (int sweep = 0; sweep <= 1; ++sweep)
+        for (int rotation : {0, 30, 90}) {
+          auto path = parse_svg_path(
+              "M 13 7 A 40 20 " + Text::number(rotation) + " " +
+              Text::number(large) + " " + Text::number(sweep) +
+              " 60 30 C 70 0 80 20 90 40 Q 110 0 120 30 L 150 40 Z M0 0 L1 2");
+          auto original = path_bounds(path, m);
+          auto data = format_svg_path(path, m);
+          auto serialized = parse_svg_path(data);
+          auto now = path_bounds(serialized);
+          for (auto pair : {std::pair(original.x, now.x),
+                            {original.y, now.y},
+                            {original.width, now.width},
+                            {original.height, now.height}})
+            assert(std::abs(pair.first - pair.second) < 1e-5);
+          near(serialized.subpaths[0].start, m.map({13, 7}));
+          assert(serialized.subpaths.size() == 2 &&
+                 serialized.subpaths[0].closed);
+        }
+  auto quarter = parse_svg_path("M1 0 A1 1 0 0 1 0 1");
+  auto mapped = parse_svg_path(format_svg_path(quarter, {2, 0, 0, 3, 7, 11}));
+  auto bounds = path_bounds(mapped);
+  near(bounds.x, 7);
+  near(bounds.y, 11);
+  near(bounds.width, 2);
+  near(bounds.height, 3);
+  auto reflected =
+      parse_svg_path(format_svg_path(quarter, {-2, 0, 0, 3, 7, 11}));
+  assert(!reflected.subpaths[0].segments[0].sweep);
+  auto loop = parse_svg_path("M1 0 A1 1 0 1 1 0 -1");
+  auto collapsed = parse_svg_path(format_svg_path(loop, {1, 0, 0, 0, 0, 0}));
+  assert(collapsed.subpaths[0].segments.size() == 2);
+  near(collapsed.subpaths[0].segments[0].end, {-1, 0});
+  near(collapsed.subpaths[0].segments[1].end, {0, 0});
+  ScenePath too_many;
+  too_many.subpaths.resize(16385);
+  rejects([&] { format_svg_path(too_many); });
+  rejects([&] { format_svg_path(quarter, {INFINITY, 0, 0, 1, 0, 0}); });
+  std::cout
+      << "PASS analytic SVG serialization under affine/reflected/singular "
+         "maps, arc flags/radii/extrema, polynomial curves, closure and "
+         "limits\n";
+}
+
+void connector_edits(const Text &directory = {}) {
+  TempDir temporary;
+  assert(temporary.isValid());
+  auto package = fixture();
+  auto page = package.xml.elementsByTagNameNS(DRAW, "page").front();
+  page.removeAttributeNS(DRAW, "nav-order");
+  auto add = [&](const Text &name, const Text &id, const Text &from, int first,
+                 const Text &to, int last, const Text &type) {
+    auto n = package.xml.createElementNS(DRAW, "draw:connector");
+    n.setAttributeNS(DRAW, "draw:name", name);
+    n.setAttributeNS("http://www.w3.org/XML/1998/namespace", "xml:id", id);
+    n.setAttributeNS(DRAW, "draw:type", type);
+    n.setAttributeNS(DRAW, "draw:start-shape", from);
+    n.setAttributeNS(DRAW, "draw:start-glue-point", Text::number(first));
+    n.setAttributeNS(DRAW, "draw:end-shape", to);
+    n.setAttributeNS(DRAW, "draw:end-glue-point", Text::number(last));
+    n.setAttributeNS(SVG, "svg:viewBox", "0 0 100 100");
+    n.setAttributeNS(SVG, "svg:d", "M0 0 L100 100");
+    for (auto key : {"x1", "y1", "x2", "y2"})
+      n.setAttributeNS(SVG, Text("svg:") + key,
+                       Text(key[1] == '1' ? "0pt" : "100pt"));
+    page.insertBefore(n, page.firstChild());
+    return n;
+  };
+  auto link = add("Link", "link", "a", 1, "c", 3, "curve");
+  add("Chain", "chain", "link", 0, "b", 3, "line");
+  add("GroupLink", "group-link", "outer", 2, "c", 0, "line");
+  auto broken =
+      add("UnrelatedBroken", "unrelated", "missing", 0, "b", 0, "line");
+  auto broken_attributes = broken.attributes();
+  auto path = temporary.path() + "/connectors.odp";
+  package.save(path);
+  if (!directory.empty()) {
+    std::filesystem::create_directories(directory.toStdString());
+    package.save(directory + "/original.odp");
+  }
+  Presentation document;
+  document.load(path);
+  auto original = content(document);
+  auto cached = [&](const Text &name, ScenePoint start, ScenePoint end) {
+    const auto &shape = document.scene(0).shapes.at(find(document, name));
+    auto spec = read_scene_connector(shape.source);
+    assert(spec.start.x && spec.start.y && spec.end.x && spec.end.y &&
+           spec.path);
+    near(ScenePoint{*spec.start.x, *spec.start.y}, start);
+    near(ScenePoint{*spec.end.x, *spec.end.y}, end);
+    const double unit = 72. / 2540;
+    const auto &sub = spec.path->subpaths.front();
+    near(ScenePoint{sub.start.x * unit, sub.start.y * unit}, start);
+    auto last = spec.path->subpaths.back().segments.back().end;
+    near(ScenePoint{last.x * unit, last.y * unit}, end);
+    near(shape.transform.map(
+             shape.path_map.map(shape.path->subpaths.front().start)),
+         start);
+  };
+  document.move_shape(0, find(document, "A"), {20, 10});
+  auto moved = content(document);
+  assert(moved != original && document.can_undo());
+  cached("Link", {130, 60}, {250, 170});
+  cached("Chain", {190, 60}, {40, 80});
+  auto current_link = document.scene(0).shapes.at(find(document, "Link"));
+  assert(current_link.path->subpaths[0].segments[0].kind == PathSegment::Cubic);
+  auto current_broken =
+      document.scene(0).shapes.at(find(document, "UnrelatedBroken")).source;
+  const auto after_attributes = current_broken.attributes();
+  assert(after_attributes.size() == broken_attributes.size());
+  for (size_t i = 0; i < broken_attributes.size(); ++i)
+    assert(after_attributes[i].value == broken_attributes[i].value);
+  document.undo();
+  assert(content(document) == original && !document.modified());
+  document.redo();
+  assert(content(document) == moved);
+  auto saved = temporary.path() + "/moved.odp";
+  document.save(saved);
+  if (!directory.empty())
+    document.save(directory + "/moved.odp");
+  auto archive = read_document_archive(saved);
+  for (auto name : package.entry_names())
+    if (name != "content.xml" && name != "META-INF/manifest.xml")
+      assert(archive.value(name) == package.entry(name));
+  Presentation reopened;
+  reopened.load(saved);
+  assert(content(reopened) == moved);
+  auto before_drag = content(document);
+  document.begin_shape_move(0, find(document, "A"), {});
+  document.move_shape_to(0, find(document, "A"), {20, 0});
+  cached("Link", {150, 60}, {250, 170});
+  document.move_shape_to(0, find(document, "A"), {30, 0});
+  cached("Link", {160, 60}, {250, 170});
+  document.finish_handle_drag(true);
+  assert(content(document) == before_drag && !document.modified());
+  document.undo();
+  assert(content(document) == original);
+  NativeShapeGeometryEdit resize;
+  resize.width = 200;
+  document.set_shape_geometry(0, find(document, "A"), resize);
+  cached("Link", {210, 50}, {250, 170});
+  if (!directory.empty())
+    document.save(directory + "/resized.odp");
+  document.undo();
+  assert(content(document) == original);
+  document.begin_objects_move(0, {ref(document, "X", 1)}, {});
+  document.update_objects_drag(0, {30, 20});
+  document.finish_handle_drag();
+  cached("GroupLink", {155, 210}, {290, 150});
+  if (!directory.empty())
+    document.save(directory + "/group-moved.odp");
+  document.undo();
+  assert(content(document) == original);
+  // A protected dependent connector must reject the complete target edit.
+  auto set = package.xml.createElementNS(DRAW, "draw:layer-set");
+  auto layer = package.xml.createElementNS(DRAW, "draw:layer");
+  layer.setAttributeNS(DRAW, "draw:name", "Locked");
+  layer.setAttributeNS(DRAW, "draw:protected", "true");
+  set.appendChild(layer);
+  page.insertBefore(set, page.firstChild());
+  link.setAttributeNS(DRAW, "draw:layer", "Locked");
+  package.save(path);
+  document.load(path);
+  auto protected_before = content(document);
+  auto revision = document.revision();
+  rejects([&] { document.move_shape(0, find(document, "A"), {10, 0}); });
+  assert(content(document) == protected_before && !document.modified() &&
+         !document.can_undo() && document.revision() == revision);
+  link.removeAttributeNS(DRAW, "layer");
+  link.setAttributeNS(DRAW, "draw:end-glue-point", "999");
+  package.save(path);
+  document.load(path);
+  auto invalid_before = content(document);
+  rejects([&] { document.move_shape(0, find(document, "A"), {10, 0}); });
+  assert(content(document) == invalid_before && !document.can_undo());
+  std::cout
+      << "PASS atomic connector cache/path updates, transitive forward links, "
+         "group/resize/drag history, exact reopen and protected/invalid "
+         "rollback\n";
+}
+
 void documents(const Text &directory) {
   if (directory.empty())
     return;
@@ -676,12 +869,33 @@ void documents(const Text &directory) {
 }
 } // namespace
 int main(int argc, char **argv) {
+  if (argc == 2 && std::string(argv[1]) == "--format-path") {
+    std::string line;
+    while (std::getline(std::cin, line)) {
+      auto request = nlohmann::json::parse(line);
+      auto m = request.at("matrix").get<std::vector<double>>();
+      if (m.size() != 6)
+        throw std::runtime_error("Six matrix values required");
+      auto data = request.at("data").get<std::string>();
+      auto path = parse_svg_path(Text(data));
+      auto serialized =
+          format_svg_path(path, {m[0], m[1], m[2], m[3], m[4], m[5]});
+      std::cout
+          << nlohmann::json({{"data", std::string(serialized.toUtf8())}}).dump()
+          << '\n';
+    }
+    return 0;
+  }
+  serialization();
   attachments();
   enhanced_sites();
   sources();
   resolution();
   routes();
   scene_integration();
+  connector_edits(argc == 3 && std::string(argv[1]) == "--edit-documents"
+                      ? Text(argv[2])
+                      : Text());
   if (argc == 3 && std::string(argv[1]) == "--documents")
     documents(argv[2]);
 }

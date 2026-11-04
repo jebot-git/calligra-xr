@@ -69,7 +69,7 @@ void Presentation::move_shape_to(int slide, int shape_index,
   if (source.localName() == "frame")
     source.setAttributeNS(PRESENTATION, "presentation:user-transformed",
                           "true");
-  auto bytes = candidate.toByteArray();
+  auto bytes = geometry_content(candidate, {source});
   if (bytes == package_.xml.toByteArray())
     return;
   // Rebuild and validate the complete candidate before changing live state.

@@ -334,7 +334,7 @@ void Presentation::set_shape_geometry(int slide, int index,
   if (!apply_native_shape_geometry(shape, source, edit))
     return;
   PresentationPosition at{slide, shape.editor_index, index};
-  restore_content(candidate.toByteArray());
+  restore_content(geometry_content(candidate, {source}));
   remember(before, at, at);
 }
 } // namespace DomeOffice

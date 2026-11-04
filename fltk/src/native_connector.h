@@ -71,4 +71,13 @@ SceneConnectorGeometry scene_connector_geometry(const SceneConnectorSpec &,
                                                 double clearance = 12,
                                                 size_t work_limit = 100000,
                                                 bool recompute = false);
+// Candidate-only normalization. Source identities, styling and attachment
+// references survive; path data uses mm/100 and endpoint pairs are lengths.
+void write_scene_connector_geometry(XmlElement, const SceneConnectorEnds &,
+                                    const SceneConnectorGeometry &);
+// Refresh the transitive connector dependents of geometry-only source edits.
+// Roots must belong to candidate.content.xml. Failure leaves publication to
+// the caller; use an isolated candidate, never a live/shared document DOM.
+void refresh_presentation_connector_paths(OdfPackage &candidate,
+                                          const std::vector<XmlElement> &roots);
 } // namespace DomeOffice
